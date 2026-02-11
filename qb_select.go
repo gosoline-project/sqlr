@@ -12,10 +12,11 @@ type (
 	}
 )
 
-// QueryBuilderSelect combines WHERE, GROUP BY, HAVING, and ORDER BY clauses
+// QueryBuilderSelect combines WHERE, GROUP BY, HAVING, ORDER BY, and JOIN clauses
 // into a reusable component for building SQL queries.
 // It delegates to the individual Sqler components for each clause type.
 type QueryBuilderSelect struct {
+	joins   []joinEntry
 	where   *sqlc.SqlerWhere
 	groupBy *sqlc.SqlerGroupBy
 	having  *sqlc.SqlerHaving

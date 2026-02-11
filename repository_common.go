@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // dbContext is an interface that abstracts over context.Context operations
@@ -51,6 +52,24 @@ func queryEntities[K KeyTypes, E Entitier[K]](db *gorm.DB, ctx dbContext, qb *Qu
 	var sql string
 	var args []any
 	var result []E
+
+	// Apply joins
+	for _, j := range qb.joins {
+		join := j // capture for closure
+		gdb = gdb.Joins(join.joinType.Association(join.table), func(db gorm.JoinBuilder, joinTable clause.Table, curTable clause.Table) error {
+			for _, w := range join.where {
+				if w.IsEmpty() {
+					continue
+				}
+				sql, args, err := w.ToSql()
+				if err != nil {
+					return err
+				}
+				db.Where(sql, args...)
+			}
+			return nil
+		})
+	}
 
 	if !qb.where.IsEmpty() {
 		if sql, args, err = qb.where.ToSql(); err != nil {
@@ -105,7 +124,7 @@ func deleteEntity[K KeyTypes, E Entitier[K]](db *gorm.DB, ctx dbContext, id K) e
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("entity id=%s does not exist", id)
+		return fmt.Errorf("entity id=%v does not exist", id)
 	}
 
 	return nil

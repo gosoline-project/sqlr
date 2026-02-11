@@ -168,8 +168,8 @@ github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaU
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510/go.mod h1:pupxD2MaaD3pAXIBCelhxNneeOaAeabZDe5s4K6zSpQ=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/gosoline-project/sqlc v0.0.0-20260109132457-2b57a9f35d57 h1:dp3AUghX9BxZw+FwJUnLPn05ckHeumq4mrzLZVsPDZo=
-github.com/gosoline-project/sqlc v0.0.0-20260109132457-2b57a9f35d57/go.mod h1:Woaj4Y8tM9Q3rhIg7nPAIqFRHqhdfq+fC9W/S7ZLKgE=
+github.com/gosoline-project/sqlc v0.0.0-20260210205335-5d74534ff059 h1:IL4m3emHuE1+M47dpp7Tmg+CRL9hu1/7qvR7I9Xgyn0=
+github.com/gosoline-project/sqlc v0.0.0-20260210205335-5d74534ff059/go.mod h1:Woaj4Y8tM9Q3rhIg7nPAIqFRHqhdfq+fC9W/S7ZLKgE=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.23.0 h1:ad0vkEBuk23VJzZR9nkLVG0YAoN9coASF1GusYX6AlU=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.23.0/go.mod h1:igFoXX2ELCW06bol23DWPB5BEWfZISOzSP5K2sbLea0=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
@@ -224,6 +224,7 @@ github.com/justtrackio/gosoline v0.54.2 h1:n1nZL6C4UIxQnAXNmqwmAkmr3LkARQOmnBINT
 github.com/justtrackio/gosoline v0.54.2/go.mod h1:KZHB2H0gBJ4Xnfd/15JuauP2mvVytHRjSzfkyhmyWVU=
 github.com/karlseguin/ccache v0.0.0-20181227155450-692cd618b264 h1:efMPF7gQ3CFY8Kt3ECYuCc17fnoiu0EL1Tw+z7ff030=
 github.com/karlseguin/ccache v0.0.0-20181227155450-692cd618b264/go.mod h1:CM9tNPzT6EdRh14+jiW8mEF9mkNZuuE51qmgGYUB93w=
+github.com/kisielk/sqlstruct v0.0.0-20201105191214-5f3e10d3ab46/go.mod h1:yyMNCyc/Ib3bDTKd379tNMpB/7/H5TjM2Y9QJ5THLbE=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=

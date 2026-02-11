@@ -43,6 +43,12 @@ func NewRepository[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Co
 	}, nil
 }
 
+func NewRepositoryWithInterfaces[K KeyTypes, E Entitier[K]](db *gorm.DB) Repository[K, E] {
+	return &repository[K, E]{
+		db: db,
+	}
+}
+
 type repository[K KeyTypes, E Entitier[K]] struct {
 	db *gorm.DB
 }
