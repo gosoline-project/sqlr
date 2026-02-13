@@ -95,7 +95,7 @@ func (r *repositoryCommon[K, E]) queryEntities(db *gorm.DB, ctx context.Context,
 	var err error
 	var result []E
 
-	for _, applier := range []applyFunc[K, E]{r.applyJoins, r.applyWhere, r.applyGroupBy, r.applyHaving, r.applyOrderBy} {
+	for _, applier := range []applyFunc[K, E]{r.applyJoins, r.applyPreloads, r.applyWhere, r.applyGroupBy, r.applyHaving, r.applyOrderBy} {
 		if gdb, err = applier(gdb, qb); err != nil {
 			return nil, err
 		}
@@ -198,10 +198,74 @@ func (r *repositoryCommon[K, E]) applyJoins(gdb gorm.ChainInterface[E], qb *Quer
 	return gdb, nil
 }
 
+func (r *repositoryCommon[K, E]) applyPreloads(gdb gorm.ChainInterface[E], qb *QueryBuilderSelect) (gorm.ChainInterface[E], error) {
+	if len(qb.preloads) == 0 {
+		return gdb, nil
+	}
+
+	if err := r.validatePreloadRelations(qb.preloads); err != nil {
+		return nil, err
+	}
+
+	for _, p := range qb.preloads {
+		preload := p // capture for closure
+
+		if len(preload.where) == 0 {
+			gdb = gdb.Preload(preload.relation, nil)
+			continue
+		}
+
+		gdb = gdb.Preload(preload.relation, func(db gorm.PreloadBuilder) error {
+			for _, w := range preload.where {
+				if w.IsEmpty() {
+					continue
+				}
+				sql, args, err := w.ToSql()
+				if err != nil {
+					return err
+				}
+				db.Where(sql, args...)
+			}
+
+			return nil
+		})
+	}
+
+	return gdb, nil
+}
+
+// validatePreloadRelations checks that every preload relation referenced in the
+// query exists on the entity's GORM schema. Dotted relation paths (e.g.
+// "Posts.Comments") are resolved step by step through nested schemas. Unlike join
+// validation, many-to-many associations are allowed because GORM's Preload
+// executes separate queries and handles them correctly.
+func (r *repositoryCommon[K, E]) validatePreloadRelations(preloads []preloadEntry) error {
+	if len(preloads) == 0 {
+		return nil
+	}
+
+	for _, p := range preloads {
+		parts := strings.Split(p.relation, ".")
+
+		currentSchema := r.schema
+		for _, part := range parts {
+			relation, ok := currentSchema.Relationships.Relations[part]
+			if !ok {
+				return fmt.Errorf("preload relation %q not found on model %s; valid relations: %v", p.relation, currentSchema.Name, r.validRelationNames(currentSchema))
+			}
+
+			currentSchema = relation.FieldSchema
+		}
+	}
+
+	return nil
+}
+
 // validateJoinRelations checks that every join relation referenced in the query
 // exists on the entity's GORM schema. Dotted relation paths (e.g. "Company.Address")
 // are resolved step by step through nested schemas. Returns an error listing valid
-// relation names if a relation is not found.
+// relation names if a relation is not found, or if the relation is a many-to-many
+// association (which is not supported due to GORM limitations).
 func (r *repositoryCommon[K, E]) validateJoinRelations(joins []joinEntry) error {
 	if len(joins) == 0 {
 		return nil
@@ -217,6 +281,13 @@ func (r *repositoryCommon[K, E]) validateJoinRelations(joins []joinEntry) error 
 		for _, part := range parts {
 			if relation, ok = currentSchema.Relationships.Relations[part]; !ok {
 				return fmt.Errorf("join relation %q not found on model %s; valid relations: %v", j.relation, currentSchema.Name, r.validRelationNames(currentSchema))
+			}
+
+			// Many-to-many associations require two joins (through a join table) but GORM's
+			// Joins() method generates incorrect SQL that joins directly to the related table.
+			// This produces SQL referencing columns that don't exist on the target table.
+			if relation.JoinTable != nil {
+				return fmt.Errorf("join relation %q is a many-to-many association which is not supported; GORM does not properly handle many-to-many joins (it generates invalid SQL)", j.relation)
 			}
 
 			currentSchema = relation.FieldSchema

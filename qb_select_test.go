@@ -564,6 +564,9 @@ func TestQueryBuilderSelectMethodChainingReturnsInstance(t *testing.T) {
 
 	result = qb.Offset(20)
 	assert.Equal(t, qb, result)
+
+	result = qb.Preload("Posts")
+	assert.Equal(t, qb, result)
 }
 
 // ========== Edge Cases ==========

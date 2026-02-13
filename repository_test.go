@@ -64,13 +64,28 @@ type testAuthor struct {
 	Comments []testComment `gorm:"foreignKey:AuthorID"`
 }
 
+// testTag is used for many-to-many relationship tests. GORM relation: "test_tags".
+type testTag struct {
+	sqlr.Entity[int64]
+	Name string `gorm:"column:name"`
+}
+
+// testArticle is an entity with a many-to-many relationship to testTag.
+// GORM relation: "test_articles", join table: "article_tags".
+type testArticle struct {
+	sqlr.Entity[int64]
+	Title string    `gorm:"column:title"`
+	Tags  []testTag `gorm:"many2many:article_tags;"`
+}
+
 // RepositoryTestSuite tests the Repository CRUD operations using sqlmock.
 type RepositoryTestSuite struct {
 	suite.Suite
-	db         *gorm.DB
-	mock       sqlmock.Sqlmock
-	repo       sqlr.Repository[int64, testUser]
-	authorRepo sqlr.Repository[int64, testAuthor]
+	db          *gorm.DB
+	mock        sqlmock.Sqlmock
+	repo        sqlr.Repository[int64, testUser]
+	authorRepo  sqlr.Repository[int64, testAuthor]
+	articleRepo sqlr.Repository[int64, testArticle]
 }
 
 func (s *RepositoryTestSuite) SetupTest() {
@@ -100,6 +115,9 @@ func (s *RepositoryTestSuite) SetupTest() {
 	s.Require().NoError(err)
 
 	s.authorRepo, err = sqlr.NewRepositoryWithInterfaces[int64, testAuthor](db)
+	s.Require().NoError(err)
+
+	s.articleRepo, err = sqlr.NewRepositoryWithInterfaces[int64, testArticle](db)
 	s.Require().NoError(err)
 }
 
@@ -604,4 +622,189 @@ func (s *RepositoryTestSuite) TestQuery_MultipleJoins() {
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
 	s.Equal("Alice", results[0].Name)
+}
+
+// ==========================================================================
+// Query with Many-to-Many Joins
+// ==========================================================================
+
+func (s *RepositoryTestSuite) TestQuery_ManyToManyJoinNotSupported() {
+	// Many-to-many associations are not supported because GORM's Joins() method
+	// generates invalid SQL for them (it joins directly to the related table
+	// instead of going through the join table).
+	qb := sqlr.NewQueryBuilderSelect().
+		LeftJoin("Tags")
+	results, err := s.articleRepo.Query(context.Background(), qb)
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), "many-to-many association which is not supported")
+}
+
+// ==========================================================================
+// Query with Preloads
+// ==========================================================================
+
+func (s *RepositoryTestSuite) TestQuery_PreloadWithoutCondition() {
+	now := time.Now()
+
+	// GORM Preload executes a separate query for the preloaded relation.
+	// First: main query for authors.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+			AddRow(1, now, now, "Alice"))
+
+	// Second: preload query for posts belonging to found authors.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	qb := sqlr.NewQueryBuilderSelect().
+		Preload("Posts")
+	results, err := s.authorRepo.Query(context.Background(), qb)
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Require().Len(results[0].Posts, 1)
+	s.Equal("First Post", results[0].Posts[0].Title)
+}
+
+func (s *RepositoryTestSuite) TestQuery_PreloadWithUnknownRelation() {
+	qb := sqlr.NewQueryBuilderSelect().
+		Preload("Unknown")
+	results, err := s.authorRepo.Query(context.Background(), qb)
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `preload relation "Unknown" not found`)
+}
+
+func (s *RepositoryTestSuite) TestQuery_PreloadWithCondition() {
+	now := time.Now()
+
+	// Main query.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+			AddRow(1, now, now, "Alice"))
+
+	// Preload query with additional WHERE condition.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` = ? AND status = ?")).
+		WithArgs(int64(1), "published").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "Published Post", "published"))
+
+	qb := sqlr.NewQueryBuilderSelect().
+		Preload("Posts", sqlr.Condition("status = ?", "published"))
+	results, err := s.authorRepo.Query(context.Background(), qb)
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Require().Len(results[0].Posts, 1)
+	s.Equal("Published Post", results[0].Posts[0].Title)
+}
+
+func (s *RepositoryTestSuite) TestQuery_PreloadMultipleRelations() {
+	now := time.Now()
+
+	// Main query.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+			AddRow(1, now, now, "Alice"))
+
+	// Preload Comments (alphabetically first).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_comments` WHERE `test_comments`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "body"}).
+			AddRow(20, now, now, 1, "A comment"))
+
+	// Preload Posts.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	qb := sqlr.NewQueryBuilderSelect().
+		Preload("Posts").
+		Preload("Comments")
+	results, err := s.authorRepo.Query(context.Background(), qb)
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Require().Len(results[0].Posts, 1)
+	s.Equal("First Post", results[0].Posts[0].Title)
+	s.Require().Len(results[0].Comments, 1)
+	s.Equal("A comment", results[0].Comments[0].Body)
+}
+
+func (s *RepositoryTestSuite) TestQuery_PreloadWithWhere() {
+	now := time.Now()
+
+	// Main query with WHERE.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE name = ?")).
+		WithArgs("Alice").
+		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+			AddRow(1, now, now, "Alice"))
+
+	// Preload query.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	qb := sqlr.NewQueryBuilderSelect().
+		Preload("Posts").
+		Where("name = ?", "Alice")
+	results, err := s.authorRepo.Query(context.Background(), qb)
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Require().Len(results[0].Posts, 1)
+}
+
+func (s *RepositoryTestSuite) TestQuery_PreloadManyToManyAllowed() {
+	now := time.Now()
+
+	// Main query for articles.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_articles`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title"}).
+			AddRow(1, now, now, "My Article"))
+
+	// Preload many-to-many: GORM first queries the join table to resolve the association.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `article_tags` WHERE `article_tags`.`test_article_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"test_article_id", "test_tag_id"}).
+			AddRow(1, 100))
+
+	// Then GORM queries the related table for the matched IDs.
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_tags` WHERE `test_tags`.`id` = ?")).
+		WithArgs(int64(100)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(100, now, now, "Go"))
+
+	qb := sqlr.NewQueryBuilderSelect().
+		Preload("Tags")
+	results, err := s.articleRepo.Query(context.Background(), qb)
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("My Article", results[0].Title)
+	s.Require().Len(results[0].Tags, 1)
+	s.Equal("Go", results[0].Tags[0].Name)
 }

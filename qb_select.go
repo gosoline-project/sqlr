@@ -7,17 +7,18 @@ import (
 	"github.com/gosoline-project/sqlc"
 )
 
-// QueryBuilderSelect combines WHERE, GROUP BY, HAVING, ORDER BY, and JOIN clauses
-// into a reusable component for building SQL queries.
+// QueryBuilderSelect combines WHERE, GROUP BY, HAVING, ORDER BY, JOIN, and PRELOAD
+// clauses into a reusable component for building SQL queries.
 // It delegates to the individual Sqler components for each clause type.
 type QueryBuilderSelect struct {
-	joins   []joinEntry
-	where   *sqlc.SqlerWhere
-	groupBy *sqlc.SqlerGroupBy
-	having  *sqlc.SqlerHaving
-	orderBy *sqlc.SqlerOrderBy
-	limit   *int
-	offset  *int
+	joins    []joinEntry
+	preloads []preloadEntry
+	where    *sqlc.SqlerWhere
+	groupBy  *sqlc.SqlerGroupBy
+	having   *sqlc.SqlerHaving
+	orderBy  *sqlc.SqlerOrderBy
+	limit    *int
+	offset   *int
 }
 
 // NewQueryBuilderSelect creates a new QueryBuilderSelect instance with all components initialized.
