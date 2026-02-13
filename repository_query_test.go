@@ -1,0 +1,823 @@
+package sqlr_test
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gosoline-project/sqlc"
+	"github.com/gosoline-project/sqlr"
+	"github.com/stretchr/testify/suite"
+)
+
+// RepositoryQueryTestSuite tests the Repository Query operations using sqlmock,
+// including simple queries and joins.
+type RepositoryQueryTestSuite struct {
+	suite.Suite
+	client                sqlc.Client
+	mock                  sqlmock.Sqlmock
+	repo                  sqlr.Repository[int64, testUser]
+	postRepo              sqlr.Repository[int64, testPost]
+	authorRepo            sqlr.Repository[int64, testAuthor]
+	authorWithProfileRepo sqlr.Repository[int64, testAuthorWithProfile]
+	articleRepo           sqlr.Repository[int64, testArticle]
+	authorAutoPreloadRepo sqlr.Repository[int64, testAuthorAutoPreload]
+}
+
+func TestRepositoryQueryTestSuite(t *testing.T) {
+	suite.Run(t, new(RepositoryQueryTestSuite))
+}
+
+func (s *RepositoryQueryTestSuite) SetupTest() {
+	client, mock := newTestClient(s.T())
+	s.client = client
+	s.mock = mock
+
+	s.repo = mustNewRepo[int64, testUser](s.T(), s.client)
+	s.postRepo = mustNewRepo[int64, testPost](s.T(), s.client)
+	s.authorRepo = mustNewRepo[int64, testAuthor](s.T(), s.client)
+	s.authorWithProfileRepo = mustNewRepo[int64, testAuthorWithProfile](s.T(), s.client)
+	s.articleRepo = mustNewRepo[int64, testArticle](s.T(), s.client)
+	s.authorAutoPreloadRepo = mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
+}
+
+func (s *RepositoryQueryTestSuite) TearDownTest() {
+	s.Require().NoError(s.mock.ExpectationsWereMet())
+}
+
+// ==========================================================================
+// Simple Queries
+// ==========================================================================
+
+func (s *RepositoryQueryTestSuite) TestQuery_Success() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ?")).
+		WithArgs("Alice").
+		WillReturnRows(sqlmock.NewRows(testUserColumns).
+			AddRow(1, now, now, "Alice", "alice@test.com").
+			AddRow(2, now, now, "Alice", "alice2@test.com"))
+
+	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.Where("name = ?", "Alice")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 2)
+	s.Equal("Alice", results[0].Name)
+	s.Equal("alice@test.com", results[0].Email)
+	s.Equal("Alice", results[1].Name)
+	s.Equal("alice2@test.com", results[1].Email)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_ReusedQueryBuilderDoesNotAccumulateAutoPreloads() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_author_auto_preloads` WHERE name = ?")).
+		WithArgs("Alice").
+		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, int64(1), "First Post", "published"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ?")).
+		WithArgs("Alice").
+		WillReturnRows(sqlmock.NewRows(testUserColumns).
+			AddRow(1, now, now, "Alice", "alice@test.com"))
+
+	whereAlice := func(qb *sqlr.QueryBuilderSelect) {
+		qb.Where("name = ?", "Alice")
+	}
+
+	authors, err := s.authorAutoPreloadRepo.Query(context.Background(), whereAlice)
+	s.Require().NoError(err)
+	s.Require().Len(authors, 1)
+	s.Require().Len(authors[0].Posts, 1)
+
+	users, err := s.repo.Query(context.Background(), whereAlice)
+	s.Require().NoError(err)
+	s.Require().Len(users, 1)
+	s.Equal("Alice", users[0].Name)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_EmptyResult() {
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ?")).
+		WithArgs("Nobody").
+		WillReturnRows(sqlmock.NewRows(testUserColumns))
+
+	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.Where("name = ?", "Nobody")
+	})
+
+	s.Require().NoError(err)
+	s.Empty(results)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ? LIMIT ? OFFSET ?")).
+		WithArgs("Alice", 10, 5).
+		WillReturnRows(sqlmock.NewRows(testUserColumns).
+			AddRow(1, now, now, "Alice", "alice@test.com"))
+
+	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.Where("name = ?", "Alice").
+			Limit(10).
+			Offset(5)
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_WithOrderBy() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ? ORDER BY `created_at` DESC")).
+		WithArgs("Alice").
+		WillReturnRows(sqlmock.NewRows(testUserColumns).
+			AddRow(2, now, now, "Alice", "alice2@test.com").
+			AddRow(1, now, now, "Alice", "alice@test.com"))
+
+	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.Where("name = ?", "Alice").
+			OrderBy("created_at DESC")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 2)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_Error() {
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ?")).
+		WithArgs("Alice").
+		WillReturnError(fmt.Errorf("connection lost"))
+
+	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.Where("name = ?", "Alice")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), "failed to execute query")
+}
+
+// ==========================================================================
+// Joins
+// ==========================================================================
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithoutCondition() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), AuthorID: ptr(int64(1)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnknownRelation() {
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Unknown")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `join relation "Unknown" not found`)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnexpectedJoinedColumn() {
+	now := time.Now()
+	columns := append(append([]string{}, testAuthorPostsColumns...), "Broken__id", "unmapped_col")
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(columns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published", 999, "ignored"))
+
+	var results []testAuthor
+	var err error
+	s.NotPanics(func() {
+		results, err = s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+			qb.LeftJoin("Posts")
+		})
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `failed to map joined columns`)
+	s.Contains(err.Error(), `references unknown relation "Broken"`)
+	s.Contains(err.Error(), `column "unmapped_col" does not map to base entity columns or joined relations`)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithRelatedEntityWithoutPrimaryKey() {
+	repo, err := sqlr.NewRepositoryWithInterfaces[int64, testAuthorWithPostWithoutPrimaryKey](s.client, sqlr.DefaultSettings())
+	s.Require().NoError(err)
+
+	results, err := repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `failed to resolve schema for join relation "Posts"`)
+	s.Contains(err.Error(), "related entity type testPostWithoutPrimaryKey has no primary key")
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithCondition() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL + " AND `test_posts`.`status` = ?")).
+		WithArgs("published").
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts", sqlr.Condition("test_posts.status = ?", "published"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithMultipleConditions() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL +
+			" AND `test_posts`.`status` = ? AND `test_posts`.`title` IS NOT NULL")).
+		WithArgs("published").
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts",
+			sqlr.Condition("test_posts.status = ?", "published"),
+			sqlr.Condition("test_posts.title IS NOT NULL"),
+		)
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithParameterizedCondition() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL + " AND `test_posts`.`author_id` = ?")).
+		WithArgs(int64(42)).
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(42), "First Post", "draft"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts", sqlr.Condition("test_posts.author_id = ?", int64(42)))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), AuthorID: ptr(int64(42)), Title: ptr("First Post"), Status: ptr("draft")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_InnerJoin() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL + " " + authorPostsInnerJoinSQL + " AND `test_posts`.`status` = ?")).
+		WithArgs("published").
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.InnerJoin("Posts", sqlr.Condition("test_posts.status = ?", "published"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL + " " + authorPostsRightJoinSQL + " AND `test_posts`.`status` = ?")).
+		WithArgs("draft").
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Bob", 20, now, now, int64(1), "Draft Post", "draft"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.RightJoin("Posts", sqlr.Condition("test_posts.status = ?", "draft"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Bob", results[0].Name)
+	s.Require().Len(results[0].Posts, 1)
+	s.Equal(int64(20), results[0].Posts[0].Id)
+	s.Equal("Draft Post", results[0].Posts[0].Title)
+	s.Equal("draft", results[0].Posts[0].Status)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_CrossJoin() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL + " FROM `test_authors` JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "Post A", "published").
+			AddRow(2, now, now, "Bob", 20, now, now, int64(2), "Post B", "draft"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.CrossJoin("Posts")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 2)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("Post A")},
+		},
+	})
+	assertAuthor(&s.Suite, results[1], expectedAuthor{
+		Name: ptr("Bob"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(20)), Title: ptr("Post B")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_JoinWithWhere() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" AND `test_posts`.`status` = ? WHERE name = ?")).
+		WithArgs("published", "Alice").
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts", sqlr.Condition("test_posts.status = ?", "published")).
+			Where("name = ?", "Alice")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_JoinWithOrderBy() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL +
+			" ORDER BY `created_at` DESC")).
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(2, now, now, "Bob", 20, now, now, int64(2), "Bob's Post", "draft").
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "Alice's Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts").
+			OrderBy("created_at DESC")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 2)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Bob"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(20)), Title: ptr("Bob's Post")},
+		},
+	})
+	assertAuthor(&s.Suite, results[1], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("Alice's Post")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_MultipleJoins() {
+	now := time.Now()
+
+	// With multiple joins, joins are sorted alphabetically by name.
+	// Comments comes before Posts.
+	// SELECT clause: base author columns + Comments columns + Posts columns
+	commentsSelectSQL := "`Comments`.`id` AS `Comments__id`, `Comments`.`created_at` AS `Comments__created_at`, " +
+		"`Comments`.`updated_at` AS `Comments__updated_at`, `Comments`.`author_id` AS `Comments__author_id`, " +
+		"`Comments`.`post_id` AS `Comments__post_id`, `Comments`.`body` AS `Comments__body`"
+
+	postsSelectSQL := "`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, " +
+		"`Posts`.`updated_at` AS `Posts__updated_at`, `Posts`.`author_id` AS `Posts__author_id`, " +
+		"`Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"
+
+	fullSelectSQL := "SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+		commentsSelectSQL + ", " + postsSelectSQL
+
+	// FROM + JOIN clauses: base table + LEFT JOIN Comments + LEFT JOIN Posts (with condition)
+	fullFromSQL := "FROM `test_authors` LEFT JOIN `test_comments` AS Comments ON `test_authors`.`id` = `Comments`.`author_id`" +
+		" LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id` AND `test_posts`.`status` = ?"
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(fullSelectSQL + " " + fullFromSQL)).
+		WithArgs("published").
+		WillReturnRows(sqlmock.NewRows(testAuthorCommentsPostsColumns).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "Great work!", 10, now, now, int64(1), "First Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts", sqlr.Condition("test_posts.status = ?", "published")).
+			LeftJoin("Comments")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Comments: []expectedComment{
+			{Id: ptr(int64(100)), AuthorID: ptr(int64(1)), Body: ptr("Great work!")},
+		},
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelated() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
+			AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Second Post", "draft").
+			AddRow(1, now, now, "Alice", 12, now, now, int64(1), "Third Post", "published"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post")},
+			{Id: ptr(int64(11)), Title: ptr("Second Post")},
+			{Id: ptr(int64(12)), Title: ptr("Third Post")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelations() {
+	now := time.Now()
+
+	// SELECT clause: base author columns + Comments columns + Posts columns
+	commentsSelectSQL := "`Comments`.`id` AS `Comments__id`, `Comments`.`created_at` AS `Comments__created_at`, " +
+		"`Comments`.`updated_at` AS `Comments__updated_at`, `Comments`.`author_id` AS `Comments__author_id`, " +
+		"`Comments`.`post_id` AS `Comments__post_id`, `Comments`.`body` AS `Comments__body`"
+
+	postsSelectSQL := "`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, " +
+		"`Posts`.`updated_at` AS `Posts__updated_at`, `Posts`.`author_id` AS `Posts__author_id`, " +
+		"`Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"
+
+	fullSelectSQL := "SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+		commentsSelectSQL + ", " + postsSelectSQL
+
+	// FROM + JOIN clauses: base table + LEFT JOIN Comments + LEFT JOIN Posts
+	fullFromSQL := "FROM `test_authors` LEFT JOIN `test_comments` AS Comments ON `test_authors`.`id` = `Comments`.`author_id`" +
+		" LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(fullSelectSQL + " " + fullFromSQL)).
+		WillReturnRows(sqlmock.NewRows(testAuthorCommentsPostsColumns).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "First Comment", 10, now, now, int64(1), "Post A", "published").
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "First Comment", 11, now, now, int64(1), "Post B", "draft").
+			AddRow(1, now, now, "Alice", 101, now, now, int64(1), int64(11), "Second Comment", 10, now, now, int64(1), "Post A", "published").
+			AddRow(1, now, now, "Alice", 101, now, now, int64(1), int64(11), "Second Comment", 11, now, now, int64(1), "Post B", "draft"))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts").
+			LeftJoin("Comments")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Comments: []expectedComment{
+			{Id: ptr(int64(100)), Body: ptr("First Comment")},
+			{Id: ptr(int64(101)), Body: ptr("Second Comment")},
+		},
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("Post A")},
+			{Id: ptr(int64(11)), Title: ptr("Post B")},
+		},
+	})
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
+	zeroTime := time.Time{}
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+			AddRow(1, zeroTime, zeroTime, "Alice", int64(0), zeroTime, zeroTime, int64(0), "", ""))
+
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Empty(results[0].Posts)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOne() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorProfileSelectSQL + " " + authorProfileLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "Go engineer"))
+
+	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Profile")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Equal(int64(100), results[0].Profile.GetId())
+	s.Equal(int64(1), results[0].Profile.AuthorID)
+	s.Equal("Go engineer", results[0].Profile.Bio)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneNoRelated() {
+	zeroTime := time.Time{}
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorProfileSelectSQL + " " + authorProfileLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+			AddRow(1, zeroTime, zeroTime, "Alice", int64(0), zeroTime, zeroTime, int64(0), ""))
+
+	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Profile")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Equal(testProfile{}, results[0].Profile)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneMultipleRows() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorProfileSelectSQL + " " + authorProfileLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "First profile").
+			AddRow(1, now, now, "Alice", 101, now, now, int64(1), "Second profile"))
+
+	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Profile")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Equal(int64(100), results[0].Profile.GetId())
+	s.Equal("First profile", results[0].Profile.Bio)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinHasOne() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		authorProfileSelectSQL + " " + authorProfileInnerJoinSQL + " AND `test_profiles`.`bio` <> ?")).
+		WithArgs("").
+		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "Go engineer"))
+
+	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.InnerJoin("Profile", sqlr.Condition("test_profiles.bio <> ?", ""))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Name)
+	s.Equal(int64(100), results[0].Profile.GetId())
+	s.Equal("Go engineer", results[0].Profile.Bio)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsTo() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
+
+	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal(int64(10), results[0].GetId())
+	s.Equal(int64(1), results[0].AuthorID)
+	s.Equal("First Post", results[0].Title)
+	s.Equal("published", results[0].Status)
+	s.Equal(int64(1), results[0].Author.GetId())
+	s.Equal("Alice", results[0].Author.Name)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToWithCondition() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorLeftJoinSQL + " AND `test_authors`.`name` = ?")).
+		WithArgs("Alice").
+		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
+
+	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Author", sqlr.Condition("test_authors.name = ?", "Alice"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Author.Name)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinBelongsTo() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorInnerJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
+
+	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.InnerJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal(int64(10), results[0].GetId())
+	s.Equal(int64(1), results[0].Author.GetId())
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorRightJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
+
+	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.RightJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Author.Name)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorInnerJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
+
+	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.CrossJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Author.Name)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToNoRelated() {
+	now := time.Now()
+	zeroTime := time.Time{}
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorLeftJoinSQL)).
+		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+			AddRow(10, now, now, int64(0), "Orphan Post", "draft", int64(0), zeroTime, zeroTime, ""))
+
+	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal(int64(10), results[0].GetId())
+	s.Equal(testAuthor{}, results[0].Author)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_JoinBelongsToWithWhere() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL+" "+postAuthorLeftJoinSQL+" AND `test_authors`.`name` = ? WHERE status = ?")).
+		WithArgs("Alice", "published").
+		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
+
+	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Author", sqlr.Condition("test_authors.name = ?", "Alice")).
+			Where("status = ?", "published")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("First Post", results[0].Title)
+	s.Equal("Alice", results[0].Author.Name)
+}
+
+// ==========================================================================
+// Many-to-Many Joins
+// ==========================================================================
+
+func (s *RepositoryQueryTestSuite) TestQuery_ManyToManyJoinNotSupported() {
+	results, err := s.articleRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Tags")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), "many-to-many association which is not supported")
+}
+
+// ==========================================================================
+// Nested/Dotted Joins
+// ==========================================================================
+
+func (s *RepositoryQueryTestSuite) TestQuery_NestedJoinNotSupported() {
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts.Comments")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), "nested join relation")
+	s.Contains(err.Error(), "use Preload")
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_NestedJoinNotSupported_InnerJoin() {
+	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		qb.InnerJoin("Posts.Comments")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), "nested join relation")
+	s.Contains(err.Error(), "use Preload")
+}

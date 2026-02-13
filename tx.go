@@ -1,19 +1,19 @@
 package sqlr
 
 import (
-	"context"
-
-	"gorm.io/gorm"
+	"github.com/gosoline-project/sqlc"
 )
 
+// TTx wraps a sqlc.Tx, providing both a context (since sqlc.Tx embeds
+// context.Context) and the underlying querier for executing SQL within a
+// transaction.
 type TTx struct {
-	context.Context
-	db *gorm.DB
+	sqlc.Tx
 }
 
-func NewTx(ctx context.Context, db *gorm.DB) TTx {
+// NewTx creates a new TTx wrapping the given sqlc.Tx.
+func NewTx(tx sqlc.Tx) TTx {
 	return TTx{
-		Context: ctx,
-		db:      db,
+		Tx: tx,
 	}
 }

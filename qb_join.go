@@ -2,7 +2,6 @@ package sqlr
 
 import (
 	"github.com/gosoline-project/sqlc"
-	"gorm.io/gorm/clause"
 )
 
 // Condition creates a SqlerWhere clause that can be passed as a join condition.
@@ -16,13 +15,13 @@ func Condition(condition any, params ...any) *sqlc.SqlerWhere {
 // join type (LEFT, INNER, RIGHT, CROSS), the target relation name, and any
 // additional WHERE conditions to apply within the join.
 type joinEntry struct {
-	joinType clause.JoinType
+	joinType sqlc.JoinType
 	relation string
 	where    []*sqlc.SqlerWhere
 }
 
 // addJoin appends a join entry to the query builder and returns it for chaining.
-func (s *QueryBuilderSelect) addJoin(joinType clause.JoinType, relation string, conditions []*sqlc.SqlerWhere) *QueryBuilderSelect {
+func (s *QueryBuilderSelect) addJoin(joinType sqlc.JoinType, relation string, conditions []*sqlc.SqlerWhere) *QueryBuilderSelect {
 	s.joins = append(s.joins, joinEntry{
 		joinType: joinType,
 		relation: relation,
@@ -32,31 +31,41 @@ func (s *QueryBuilderSelect) addJoin(joinType clause.JoinType, relation string, 
 	return s
 }
 
-// LeftJoin adds a LEFT JOIN on the named relation to the query. The relation must
-// correspond to a relationship defined on the entity's GORM schema (e.g. "Profile"
-// or "Company.Address" for nested relations). Optional conditions are applied as
-// additional WHERE clauses within the join.
+// LeftJoin adds a LEFT JOIN on a direct relation defined on the entity's schema
+// (for example "Profile", "Posts", or "Author"). Joins support HasOne, HasMany,
+// and BelongsTo relations. For BelongsTo, the ON clause is generated as
+// current.<foreign_key> = related.<primary_key>; for HasOne/HasMany it is
+// current.<primary_key> = related.<foreign_key>.
+//
+// Dotted/nested join paths (for example "Posts.Comments") are not supported.
+// Use [QueryBuilderSelect.Preload] for nested relation loading. ManyToMany joins are also not
+// supported and should be loaded via Preload.
+//
+// Optional conditions are appended to the JOIN ON clause.
 func (s *QueryBuilderSelect) LeftJoin(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
-	return s.addJoin(clause.LeftJoin, relation, conditions)
+	return s.addJoin(sqlc.JoinLeft, relation, conditions)
 }
 
 // InnerJoin adds an INNER JOIN on the named relation to the query. Only rows with
 // matching entries in the joined relation are included in the result set. Optional
-// conditions further restrict the joined rows.
+// conditions further restrict the joined rows. See LeftJoin for supported relation
+// types and limitations.
 func (s *QueryBuilderSelect) InnerJoin(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
-	return s.addJoin(clause.InnerJoin, relation, conditions)
+	return s.addJoin(sqlc.JoinInner, relation, conditions)
 }
 
 // RightJoin adds a RIGHT JOIN on the named relation to the query. All rows from
 // the joined relation are included, with NULL values for the primary entity's
 // columns when no match exists. Optional conditions further restrict the join.
+// See LeftJoin for supported relation types and limitations.
 func (s *QueryBuilderSelect) RightJoin(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
-	return s.addJoin(clause.RightJoin, relation, conditions)
+	return s.addJoin(sqlc.JoinRight, relation, conditions)
 }
 
 // CrossJoin adds a CROSS JOIN on the named relation to the query, producing a
 // Cartesian product of the primary entity and the joined relation. Cross joins
-// do not accept conditions.
+// do not accept conditions. See LeftJoin for supported relation types and
+// limitations.
 func (s *QueryBuilderSelect) CrossJoin(relation string) *QueryBuilderSelect {
-	return s.addJoin(clause.CrossJoin, relation, nil)
+	return s.addJoin(sqlc.JoinCross, relation, nil)
 }

@@ -192,3 +192,58 @@ func (s *QueryBuilderSelect) ToSql() (query string, params []any, err error) {
 
 	return strings.Join(parts, " "), params, nil
 }
+
+// applyToSqlcBuilder transfers the WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, and
+// OFFSET clauses from this QueryBuilderSelect onto a sqlc SelectQueryBuilder. This
+// method extracts SQL fragments from each sqler component and replays them onto the
+// provided sqlc builder. Returns the modified builder and any error encountered during
+// SQL generation.
+func (s *QueryBuilderSelect) applyToSqlcBuilder(qb *sqlc.SelectQueryBuilder) (*sqlc.SelectQueryBuilder, error) {
+	// WHERE clause
+	if !s.where.IsEmpty() {
+		whereSql, whereParams, err := s.where.ToSql()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build where clause: %w", err)
+		}
+		qb = qb.Where(whereSql, whereParams...)
+	}
+
+	// GROUP BY clause (use Literal to avoid double-quoting)
+	if !s.groupBy.IsEmpty() {
+		groupBySql, err := s.groupBy.ToSql()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build group by clause: %w", err)
+		}
+		qb = qb.GroupBy(sqlc.Literal(groupBySql))
+	}
+
+	// HAVING clause
+	if !s.having.IsEmpty() {
+		havingSql, havingParams, err := s.having.ToSql()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build having clause: %w", err)
+		}
+		qb = qb.Having(havingSql, havingParams...)
+	}
+
+	// ORDER BY clause (use Literal to avoid double-quoting)
+	if !s.orderBy.IsEmpty() {
+		orderBySql, err := s.orderBy.ToSql()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build order by clause: %w", err)
+		}
+		qb = qb.OrderBy(sqlc.Literal(orderBySql))
+	}
+
+	// LIMIT clause
+	if s.limit != nil {
+		qb = qb.Limit(*s.limit)
+	}
+
+	// OFFSET clause
+	if s.offset != nil {
+		qb = qb.Offset(*s.offset)
+	}
+
+	return qb, nil
+}
