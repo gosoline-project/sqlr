@@ -34,41 +34,52 @@ func NewRepository[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Co
 		Conn: newConnPoolWrapper(client),
 	})
 
-	if db, err = gorm.Open(dialector, &gorm.Config{}); err != nil {
+	gormConfig := &gorm.Config{
+		Logger: &gosoLogger{logger: logger},
+	}
+
+	if db, err = gorm.Open(dialector, gormConfig); err != nil {
 		return nil, fmt.Errorf("failed to initialize gorm db: %w", err)
 	}
 
+	return NewRepositoryWithInterfaces[K, E](db)
+}
+
+func NewRepositoryWithInterfaces[K KeyTypes, E Entitier[K]](db *gorm.DB) (Repository[K, E], error) {
+	var err error
+	var common repositoryCommon[K, E]
+
+	if common, err = newRepositoryCommon[K, E](db); err != nil {
+		return nil, fmt.Errorf("failed to create repository common: %w", err)
+	}
+
 	return &repository[K, E]{
-		db: db,
+		repositoryCommon: common,
+		db:               db,
 	}, nil
 }
 
-func NewRepositoryWithInterfaces[K KeyTypes, E Entitier[K]](db *gorm.DB) Repository[K, E] {
-	return &repository[K, E]{
-		db: db,
-	}
-}
-
 type repository[K KeyTypes, E Entitier[K]] struct {
+	repositoryCommon[K, E]
 	db *gorm.DB
 }
 
 func (r *repository[K, E]) Create(ctx context.Context, entity *E) error {
-	return createEntity[K, E](r.db, ctx, entity)
+	return r.createEntity(r.db, ctx, entity)
 }
 
 func (r *repository[K, E]) Read(ctx context.Context, id K) (*E, error) {
-	return readEntity[K, E](r.db, ctx, id)
+	return r.readEntity(r.db, ctx, id)
 }
 
 func (r *repository[K, E]) Query(ctx context.Context, qb *QueryBuilderSelect) ([]E, error) {
-	return queryEntities[K, E](r.db, ctx, qb)
+	return r.queryEntities(r.db, ctx, qb)
 }
 
 func (r *repository[K, E]) Update(ctx context.Context, entity *E) (*E, error) {
-	return updateEntity[K, E](r.db, ctx, entity)
+	return r.updateEntity(r.db, ctx, entity)
 }
 
 func (r *repository[K, E]) Delete(ctx context.Context, id K) error {
-	return deleteEntity[K, E](r.db, ctx, id)
+	return r.deleteEntity(r.db, ctx, id)
 }

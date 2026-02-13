@@ -2,14 +2,9 @@ package sqlr
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gosoline-project/sqlc"
-)
-
-type (
-	Sqler interface {
-		ToSql() (query string, params []any, err error)
-	}
 )
 
 // QueryBuilderSelect combines WHERE, GROUP BY, HAVING, ORDER BY, and JOIN clauses
@@ -51,6 +46,7 @@ func NewQueryBuilderSelect() *QueryBuilderSelect {
 //	Where(And(Col("a").Eq(1), Col("b").Eq(2)))       // WHERE (`a` = ? AND `b` = ?)
 func (s *QueryBuilderSelect) Where(condition any, params ...any) *QueryBuilderSelect {
 	s.where.Where(condition, params...)
+
 	return s
 }
 
@@ -65,6 +61,7 @@ func (s *QueryBuilderSelect) Where(condition any, params ...any) *QueryBuilderSe
 //	GroupBy("country", "city")                  // GROUP BY `country`, `city`
 func (s *QueryBuilderSelect) GroupBy(cols ...any) *QueryBuilderSelect {
 	s.groupBy.GroupBy(cols...)
+
 	return s
 }
 
@@ -82,6 +79,7 @@ func (s *QueryBuilderSelect) GroupBy(cols ...any) *QueryBuilderSelect {
 //	Having(Col("*").Count().Gt(10))                  // HAVING COUNT(*) > ?
 func (s *QueryBuilderSelect) Having(condition any, params ...any) *QueryBuilderSelect {
 	s.having.Having(condition, params...)
+
 	return s
 }
 
@@ -96,6 +94,7 @@ func (s *QueryBuilderSelect) Having(condition any, params ...any) *QueryBuilderS
 //	OrderBy("name ASC", "created_at DESC")          // ORDER BY `name` ASC, `created_at` DESC
 func (s *QueryBuilderSelect) OrderBy(cols ...any) *QueryBuilderSelect {
 	s.orderBy.OrderBy(cols...)
+
 	return s
 }
 
@@ -107,6 +106,7 @@ func (s *QueryBuilderSelect) OrderBy(cols ...any) *QueryBuilderSelect {
 //	Limit(10)                                        // LIMIT 10
 func (s *QueryBuilderSelect) Limit(limit int) *QueryBuilderSelect {
 	s.limit = &limit
+
 	return s
 }
 
@@ -118,6 +118,7 @@ func (s *QueryBuilderSelect) Limit(limit int) *QueryBuilderSelect {
 //	Offset(20)                                       // OFFSET 20
 func (s *QueryBuilderSelect) Offset(offset int) *QueryBuilderSelect {
 	s.offset = &offset
+
 	return s
 }
 
@@ -137,9 +138,8 @@ func (s *QueryBuilderSelect) Offset(offset int) *QueryBuilderSelect {
 //	   Offset(20)
 //	sql, params, err := qb.ToSql()
 //	// Returns: "WHERE `status` = ? GROUP BY `country` HAVING COUNT(*) > ? ORDER BY `country` ASC LIMIT 10 OFFSET 20"
-func (s *QueryBuilderSelect) ToSql() (string, []any, error) {
+func (s *QueryBuilderSelect) ToSql() (query string, params []any, err error) {
 	var parts []string
-	var params []any
 
 	// WHERE clause
 	whereSql, whereParams, err := s.where.ToSql()
@@ -189,20 +189,5 @@ func (s *QueryBuilderSelect) ToSql() (string, []any, error) {
 		parts = append(parts, fmt.Sprintf("OFFSET %d", *s.offset))
 	}
 
-	return joinParts(parts), params, nil
-}
-
-// joinParts joins non-empty parts with a space separator.
-func joinParts(parts []string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	result := ""
-	for i, part := range parts {
-		if i > 0 {
-			result += " "
-		}
-		result += part
-	}
-	return result
+	return strings.Join(parts, " "), params, nil
 }

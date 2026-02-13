@@ -34,7 +34,7 @@ func (c *connPoolWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sq
 	return tx.SqlTx().Tx, nil
 }
 
-func (c *connPoolWrapper) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (c *connPoolWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	return c.client.Exec(ctx, query, args...)
 }
 
@@ -49,7 +49,7 @@ func (c *connPoolWrapper) PrepareContext(ctx context.Context, query string) (*sq
 	return stmt.Stmt, nil
 }
 
-func (c *connPoolWrapper) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (c *connPoolWrapper) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	var err error
 	var rows *sqlc.Rows
 
@@ -60,6 +60,6 @@ func (c *connPoolWrapper) QueryContext(ctx context.Context, query string, args .
 	return rows.Rows, err
 }
 
-func (c *connPoolWrapper) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
-	return c.client.QueryRow(context.Background(), query, args...)
+func (c *connPoolWrapper) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return c.client.QueryRow(ctx, query, args...)
 }

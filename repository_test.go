@@ -15,17 +15,22 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestRepositoryTestSuite(t *testing.T) {
+	suite.Run(t, new(RepositoryTestSuite))
+}
+
 // isTimestamp is a custom sqlmock.Argument matcher that asserts the value
 // is a time.Time. It implements the sqlmock.Argument interface.
 type isTimestamp struct{}
 
 func (isTimestamp) Match(v driver.Value) bool {
 	_, ok := v.(time.Time)
+
 	return ok
 }
 
 // testUser is a custom entity type used throughout the repository tests.
-// GORM will derive the table name "test_users" from this type.
+// GORM will derive the relation name "test_users" from this type.
 type testUser struct {
 	sqlr.Entity[int64]
 	Name  string `gorm:"column:name"`
@@ -35,7 +40,7 @@ type testUser struct {
 // testUserColumns are the columns gorm expects for testUser, in schema order.
 var testUserColumns = []string{"id", "created_at", "updated_at", "name", "email"}
 
-// testPost is a related model used in join tests. GORM table: "test_posts".
+// testPost is a related model used in join tests. GORM relation: "test_posts".
 type testPost struct {
 	sqlr.Entity[int64]
 	AuthorID int64  `gorm:"column:author_id"`
@@ -43,7 +48,7 @@ type testPost struct {
 	Status   string `gorm:"column:status"`
 }
 
-// testComment is a second related model used in multiple-join tests. GORM table: "test_comments".
+// testComment is a second related model used in multiple-join tests. GORM relation: "test_comments".
 type testComment struct {
 	sqlr.Entity[int64]
 	AuthorID int64  `gorm:"column:author_id"`
@@ -51,7 +56,7 @@ type testComment struct {
 }
 
 // testAuthor is an entity with GORM relationships, used for join tests.
-// GORM table: "test_authors".
+// GORM relation: "test_authors".
 type testAuthor struct {
 	sqlr.Entity[int64]
 	Name     string        `gorm:"column:name"`
@@ -66,10 +71,6 @@ type RepositoryTestSuite struct {
 	mock       sqlmock.Sqlmock
 	repo       sqlr.Repository[int64, testUser]
 	authorRepo sqlr.Repository[int64, testAuthor]
-}
-
-func TestRepositoryTestSuite(t *testing.T) {
-	suite.Run(t, new(RepositoryTestSuite))
 }
 
 func (s *RepositoryTestSuite) SetupTest() {
@@ -95,8 +96,11 @@ func (s *RepositoryTestSuite) SetupTest() {
 	s.Require().NoError(err)
 
 	s.db = db
-	s.repo = sqlr.NewRepositoryWithInterfaces[int64, testUser](db)
-	s.authorRepo = sqlr.NewRepositoryWithInterfaces[int64, testAuthor](db)
+	s.repo, err = sqlr.NewRepositoryWithInterfaces[int64, testUser](db)
+	s.Require().NoError(err)
+
+	s.authorRepo, err = sqlr.NewRepositoryWithInterfaces[int64, testAuthor](db)
+	s.Require().NoError(err)
 }
 
 func (s *RepositoryTestSuite) TearDownTest() {
@@ -363,7 +367,7 @@ func (s *RepositoryTestSuite) TestDelete_Error() {
 	err := s.repo.Delete(context.Background(), 1)
 
 	s.Require().Error(err)
-	s.Contains(err.Error(), "failed to read entity")
+	s.Contains(err.Error(), "failed to delete entity")
 }
 
 // ==========================================================================
@@ -394,8 +398,7 @@ const authorPostsRightJoinSQL = "FROM `test_authors` RIGHT JOIN `test_posts` `Po
 func (s *RepositoryTestSuite) TestQuery_LeftJoinWithoutCondition() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
+	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
 		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
 			AddRow(1, now, now, "Alice"))
 
@@ -406,6 +409,16 @@ func (s *RepositoryTestSuite) TestQuery_LeftJoinWithoutCondition() {
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
 	s.Equal("Alice", results[0].Name)
+}
+
+func (s *RepositoryTestSuite) TestQuery_LeftJoinWithUnknownRelation() {
+	qb := sqlr.NewQueryBuilderSelect().
+		LeftJoin("Unknown")
+	results, err := s.authorRepo.Query(context.Background(), qb)
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `join relation "Unknown" not found`)
 }
 
 func (s *RepositoryTestSuite) TestQuery_LeftJoinWithCondition() {
