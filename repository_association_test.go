@@ -78,21 +78,6 @@ type assocComment struct {
 }
 
 // ==========================================================================
-// SQL constants for association tests
-// ==========================================================================
-
-const (
-	assocAuthorInsertSQL         = "INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)"
-	assocPostInsertSQL           = "INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)"
-	assocProfileInsertSQL        = "INSERT INTO `assoc_profiles` (`created_at`, `updated_at`, `author_id`, `bio`) VALUES (?, ?, ?, ?)"
-	assocPostWithAuthorInsertSQL = "INSERT INTO `assoc_post_with_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)"
-	assocArticleInsertSQL        = "INSERT INTO `assoc_articles` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)"
-	assocTagInsertSQL            = "INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)"
-	assocCommentInsertSQL        = "INSERT INTO `assoc_comments` (`created_at`, `updated_at`, `post_id`, `body`) VALUES (?, ?, ?, ?)"
-	assocPostWithAllInsertSQL    = "INSERT INTO `assoc_post_with_alls` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)"
-)
-
-// ==========================================================================
 // RepositoryAssociationCreateTestSuite
 // ==========================================================================
 
@@ -137,7 +122,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_EmptyAssociationSlice_
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
 	// Posts and Profile fields are zero — no associations to save, so no transaction.
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Bob").
 		WillReturnResult(sqlmock.NewResult(10, 1))
 
@@ -156,17 +141,17 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_InsertsAssocia
 	s.mock.ExpectBegin()
 
 	// Phase 2: insert parent author
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// Phase 3: insert post 1 (author_id=1)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Post A").
 		WillReturnResult(sqlmock.NewResult(10, 1))
 
 	// Phase 3: insert post 2 (author_id=1)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Post B").
 		WillReturnResult(sqlmock.NewResult(11, 1))
 
@@ -196,12 +181,12 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_SkipsExistingA
 	s.mock.ExpectBegin()
 
 	// Phase 2: insert parent author
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// Phase 3: only the post without an ID gets inserted (post with ID=99 is skipped).
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "New Post").
 		WillReturnResult(sqlmock.NewResult(20, 1))
 
@@ -233,12 +218,12 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_InsertsAssociat
 	s.mock.ExpectBegin()
 
 	// Phase 2: insert parent author
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Carol").
 		WillReturnResult(sqlmock.NewResult(5, 1))
 
 	// Phase 3: insert profile with author_id=5
-	s.mock.ExpectExec(regexp.QuoteMeta(assocProfileInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_profiles` (`created_at`, `updated_at`, `author_id`, `bio`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(5), "My bio").
 		WillReturnResult(sqlmock.NewResult(50, 1))
 
@@ -262,7 +247,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_SkipsExistingAs
 	s.mock.ExpectBegin()
 
 	// Phase 2: insert parent author
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Dave").
 		WillReturnResult(sqlmock.NewResult(7, 1))
 
@@ -294,12 +279,12 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_InsertsRelat
 	s.mock.ExpectBegin()
 
 	// Phase 1: insert author first (zero PK)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Eve").
 		WillReturnResult(sqlmock.NewResult(3, 1))
 
 	// Phase 2: insert post with author_id=3 (FK set from author PK)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostWithAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_post_with_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(3), "Eve's post").
 		WillReturnResult(sqlmock.NewResult(30, 1))
 
@@ -324,7 +309,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExistingRela
 
 	// Phase 1: author already has PK=7, no insert.
 	// Phase 2: insert post with author_id=7
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostWithAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_post_with_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(7), "Frank's post").
 		WillReturnResult(sqlmock.NewResult(40, 1))
 
@@ -346,7 +331,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ZeroRelated_
 
 	// Author field is zero (empty struct) — treated as no association.
 	// No transaction expected because no associations to save.
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostWithAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_post_with_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(0), "Orphan post").
 		WillReturnResult(sqlmock.NewResult(50, 1))
 
@@ -371,17 +356,17 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_InsertsTags
 	s.mock.ExpectBegin()
 
 	// Phase 2: insert parent article
-	s.mock.ExpectExec(regexp.QuoteMeta(assocArticleInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_articles` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Go Tips").
 		WillReturnResult(sqlmock.NewResult(2, 1))
 
 	// Phase 4: insert tag 1 (zero PK)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocTagInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "golang").
 		WillReturnResult(sqlmock.NewResult(100, 1))
 
 	// Phase 4: insert tag 2 (zero PK)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocTagInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "tips").
 		WillReturnResult(sqlmock.NewResult(101, 1))
 
@@ -415,12 +400,12 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_SkipsExisti
 	s.mock.ExpectBegin()
 
 	// Phase 2: insert parent article
-	s.mock.ExpectExec(regexp.QuoteMeta(assocArticleInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_articles` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Existing Tags").
 		WillReturnResult(sqlmock.NewResult(3, 1))
 
 	// Phase 4: only new tag gets inserted (existing tag with ID=200 is skipped)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocTagInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "new-tag").
 		WillReturnResult(sqlmock.NewResult(201, 1))
 
@@ -457,21 +442,21 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_Mixed_BelongsToAndHasM
 	s.mock.ExpectBegin()
 
 	// Phase 1: insert BelongsTo author first
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Grace").
 		WillReturnResult(sqlmock.NewResult(4, 1))
 
 	// Phase 2: insert parent post (author_id=4)
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostWithAllInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_post_with_alls` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(4), "Grace's post").
 		WillReturnResult(sqlmock.NewResult(400, 1))
 
 	// Phase 3: insert comments with post_id=400
-	s.mock.ExpectExec(regexp.QuoteMeta(assocCommentInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_comments` (`created_at`, `updated_at`, `post_id`, `body`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(400), "Great post!").
 		WillReturnResult(sqlmock.NewResult(1000, 1))
 
-	s.mock.ExpectExec(regexp.QuoteMeta(assocCommentInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_comments` (`created_at`, `updated_at`, `post_id`, `body`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(400), "Thanks!").
 		WillReturnResult(sqlmock.NewResult(1001, 1))
 
@@ -508,12 +493,12 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_RollbackOnAsso
 	s.mock.ExpectBegin()
 
 	// Phase 2: parent insert succeeds
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Henry").
 		WillReturnResult(sqlmock.NewResult(5, 1))
 
 	// Phase 3: association insert fails
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(5), "Bad Post").
 		WillReturnError(fmt.Errorf("constraint violation"))
 
@@ -535,7 +520,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_RollbackOnRe
 	s.mock.ExpectBegin()
 
 	// Phase 1: author insert fails
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Ivan").
 		WillReturnError(fmt.Errorf("db error"))
 
@@ -581,11 +566,11 @@ func (s *RepositoryTxAssociationTestSuite) TestCreate_HasMany_UsesExistingTransa
 	// The caller manages the transaction; RepositoryTx uses it directly.
 	s.mock.ExpectBegin()
 
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Judy").
 		WillReturnResult(sqlmock.NewResult(6, 1))
 
-	s.mock.ExpectExec(regexp.QuoteMeta(assocPostInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(6), "Judy's Post").
 		WillReturnResult(sqlmock.NewResult(60, 1))
 
@@ -611,7 +596,7 @@ func (s *RepositoryTxAssociationTestSuite) TestCreate_HasMany_NoAssociations_NoE
 	s.mock.ExpectBegin()
 
 	// Only the author INSERT — no association INSERTs.
-	s.mock.ExpectExec(regexp.QuoteMeta(assocAuthorInsertSQL)).
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Karl").
 		WillReturnResult(sqlmock.NewResult(7, 1))
 

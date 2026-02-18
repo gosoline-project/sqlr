@@ -72,7 +72,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition() {
 	// First: main query for authors.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// Second: preload query for posts belonging to found authors.
@@ -101,7 +101,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition_MultipleP
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice").
 			AddRow(2, now, now, "Bob"))
 
@@ -134,7 +134,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOne() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_with_profiles`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorWithProfileColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -160,7 +160,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneMultipleParents() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_with_profiles`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorWithProfileColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice").
 			AddRow(2, now, now, "Bob"))
 
@@ -190,7 +190,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneNoRelated() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_with_profiles`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorWithProfileColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -219,7 +219,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsTo() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -246,7 +246,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToMultipleParents()
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?, ?)")).
 		WithArgs(int64(1), int64(2)).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(2, now, now, "Bob").
 			AddRow(1, now, now, "Alice"))
 
@@ -275,7 +275,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithMultipleNilFo
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	results, err := s.postWithNullableAuthor.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -300,7 +300,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToNoRelated() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
 		WithArgs(int64(999)).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}))
 
 	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author")
@@ -322,7 +322,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithCondition() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?) AND name = ?")).
 		WithArgs(int64(1), "Alice").
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -387,7 +387,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithCondition() {
 	// Main query.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// Preload query with additional WHERE condition.
@@ -420,7 +420,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {
 	// Main query.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// Preloads at the same depth execute concurrently; order is non-deterministic.
@@ -463,7 +463,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithWhere() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE name = ?")).
 		WithArgs("Alice").
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// Preload query.
@@ -598,7 +598,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNested() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -629,7 +629,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedNoIntermediateResult
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -651,7 +651,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedThreeLevels() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -689,7 +689,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixed() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -721,7 +721,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixedReverseOrder() 
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -759,7 +759,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedBelongsToSegment() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -784,7 +784,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedManyToManySegment() 
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -826,7 +826,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadWithoutExplicitPreload
 	// Main query for authors.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// Auto-preload query for posts (triggered by "preload" tag, no explicit Preload() call).
@@ -854,7 +854,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadHasOne() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_with_profile_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorWithProfileAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -883,7 +883,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadBelongsTo() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	results, err := s.postWithAuthorAutoRepo.Query(context.Background())
@@ -898,7 +898,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNested() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_deep_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -927,7 +927,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNestedMixed() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_deep_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -957,7 +957,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadDeduplication() {
 	// Main query.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// Only ONE preload query should execute (explicit takes precedence, no duplicate).
@@ -986,7 +986,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadExplicitWithConditionT
 	// Main query.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// The explicit Preload with condition takes precedence over the auto-preload.
@@ -1016,7 +1016,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadMixedWithExplicit() {
 	// Main query.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	// Preloads at the same depth execute concurrently; order is non-deterministic.
@@ -1089,7 +1089,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadEmptyResultNoPreloadQu
 	// When the main query returns no results, preload queries should NOT execute.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_auto_preloads`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}))
 
 	results, err := s.authorAutoPreloadRepo.Query(context.Background())
 

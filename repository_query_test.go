@@ -58,7 +58,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_Success() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_users` WHERE name = ?")).
 		WithArgs("Alice").
-		WillReturnRows(sqlmock.NewRows(testUserColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 			AddRow(1, now, now, "Alice", "alice@test.com").
 			AddRow(2, now, now, "Alice", "alice2@test.com"))
 
@@ -80,7 +80,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_ReusedQueryBuilderDoesNotAccumulate
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_auto_preloads` WHERE name = ?")).
 		WithArgs("Alice").
-		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -92,7 +92,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_ReusedQueryBuilderDoesNotAccumulate
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_users` WHERE name = ?")).
 		WithArgs("Alice").
-		WillReturnRows(sqlmock.NewRows(testUserColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 			AddRow(1, now, now, "Alice", "alice@test.com"))
 
 	whereAlice := func(qb *sqlr.QueryBuilderSelect) {
@@ -114,7 +114,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_EmptyResult() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_users` WHERE name = ?")).
 		WithArgs("Nobody").
-		WillReturnRows(sqlmock.NewRows(testUserColumns))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}))
 
 	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Nobody")
@@ -130,7 +130,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_users` WHERE name = ? LIMIT ? OFFSET ?")).
 		WithArgs("Alice", 10, 5).
-		WillReturnRows(sqlmock.NewRows(testUserColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 			AddRow(1, now, now, "Alice", "alice@test.com"))
 
 	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -149,7 +149,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithOrderBy() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_users` WHERE name = ? ORDER BY `created_at` DESC")).
 		WithArgs("Alice").
-		WillReturnRows(sqlmock.NewRows(testUserColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 			AddRow(2, now, now, "Alice", "alice2@test.com").
 			AddRow(1, now, now, "Alice", "alice@test.com"))
 
@@ -184,8 +184,12 @@ func (s *RepositoryQueryTestSuite) TestQuery_Error() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithoutCondition() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -214,9 +218,18 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnknownRelation() {
 
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnexpectedJoinedColumn() {
 	now := time.Now()
-	columns := append(append([]string{}, testAuthorPostsColumns...), "Broken__id", "unmapped_col")
+	columns := []string{
+		"id", "created_at", "updated_at", "name",
+		"Posts__id", "Posts__created_at", "Posts__updated_at",
+		"Posts__author_id", "Posts__title", "Posts__status",
+		"Broken__id", "unmapped_col",
+	}
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
 		WillReturnRows(sqlmock.NewRows(columns).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published", 999, "ignored"))
 
@@ -253,9 +266,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithCondition() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL + " AND `test_posts`.`status` = ?")).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" AND `test_posts`.`status` = ?")).
 		WithArgs("published").
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -276,10 +293,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithMultipleConditions() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL +
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
 			" AND `test_posts`.`status` = ? AND `test_posts`.`title` IS NOT NULL")).
 		WithArgs("published").
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -303,9 +323,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithParameterizedCondition(
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL + " AND `test_posts`.`author_id` = ?")).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" AND `test_posts`.`author_id` = ?")).
 		WithArgs(int64(42)).
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(42), "First Post", "draft"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -326,9 +350,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoin() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " " + authorPostsInnerJoinSQL + " AND `test_posts`.`status` = ?")).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" AND `test_posts`.`status` = ?")).
 		WithArgs("published").
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -349,9 +377,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " " + authorPostsRightJoinSQL + " AND `test_posts`.`status` = ?")).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` RIGHT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" AND `test_posts`.`status` = ?")).
 		WithArgs("draft").
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Bob", 20, now, now, int64(1), "Draft Post", "draft"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -371,8 +403,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_CrossJoin() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " FROM `test_authors` JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "Post A", "published").
 			AddRow(2, now, now, "Bob", 20, now, now, int64(2), "Post B", "draft"))
 
@@ -400,9 +435,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinWithWhere() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" AND `test_posts`.`status` = ? WHERE name = ?")).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
+			" AND `test_posts`.`status` = ? WHERE name = ?")).
 		WithArgs("published", "Alice").
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -424,9 +463,12 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinWithOrderBy() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL + " " + authorPostsLeftJoinSQL +
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
 			" ORDER BY `created_at` DESC")).
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(2, now, now, "Bob", 20, now, now, int64(2), "Bob's Post", "draft").
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "Alice's Post", "published"))
 
@@ -474,7 +516,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_MultipleJoins() {
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(fullSelectSQL + " " + fullFromSQL)).
 		WithArgs("published").
-		WillReturnRows(sqlmock.NewRows(testAuthorCommentsPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Comments__id", "Comments__created_at", "Comments__updated_at", "Comments__author_id", "Comments__post_id", "Comments__body", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "Great work!", 10, now, now, int64(1), "First Post", "published"))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -498,8 +540,12 @@ func (s *RepositoryQueryTestSuite) TestQuery_MultipleJoins() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelated() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
 			AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Second Post", "draft").
 			AddRow(1, now, now, "Alice", 12, now, now, int64(1), "Third Post", "published"))
@@ -540,7 +586,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelations() {
 		" LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(fullSelectSQL + " " + fullFromSQL)).
-		WillReturnRows(sqlmock.NewRows(testAuthorCommentsPostsColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Comments__id", "Comments__created_at", "Comments__updated_at", "Comments__author_id", "Comments__post_id", "Comments__body", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "First Comment", 10, now, now, int64(1), "Post A", "published").
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "First Comment", 11, now, now, int64(1), "Post B", "draft").
 			AddRow(1, now, now, "Alice", 101, now, now, int64(1), int64(11), "Second Comment", 10, now, now, int64(1), "Post A", "published").
@@ -569,8 +615,12 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelations() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
 	zeroTime := time.Time{}
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(authorPostsSelectSQL + " " + authorPostsLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, zeroTime, zeroTime, "Alice", int64(0), zeroTime, zeroTime, int64(0), "", ""))
 
 	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -586,8 +636,12 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOne() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(authorProfileSelectSQL + " " + authorProfileLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profiles` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "Go engineer"))
 
 	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -605,8 +659,12 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOne() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneNoRelated() {
 	zeroTime := time.Time{}
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(authorProfileSelectSQL + " " + authorProfileLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profiles` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, zeroTime, zeroTime, "Alice", int64(0), zeroTime, zeroTime, int64(0), ""))
 
 	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -622,8 +680,12 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneNoRelated() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneMultipleRows() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(authorProfileSelectSQL + " " + authorProfileLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profiles` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "First profile").
 			AddRow(1, now, now, "Alice", 101, now, now, int64(1), "Second profile"))
 
@@ -642,9 +704,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinHasOne() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorProfileSelectSQL + " " + authorProfileInnerJoinSQL + " AND `test_profiles`.`bio` <> ?")).
+		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profiles` JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`" +
+			" AND `test_profiles`.`bio` <> ?")).
 		WithArgs("").
-		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "Go engineer"))
 
 	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -661,8 +727,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinHasOne() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsTo() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
 	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -682,9 +751,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsTo() {
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToWithCondition() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorLeftJoinSQL + " AND `test_authors`.`name` = ?")).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`" +
+			" AND `test_authors`.`name` = ?")).
 		WithArgs("Alice").
-		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
 	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -699,8 +772,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToWithCondition() {
 func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinBelongsTo() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorInnerJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
 	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -716,8 +792,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinBelongsTo() {
 func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorRightJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` RIGHT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
 	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -732,8 +811,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
 func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorInnerJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
 	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -749,8 +831,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToNoRelated() {
 	now := time.Now()
 	zeroTime := time.Time{}
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL + " " + postAuthorLeftJoinSQL)).
-		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(0), "Orphan Post", "draft", int64(0), zeroTime, zeroTime, ""))
 
 	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
@@ -766,9 +851,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToNoRelated() {
 func (s *RepositoryQueryTestSuite) TestQuery_JoinBelongsToWithWhere() {
 	now := time.Now()
 
-	s.mock.ExpectQuery(regexp.QuoteMeta(postAuthorSelectSQL+" "+postAuthorLeftJoinSQL+" AND `test_authors`.`name` = ? WHERE status = ?")).
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, "+
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`"+
+			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`"+
+			" AND `test_authors`.`name` = ? WHERE status = ?")).
 		WithArgs("Alice", "published").
-		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
 	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
