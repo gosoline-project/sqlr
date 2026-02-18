@@ -286,8 +286,8 @@ github.com/google/uuid v1.0.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/google/uuid v1.1.2/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/gosoline-project/sqlc v0.0.0-20260214103847-531e78f58c1c h1:1Nsx6V+nZe+ndSHCQ3jqN49xWg28HBBltD67ldBT6Mk=
-github.com/gosoline-project/sqlc v0.0.0-20260214103847-531e78f58c1c/go.mod h1:Woaj4Y8tM9Q3rhIg7nPAIqFRHqhdfq+fC9W/S7ZLKgE=
+github.com/gosoline-project/sqlc v0.0.0-20260218122711-f9b263fcf488 h1:4TnGOdm+GCdCeL2kYFFePXY+A4w4+9frNL1NoHNhzwg=
+github.com/gosoline-project/sqlc v0.0.0-20260218122711-f9b263fcf488/go.mod h1:El4Vbl88oro29oAczh8l/Tq03lQGpobhvb+qemfHNOs=
 github.com/grpc-ecosystem/go-grpc-middleware v1.3.0 h1:+9834+KizmvFV7pXQGSXQTsaWhq2GjuNUt0aUU0YBYw=
 github.com/grpc-ecosystem/go-grpc-middleware v1.3.0/go.mod h1:z0ButlSOZa5vEBq9m2m2hlwIgKw+rp3sdCBRoJY+30Y=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.23.0 h1:ad0vkEBuk23VJzZR9nkLVG0YAoN9coASF1GusYX6AlU=

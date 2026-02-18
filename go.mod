@@ -1,10 +1,10 @@
 module github.com/gosoline-project/sqlr
 
-go 1.25.0
+go 1.24.0
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/gosoline-project/sqlc v0.0.0-20260214103847-531e78f58c1c
+	github.com/gosoline-project/sqlc v0.0.0-20260218122711-f9b263fcf488
 	github.com/justtrackio/gosoline v0.54.2
 	github.com/stretchr/testify v1.11.1
 )
