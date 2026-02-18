@@ -456,7 +456,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreload() {
 
 	// Main query: simple SELECT with WHERE pk = ? LIMIT 1.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_authors` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
 			AddRow(1, now, now, "Alice"))
@@ -488,7 +488,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadCondition() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_authors` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
 			AddRow(1, now, now, "Alice"))
@@ -519,7 +519,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithNestedPreload() {
 
 	// Main query for author.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_authors` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
 			AddRow(1, now, now, "Alice"))
@@ -555,7 +555,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadBelongsTo() {
 
 	// Main query for post.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_posts` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`id` = ? LIMIT ?")).
 		WithArgs(int64(10), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, int64(1), "First Post", "published"))
@@ -582,7 +582,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadManyToMany() 
 
 	// Main query for article.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_articles` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_articles` WHERE `test_articles`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title"}).
 			AddRow(1, now, now, "My Article"))
@@ -627,7 +627,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin() {
 
 	// Join query: SELECT with aliased columns + JOIN + WHERE pk = ? LIMIT 1.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" WHERE `id` = ? LIMIT ?")).
+		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
@@ -650,7 +650,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinCondition() 
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" AND `test_posts`.`status` = ? WHERE `id` = ? LIMIT ?")).
+		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" AND `test_posts`.`status` = ? WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs("published", int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
@@ -673,7 +673,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithInnerJoin() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL+" "+authorPostsInnerJoinSQL+" WHERE `id` = ? LIMIT ?")).
+		authorPostsSelectSQL+" "+authorPostsInnerJoinSQL+" WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
@@ -696,7 +696,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinBelongsTo() 
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		postAuthorSelectSQL+" "+postAuthorLeftJoinSQL+" WHERE `id` = ? LIMIT ?")).
+		postAuthorSelectSQL+" "+postAuthorLeftJoinSQL+" WHERE `test_posts`.`id` = ? LIMIT ?")).
 		WithArgs(int64(10), 1).
 		WillReturnRows(sqlmock.NewRows(testPostAuthorColumns).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
@@ -716,7 +716,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOne() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorProfileSelectSQL+" "+authorProfileLeftJoinSQL+" WHERE `id` = ? LIMIT ?")).
+		authorProfileSelectSQL+" "+authorProfileLeftJoinSQL+" WHERE `test_author_with_profiles`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorProfileColumns).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "A bio"))
@@ -738,7 +738,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOne() {
 
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin_NotFound() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" WHERE `id` = ? LIMIT ?")).
+		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(999), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns))
 
@@ -754,7 +754,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin_NotFound() 
 
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreload_NotFound() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_authors` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(999), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorColumns))
 
@@ -800,7 +800,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithAutoPreloadAndExplic
 	// testAuthorAutoPreload has Posts auto-preloaded. Adding an explicit Preload("Comments")
 	// should load both Posts (auto) and Comments (explicit), with deduplication.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_author_auto_preloads` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorAutoPreloadColumns).
 			AddRow(1, now, now, "Alice"))
@@ -841,7 +841,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinMultiplePost
 
 	// Author with multiple posts: JOIN returns multiple rows, deduplication should produce one author.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" WHERE `id` = ? LIMIT ?")).
+		authorPostsSelectSQL+" "+authorPostsLeftJoinSQL+" WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorPostsColumns).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
@@ -890,7 +890,7 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithMultiplePreloads() {
 
 	// Main query.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_authors` WHERE `id` = ? LIMIT ?")).
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows(testAuthorColumns).
 			AddRow(1, now, now, "Alice"))

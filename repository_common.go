@@ -157,7 +157,7 @@ func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.
 		return nil, fmt.Errorf("primary key not defined for %s", r.schema.TableName)
 	}
 
-	qb := qbr.toQueryBuilderSelect(r.schema.PrimaryKey.Name, id)
+	qb := qbr.toQueryBuilderSelect(r.schema.TableName, r.schema.PrimaryKey.Name, id)
 
 	results, err := r.queryEntities(q, ctx, qb, ttx)
 	if err != nil {

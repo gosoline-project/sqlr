@@ -95,11 +95,13 @@ func (r *QueryBuilderRead) hasRelations() bool {
 // toQueryBuilderSelect converts the read builder into a full QueryBuilderSelect
 // by copying joins and preloads and adding a WHERE pk = ? LIMIT 1 constraint.
 // This allows reuse of the existing queryEntities infrastructure.
-func (r *QueryBuilderRead) toQueryBuilderSelect(pkColumn string, pkValue any) *QueryBuilderSelect {
+// The table name is used to qualify the primary key column, which is required
+// when joins are present to avoid ambiguous column references.
+func (r *QueryBuilderRead) toQueryBuilderSelect(tableName string, pkColumn string, pkValue any) *QueryBuilderSelect {
 	qb := NewQueryBuilderSelect()
 	qb.joins = r.joins
 	qb.preloads = r.preloads
-	qb.Where(sqlc.Col(pkColumn).Eq(pkValue))
+	qb.Where(sqlc.Col(tableName, pkColumn).Eq(pkValue))
 	qb.Limit(1)
 
 	return qb

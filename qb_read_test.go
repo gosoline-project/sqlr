@@ -116,7 +116,7 @@ func TestQueryBuilderRead_ToQueryBuilderSelect(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.LeftJoin("Posts", cond).Preload("Comments")
 
-	qb := qbr.toQueryBuilderSelect("id", int64(42))
+	qb := qbr.toQueryBuilderSelect("test_authors", "id", int64(42))
 
 	// Verify joins and preloads were copied.
 	require.Len(t, qb.joins, 1)
@@ -140,7 +140,7 @@ func TestQueryBuilderRead_ToQueryBuilderSelect_PreservesOriginal(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.LeftJoin("Posts")
 
-	qb := qbr.toQueryBuilderSelect("id", int64(1))
+	qb := qbr.toQueryBuilderSelect("test_authors", "id", int64(1))
 
 	// Modifying the returned QueryBuilderSelect should not affect the original.
 	qb.Preload("Extra")
