@@ -24,10 +24,10 @@ func newStatementCache(client sqlc.Client, enabled bool) *statementCache {
 	}
 }
 
-func (c *statementCache) Exec(ctx context.Context, sqler sqlc.Sqler, ttx *TTx) (rows *sqlc.Rows, result sqlc.Result, err error) {
-	return c.do(ctx, sqler, ttx,
+func (c *statementCache) Exec(ctx context.Context, sqler sqlc.Sqler, q sqlc.Querier) (rows *sqlc.Rows, result sqlc.Result, err error) {
+	return c.do(ctx, sqler, q,
 		func(sql string, args []any) (*sqlc.Rows, sqlc.Result, error) {
-			res, err := c.client.Exec(ctx, sql, args...)
+			res, err := q.Exec(ctx, sql, args...)
 
 			return nil, res, err
 		},
@@ -39,10 +39,10 @@ func (c *statementCache) Exec(ctx context.Context, sqler sqlc.Sqler, ttx *TTx) (
 	)
 }
 
-func (c *statementCache) Get(ctx context.Context, sqler sqlc.Sqler, ttx *TTx, dest any) error {
-	_, _, err := c.do(ctx, sqler, ttx,
+func (c *statementCache) Get(ctx context.Context, sqler sqlc.Sqler, q sqlc.Querier, dest any) error {
+	_, _, err := c.do(ctx, sqler, q,
 		func(sql string, args []any) (*sqlc.Rows, sqlc.Result, error) {
-			return nil, nil, c.client.Get(ctx, dest, sql, args...)
+			return nil, nil, q.Get(ctx, dest, sql, args...)
 		},
 		func(stmt *sqlc.Stmt, args []any) (*sqlc.Rows, sqlc.Result, error) {
 			return nil, nil, stmt.GetContext(ctx, dest, args...)
@@ -52,10 +52,10 @@ func (c *statementCache) Get(ctx context.Context, sqler sqlc.Sqler, ttx *TTx, de
 	return err
 }
 
-func (c *statementCache) Query(ctx context.Context, sqler sqlc.Sqler, ttx *TTx) (*sqlc.Rows, error) {
-	rows, _, err := c.do(ctx, sqler, ttx,
+func (c *statementCache) Query(ctx context.Context, sqler sqlc.Sqler, q sqlc.Querier) (*sqlc.Rows, error) {
+	rows, _, err := c.do(ctx, sqler, q,
 		func(sql string, args []any) (*sqlc.Rows, sqlc.Result, error) {
-			rows, err := c.client.Query(ctx, sql, args...)
+			rows, err := q.Query(ctx, sql, args...)
 
 			return rows, nil, err
 		},
@@ -69,10 +69,10 @@ func (c *statementCache) Query(ctx context.Context, sqler sqlc.Sqler, ttx *TTx) 
 	return rows, err
 }
 
-func (c *statementCache) Select(ctx context.Context, sqler sqlc.Sqler, ttx *TTx, dest any) error {
-	_, _, err := c.do(ctx, sqler, ttx,
+func (c *statementCache) Select(ctx context.Context, sqler sqlc.Sqler, q sqlc.Querier, dest any) error {
+	_, _, err := c.do(ctx, sqler, q,
 		func(sql string, args []any) (*sqlc.Rows, sqlc.Result, error) {
-			return nil, nil, c.client.Select(ctx, dest, sql, args...)
+			return nil, nil, q.Select(ctx, dest, sql, args...)
 		},
 		func(stmt *sqlc.Stmt, args []any) (*sqlc.Rows, sqlc.Result, error) {
 			return nil, nil, stmt.SelectContext(ctx, dest, args...)
@@ -85,7 +85,7 @@ func (c *statementCache) Select(ctx context.Context, sqler sqlc.Sqler, ttx *TTx,
 func (c *statementCache) do(
 	ctx context.Context,
 	sqler sqlc.Sqler,
-	ttx *TTx,
+	q sqlc.Querier,
 	doDirect func(sql string, args []any) (*sqlc.Rows, sqlc.Result, error),
 	doPrepared func(stmt *sqlc.Stmt, args []any) (*sqlc.Rows, sqlc.Result, error),
 ) (rows *sqlc.Rows, result sqlc.Result, err error) {
@@ -112,8 +112,8 @@ func (c *statementCache) do(
 	stmt := c.cache[sql]
 	c.Unlock()
 
-	if ttx != nil {
-		stmt = ttx.SqlTx().StmtxContext(ctx, c.cache[sql])
+	if tx, ok := q.(sqlc.Tx); ok {
+		stmt = tx.SqlTx().StmtxContext(ctx, c.cache[sql])
 	}
 
 	return doPrepared(stmt, args)

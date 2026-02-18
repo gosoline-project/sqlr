@@ -82,13 +82,11 @@ type repository[K KeyTypes, E Entitier[K]] struct {
 
 func (r *repository[K, E]) Create(ctx context.Context, entity *E) error {
 	if !r.hasAssociationsToSave(entity) {
-		return r.createEntity(r.client, ctx, entity, nil)
+		return r.createEntity(r.client, ctx, entity)
 	}
 
 	return r.client.WithTx(ctx, func(tx sqlc.Tx) error {
-		ttx := NewTx(tx)
-
-		return r.createEntityWithAssociations(tx, ctx, entity, &ttx)
+		return r.createEntityWithAssociations(tx, ctx, entity)
 	})
 }
 
@@ -98,7 +96,7 @@ func (r *repository[K, E]) Read(ctx context.Context, id K, opts ...func(qb *Quer
 		opt(qbr)
 	}
 
-	return r.readEntityWithOpts(r.client, ctx, id, qbr, nil)
+	return r.readEntityWithOpts(r.client, ctx, id, qbr)
 }
 
 func (r *repository[K, E]) Query(ctx context.Context, opts ...func(qb *QueryBuilderSelect)) ([]E, error) {
@@ -107,15 +105,15 @@ func (r *repository[K, E]) Query(ctx context.Context, opts ...func(qb *QueryBuil
 		opt(qb)
 	}
 
-	return r.queryEntities(r.client, ctx, qb, nil)
+	return r.queryEntities(r.client, ctx, qb)
 }
 
 func (r *repository[K, E]) Update(ctx context.Context, entity *E) (*E, error) {
-	return r.updateEntity(r.client, ctx, entity, nil)
+	return r.updateEntity(r.client, ctx, entity)
 }
 
 func (r *repository[K, E]) Delete(ctx context.Context, id K) error {
-	return r.deleteEntity(r.client, ctx, id, nil)
+	return r.deleteEntity(r.client, ctx, id)
 }
 
 func (r *repository[K, E]) Close() error {

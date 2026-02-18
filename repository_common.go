@@ -55,19 +55,19 @@ type repositoryCommon[K KeyTypes, E Entitier[K]] struct {
 // All operations must be executed within a transaction so that a failure at any step
 // rolls back the entire tree. The caller is responsible for providing a transaction
 // querier (q) and a non-nil ttx when association saves are required.
-func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, ttx *TTx) error {
+func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E) error {
 	// Phase 1: persist BelongsTo relations and set their FKs on the parent.
-	if err := r.saveBelongsToAssociations(q, ctx, entity, ttx); err != nil {
+	if err := r.saveBelongsToAssociations(q, ctx, entity); err != nil {
 		return err
 	}
 
 	// Phase 2: persist the parent entity row.
-	if err := r.createEntity(q, ctx, entity, ttx); err != nil {
+	if err := r.createEntity(q, ctx, entity); err != nil {
 		return err
 	}
 
 	// Phase 3 + 4: persist HasOne, HasMany, and ManyToMany relations.
-	return r.saveAssociations(q, ctx, entity, ttx)
+	return r.saveAssociations(q, ctx, entity)
 }
 
 // createEntity persists a new entity to the database. It extracts insert column
@@ -75,7 +75,7 @@ func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ct
 // an auto-increment primary key back on the entity when applicable.
 // Relationship fields are not persisted; use createEntityWithAssociations to also
 // persist populated association fields.
-func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E, ttx *TTx) error {
+func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E) error {
 	now := time.Now()
 	rv := reflect.ValueOf(entity).Elem()
 
@@ -98,7 +98,7 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 		Columns(insertCols...).
 		Values(vals...)
 
-	_, result, err := r.statementCache.Exec(ctx, sqler, ttx)
+	_, result, err := r.statementCache.Exec(ctx, sqler, q)
 	if err != nil {
 		return fmt.Errorf("failed to create entity: %w", err)
 	}
@@ -136,7 +136,7 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 // ForType/refl.GetTags does not discover). Relations tagged with the "preload"
 // db option are automatically loaded after the main query. Auto-preload supports
 // HasOne, HasMany, BelongsTo, and ManyToMany, including nested preload paths.
-func (r *repositoryCommon[K, E]) readEntity(q sqlc.Querier, ctx context.Context, id K, ttx *TTx) (*E, error) {
+func (r *repositoryCommon[K, E]) readEntity(q sqlc.Querier, ctx context.Context, id K) (*E, error) {
 	if r.schema.PrimaryKey == nil {
 		return nil, fmt.Errorf("primary key not defined for %s", r.schema.TableName)
 	}
@@ -148,7 +148,7 @@ func (r *repositoryCommon[K, E]) readEntity(q sqlc.Querier, ctx context.Context,
 		Limit(1)
 
 	var entity E
-	if err := r.statementCache.Get(ctx, sqler, ttx, &entity); err != nil {
+	if err := r.statementCache.Get(ctx, sqler, q, &entity); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("entity id=%v: %w", id, ErrNotFound)
 		}
@@ -160,7 +160,7 @@ func (r *repositoryCommon[K, E]) readEntity(q sqlc.Querier, ctx context.Context,
 	autoPreloads := r.schema.AutoPreloads()
 	if len(autoPreloads) > 0 {
 		results := []E{entity}
-		if err := r.executePreloads(q, ctx, autoPreloads, results, ttx); err != nil {
+		if err := r.executePreloads(q, ctx, autoPreloads, results); err != nil {
 			return nil, err
 		}
 
@@ -176,9 +176,9 @@ func (r *repositoryCommon[K, E]) readEntity(q sqlc.Querier, ctx context.Context,
 // preloads are requested, it converts the read builder into a QueryBuilderSelect
 // with a WHERE pk = ? LIMIT 1 constraint and delegates to queryEntities, reusing
 // the full join/preload infrastructure.
-func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.Context, id K, qbr *QueryBuilderRead, ttx *TTx) (*E, error) {
+func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.Context, id K, qbr *QueryBuilderRead) (*E, error) {
 	if !qbr.hasRelations() {
-		return r.readEntity(q, ctx, id, ttx)
+		return r.readEntity(q, ctx, id)
 	}
 
 	if r.schema.PrimaryKey == nil {
@@ -187,7 +187,7 @@ func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.
 
 	qb := qbr.toQueryBuilderSelect(r.schema.TableName, r.schema.PrimaryKey.Name, id)
 
-	results, err := r.queryEntities(q, ctx, qb, ttx)
+	results, err := r.queryEntities(q, ctx, qb)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read entity: %w", err)
 	}
@@ -202,7 +202,7 @@ func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.
 // updateEntity saves all fields of the given entity back to the database. It builds
 // a column-value map from the entity using reflection and executes an UPDATE via sqlc.
 // Relationship fields are not synchronized; Update is intentionally not cascade-aware.
-func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E, ttx *TTx) (*E, error) {
+func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E) (*E, error) {
 	if r.schema.PrimaryKey == nil {
 		return nil, fmt.Errorf("primary key not defined for %s", r.schema.TableName)
 	}
@@ -236,7 +236,7 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 		SetMap(setMap).
 		Where(sqlc.Col(r.schema.PrimaryKey.Name).Eq(pkValue))
 
-	_, _, err := r.statementCache.Exec(ctx, sqler, ttx)
+	_, _, err := r.statementCache.Exec(ctx, sqler, q)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update entity: %w", err)
 	}
@@ -247,7 +247,7 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 // deleteEntity removes the entity with the given id from the database. Returns an
 // error if no entity with that id exists. Related rows are not cascade-deleted by
 // this method.
-func (r *repositoryCommon[K, E]) deleteEntity(q sqlc.Querier, ctx context.Context, id K, ttx *TTx) error {
+func (r *repositoryCommon[K, E]) deleteEntity(q sqlc.Querier, ctx context.Context, id K) error {
 	if r.schema.PrimaryKey == nil {
 		return fmt.Errorf("primary key not defined for %s", r.schema.TableName)
 	}
@@ -255,7 +255,7 @@ func (r *repositoryCommon[K, E]) deleteEntity(q sqlc.Querier, ctx context.Contex
 	sqler := sqlc.DeleteG[E](r.schema.TableName).
 		Where(sqlc.Col(r.schema.PrimaryKey.Name).Eq(id))
 
-	_, result, err := r.statementCache.Exec(ctx, sqler, ttx)
+	_, result, err := r.statementCache.Exec(ctx, sqler, q)
 	if err != nil {
 		return fmt.Errorf("failed to delete entity: %w", err)
 	}
@@ -307,7 +307,7 @@ func (r *repositoryCommon[K, E]) mergeAutoPreloads(explicit []preloadEntry) []pr
 // preload list (deduplicated against explicit preloads). Join loading supports
 // direct HasOne/HasMany/BelongsTo relations; preload loading supports HasOne,
 // HasMany, BelongsTo, and ManyToMany, including nested preload paths.
-func (r *repositoryCommon[K, E]) queryEntities(q sqlc.Querier, ctx context.Context, qb *QueryBuilderSelect, ttx *TTx) ([]E, error) {
+func (r *repositoryCommon[K, E]) queryEntities(q sqlc.Querier, ctx context.Context, qb *QueryBuilderSelect) ([]E, error) {
 	// Merge auto-preloads (from "preload" tag) with explicit preloads, deduplicating.
 	preloads := r.mergeAutoPreloads(qb.preloads)
 
@@ -328,15 +328,15 @@ func (r *repositoryCommon[K, E]) queryEntities(q sqlc.Querier, ctx context.Conte
 	}
 
 	if hasJoins {
-		return r.queryWithJoins(q, ctx, qb, ttx)
+		return r.queryWithJoins(q, ctx, qb)
 	}
 
-	return r.querySimple(q, ctx, qb, preloads, ttx)
+	return r.querySimple(q, ctx, qb, preloads)
 }
 
 // querySimple executes a query without joins. It uses sqlc's generic select builder
 // for the main query and optionally executes preload queries afterwards.
-func (r *repositoryCommon[K, E]) querySimple(q sqlc.Querier, ctx context.Context, qb *QueryBuilderSelect, preloads []preloadEntry, ttx *TTx) ([]E, error) {
+func (r *repositoryCommon[K, E]) querySimple(q sqlc.Querier, ctx context.Context, qb *QueryBuilderSelect, preloads []preloadEntry) ([]E, error) {
 	// Build the SELECT query using sqlc builder.
 	sqlcQB := sqlc.From(r.schema.TableName)
 
@@ -347,13 +347,13 @@ func (r *repositoryCommon[K, E]) querySimple(q sqlc.Querier, ctx context.Context
 	}
 
 	var results []E
-	if err := r.statementCache.Select(ctx, sqlcQB, nil, &results); err != nil {
+	if err := r.statementCache.Select(ctx, sqlcQB, q, &results); err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Execute preloads if any.
 	if len(preloads) > 0 && len(results) > 0 {
-		if err := r.executePreloads(q, ctx, preloads, results, ttx); err != nil {
+		if err := r.executePreloads(q, ctx, preloads, results); err != nil {
 			return nil, err
 		}
 	}

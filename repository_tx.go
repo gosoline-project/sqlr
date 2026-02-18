@@ -42,21 +42,19 @@ func NewRepositoryTxWithSettings[K KeyTypes, E Entitier[K]](client sqlc.Client, 
 
 	return &repositoryTx[K, E]{
 		repositoryCommon: common,
-		client:           client,
 	}, nil
 }
 
 type repositoryTx[K KeyTypes, E Entitier[K]] struct {
 	repositoryCommon[K, E]
-	client sqlc.Client
 }
 
 func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E) error {
 	if !t.hasAssociationsToSave(entity) {
-		return t.createEntity(ttx, ttx, entity, &ttx)
+		return t.createEntity(ttx, ttx, entity)
 	}
 
-	return t.createEntityWithAssociations(ttx, ttx, entity, &ttx)
+	return t.createEntityWithAssociations(ttx, ttx, entity)
 }
 
 func (t *repositoryTx[K, E]) Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRead)) (*E, error) {
@@ -65,7 +63,7 @@ func (t *repositoryTx[K, E]) Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRe
 		opt(qbr)
 	}
 
-	return t.readEntityWithOpts(ttx, ttx, id, qbr, &ttx)
+	return t.readEntityWithOpts(ttx, ttx, id, qbr)
 }
 
 func (t *repositoryTx[K, E]) Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)) ([]E, error) {
@@ -74,15 +72,15 @@ func (t *repositoryTx[K, E]) Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)
 		opt(qb)
 	}
 
-	return t.queryEntities(ttx, ttx, qb, &ttx)
+	return t.queryEntities(ttx, ttx, qb)
 }
 
 func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E) (*E, error) {
-	return t.updateEntity(ttx, ttx, entity, &ttx)
+	return t.updateEntity(ttx, ttx, entity)
 }
 
 func (t *repositoryTx[K, E]) Delete(ttx TTx, id K) error {
-	return t.deleteEntity(ttx, ttx, id, &ttx)
+	return t.deleteEntity(ttx, ttx, id)
 }
 
 func (t *repositoryTx[K, E]) Close() error {

@@ -33,7 +33,7 @@ type joinColumnScanTarget struct {
 // columns for joined tables, executes the query, and hydrates the results using
 // reflection-based scanning. Joins operate on direct relation names and support
 // HasOne, HasMany, and BelongsTo relations.
-func (r *repositoryCommon[K, E]) queryWithJoins(q sqlc.Querier, ctx context.Context, qb *QueryBuilderSelect, ttx *TTx) ([]E, error) {
+func (r *repositoryCommon[K, E]) queryWithJoins(q sqlc.Querier, ctx context.Context, qb *QueryBuilderSelect) ([]E, error) {
 	var err error
 	var sqlcQB *sqlc.SelectQueryBuilder
 	var joinInfoByName map[string]joinHydrationInfo
@@ -51,7 +51,7 @@ func (r *repositoryCommon[K, E]) queryWithJoins(q sqlc.Querier, ctx context.Cont
 	}
 
 	// Execute the raw query.
-	if rows, err = r.statementCache.Query(ctx, sqlcQB, ttx); err != nil {
+	if rows, err = r.statementCache.Query(ctx, sqlcQB, q); err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // safe to ignore in defer

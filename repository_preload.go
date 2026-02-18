@@ -25,7 +25,7 @@ import (
 // already populated. When operating within a transaction, preloads are executed
 // sequentially because a database transaction uses a single connection that
 // cannot multiplex concurrent queries.
-func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Context, preloads []preloadEntry, results []E, ttx *TTx) error {
+func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Context, preloads []preloadEntry, results []E) error {
 	sortedPreloads := make([]preloadEntry, len(preloads))
 	copy(sortedPreloads, preloads)
 
@@ -37,9 +37,9 @@ func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Con
 
 	// Within a transaction all queries must go through the same connection, so
 	// we cannot run them concurrently.
-	if ttx != nil {
+	if _, ok := q.(sqlc.Tx); ok {
 		for _, p := range sortedPreloads {
-			if err := r.executePreload(q, ctx, p, results, &executed, ttx); err != nil {
+			if err := r.executePreload(q, ctx, p, results, &executed); err != nil {
 				return err
 			}
 		}
@@ -51,7 +51,7 @@ func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Con
 	depthGroups := groupPreloadsByDepth(sortedPreloads)
 	for _, group := range depthGroups {
 		if len(group) == 1 {
-			if err := r.executePreload(q, ctx, group[0], results, &executed, ttx); err != nil {
+			if err := r.executePreload(q, ctx, group[0], results, &executed); err != nil {
 				return err
 			}
 
@@ -61,7 +61,7 @@ func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Con
 		g, gCtx := errgroup.WithContext(ctx)
 		for _, p := range group {
 			g.Go(func() error {
-				return r.executePreload(q, gCtx, p, results, &executed, ttx)
+				return r.executePreload(q, gCtx, p, results, &executed)
 			})
 		}
 
@@ -104,7 +104,7 @@ func preloadDepth(relation string) int {
 }
 
 // executePreload executes a single preload query and assigns results to parent entities.
-func (r *repositoryCommon[K, E]) executePreload(q sqlc.Querier, ctx context.Context, p preloadEntry, results []E, executed *sync.Map, ttx *TTx) error {
+func (r *repositoryCommon[K, E]) executePreload(q sqlc.Querier, ctx context.Context, p preloadEntry, results []E, executed *sync.Map) error {
 	parents := make([]reflect.Value, 0, len(results))
 	for i := range results {
 		parents = append(parents, reflect.ValueOf(&results[i]).Elem())
@@ -112,7 +112,7 @@ func (r *repositoryCommon[K, E]) executePreload(q sqlc.Querier, ctx context.Cont
 
 	segments := strings.Split(p.relation, ".")
 
-	return r.executeNestedPreload(q, ctx, parents, r.schema, segments, p.where, p.relation, executed, "", ttx)
+	return r.executeNestedPreload(q, ctx, parents, r.schema, segments, p.where, p.relation, executed, "")
 }
 
 // applyPreloadConditions applies additional WHERE conditions to a sqlc SelectQueryBuilder.
@@ -145,7 +145,6 @@ func (r *repositoryCommon[K, E]) executeNestedPreload(
 	relationPath string,
 	executed *sync.Map,
 	pathPrefix string,
-	ttx *TTx,
 ) error {
 	var err error
 	var relSchema *EntitySchema
@@ -173,7 +172,7 @@ func (r *repositoryCommon[K, E]) executeNestedPreload(
 		if _, alreadyLoaded := executed.Load(segmentPath); alreadyLoaded {
 			nextParents := collectAssignedRelated(parents, rel)
 
-			return r.executeNestedPreload(q, ctx, nextParents, relSchema, segments[1:], where, relationPath, executed, segmentPath, ttx)
+			return r.executeNestedPreload(q, ctx, nextParents, relSchema, segments[1:], where, relationPath, executed, segmentPath)
 		}
 	}
 
@@ -190,11 +189,11 @@ func (r *repositoryCommon[K, E]) executeNestedPreload(
 	}
 
 	if rel.Type == ManyToMany {
-		if err := r.executeM2MPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, activeWhere, ttx); err != nil {
+		if err := r.executeM2MPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, activeWhere); err != nil {
 			return err
 		}
 	} else {
-		if err := r.executeDirectPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, activeWhere, ttx); err != nil {
+		if err := r.executeDirectPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, activeWhere); err != nil {
 			return err
 		}
 	}
@@ -207,7 +206,7 @@ func (r *repositoryCommon[K, E]) executeNestedPreload(
 
 	nextParents := collectAssignedRelated(parents, rel)
 
-	return r.executeNestedPreload(q, ctx, nextParents, relSchema, segments[1:], where, relationPath, executed, segmentPath, ttx)
+	return r.executeNestedPreload(q, ctx, nextParents, relSchema, segments[1:], where, relationPath, executed, segmentPath)
 }
 
 func collectAssignedRelated(parents []reflect.Value, rel *Relationship) []reflect.Value {
@@ -239,7 +238,6 @@ func (r *repositoryCommon[K, E]) executeDirectPreload(
 	relSchema *EntitySchema,
 	parents []reflect.Value,
 	where []*sqlc.SqlerWhere,
-	ttx *TTx,
 ) error {
 	var err error
 	var qb *sqlc.SelectQueryBuilder
@@ -249,7 +247,7 @@ func (r *repositoryCommon[K, E]) executeDirectPreload(
 	var relatedByFK map[any][]reflect.Value
 
 	if rel.Type == BelongsTo {
-		return r.executeBelongsToPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, where, ttx)
+		return r.executeBelongsToPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, where)
 	}
 
 	// Collect parent primary key values.
@@ -261,7 +259,7 @@ func (r *repositoryCommon[K, E]) executeDirectPreload(
 		return err
 	}
 
-	if entities, columns, err = r.queryAndHydratePreload(ctx, qb, relSchema, rel, relationPath, ttx); err != nil {
+	if entities, columns, err = r.queryAndHydratePreload(ctx, qb, relSchema, rel, relationPath, q); err != nil {
 		return err
 	}
 
@@ -285,7 +283,6 @@ func (r *repositoryCommon[K, E]) executeBelongsToPreload(
 	relSchema *EntitySchema,
 	parents []reflect.Value,
 	where []*sqlc.SqlerWhere,
-	ttx *TTx,
 ) error {
 	var err error
 	var ok bool
@@ -314,7 +311,7 @@ func (r *repositoryCommon[K, E]) executeBelongsToPreload(
 		return err
 	}
 
-	if entities, _, err = r.queryAndHydratePreload(ctx, qb, relSchema, rel, relationPath, ttx); err != nil {
+	if entities, _, err = r.queryAndHydratePreload(ctx, qb, relSchema, rel, relationPath, q); err != nil {
 		return err
 	}
 
@@ -336,7 +333,6 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 	relSchema *EntitySchema,
 	parents []reflect.Value,
 	where []*sqlc.SqlerWhere,
-	ttx *TTx,
 ) error {
 	var err error
 	var sqler *sqlc.SelectQueryBuilder
@@ -356,7 +352,7 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 	sqler = sqlc.From(rel.JoinTable).
 		Where(sqlc.Col(rel.JoinTable, parentColName).In(pkValues...))
 
-	if links, relatedIDs, err = r.scanM2MJoinTable(ctx, sqler, parentSchema, relSchema, parentColName, relatedColName, rel, relationPath, ttx); err != nil {
+	if links, relatedIDs, err = r.scanM2MJoinTable(ctx, sqler, parentSchema, relSchema, parentColName, relatedColName, rel, relationPath, q); err != nil {
 		return err
 	}
 
@@ -370,7 +366,7 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 		return err
 	}
 
-	if entities, _, err = r.queryAndHydratePreload(ctx, relQB, relSchema, rel, relationPath, ttx); err != nil {
+	if entities, _, err = r.queryAndHydratePreload(ctx, relQB, relSchema, rel, relationPath, q); err != nil {
 		return err
 	}
 
@@ -398,13 +394,13 @@ func (r *repositoryCommon[K, E]) scanM2MJoinTable(
 	relatedColName string,
 	rel *Relationship,
 	relationPath string,
-	ttx *TTx,
+	q sqlc.Querier,
 ) ([]m2mLink, []any, error) {
 	var err error
 	var joinRows *sqlc.Rows
 	var joinColumns []string
 
-	if joinRows, err = r.statementCache.Query(ctx, sqler, ttx); err != nil {
+	if joinRows, err = r.statementCache.Query(ctx, sqler, q); err != nil {
 		return nil, nil, fmt.Errorf("failed to execute preload query for %q: %w", relationPath, err)
 	}
 	defer joinRows.Close() //nolint:errcheck // safe to ignore in defer
@@ -593,14 +589,14 @@ func (r *repositoryCommon[K, E]) queryAndHydratePreload(
 	relSchema *EntitySchema,
 	rel *Relationship,
 	relationPath string,
-	ttx *TTx,
+	q sqlc.Querier,
 ) ([]reflect.Value, []string, error) {
 	var err error
 	var rows *sqlc.Rows
 	var columns []string
 	var entities []reflect.Value
 
-	if rows, err = r.statementCache.Query(ctx, qb, ttx); err != nil {
+	if rows, err = r.statementCache.Query(ctx, qb, q); err != nil {
 		return nil, nil, fmt.Errorf("failed to execute preload query for %q: %w", relationPath, err)
 	}
 	defer rows.Close() //nolint:errcheck // safe to ignore in defer
