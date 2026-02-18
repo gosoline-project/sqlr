@@ -4,8 +4,8 @@ go 1.25.7
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/gosoline-project/sqlc v0.0.0-20260218122711-f9b263fcf488
-	github.com/justtrackio/gosoline v0.54.2
+	github.com/gosoline-project/sqlc v0.1.0
+	github.com/justtrackio/gosoline v0.55.0
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -45,6 +45,7 @@ require (
 	github.com/docker/docker v28.0.0+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/gin-contrib/cors v1.6.0 // indirect
 	github.com/gin-contrib/gzip v0.0.5 // indirect
@@ -55,7 +56,6 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/mold/v4 v4.2.0 // indirect
-	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-resty/resty/v2 v2.7.1-0.20230308051516-1578007c3c8d // indirect
 	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
@@ -98,6 +98,7 @@ require (
 	github.com/pborman/uuid v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/redis/go-redis/v9 v9.17.3 // indirect
 	github.com/segmentio/go-camelcase v0.0.0-20160726192923-7085f1e3c734 // indirect
 	github.com/segmentio/go-snakecase v1.2.0 // indirect
 	github.com/selm0/ladon v0.0.0-20231114080549-31144de4b38d // indirect
