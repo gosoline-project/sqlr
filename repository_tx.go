@@ -52,7 +52,11 @@ type repositoryTx[K KeyTypes, E Entitier[K]] struct {
 }
 
 func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E) error {
-	return t.createEntity(ttx, ttx, entity, &ttx)
+	if !t.hasAssociationsToSave(entity) {
+		return t.createEntity(ttx, ttx, entity, &ttx)
+	}
+
+	return t.createEntityWithAssociations(ttx, ttx, entity, &ttx)
 }
 
 func (t *repositoryTx[K, E]) Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRead)) (*E, error) {

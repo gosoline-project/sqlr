@@ -43,10 +43,38 @@ type repositoryCommon[K KeyTypes, E Entitier[K]] struct {
 	statementCache *statementCache
 }
 
+// createEntityWithAssociations persists an entity together with all populated
+// association fields. It handles the four relationship types in the correct order:
+//
+//  1. BelongsTo associations are inserted first (if their PK is zero) so that the
+//     parent's FK column can be set before the parent row is written.
+//  2. The parent entity row is inserted.
+//  3. HasOne and HasMany associations are inserted with their FK set to the parent PK.
+//  4. ManyToMany associations are inserted and join-table rows are created.
+//
+// All operations must be executed within a transaction so that a failure at any step
+// rolls back the entire tree. The caller is responsible for providing a transaction
+// querier (q) and a non-nil ttx when association saves are required.
+func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, ttx *TTx) error {
+	// Phase 1: persist BelongsTo relations and set their FKs on the parent.
+	if err := r.saveBelongsToAssociations(q, ctx, entity, ttx); err != nil {
+		return err
+	}
+
+	// Phase 2: persist the parent entity row.
+	if err := r.createEntity(q, ctx, entity, ttx); err != nil {
+		return err
+	}
+
+	// Phase 3 + 4: persist HasOne, HasMany, and ManyToMany relations.
+	return r.saveAssociations(q, ctx, entity, ttx)
+}
+
 // createEntity persists a new entity to the database. It extracts insert column
 // values from the entity using reflection, executes an INSERT via sqlc, and sets
 // an auto-increment primary key back on the entity when applicable.
-// Relationship fields are not persisted; Create is intentionally not cascade-aware.
+// Relationship fields are not persisted; use createEntityWithAssociations to also
+// persist populated association fields.
 func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E, ttx *TTx) error {
 	now := time.Now()
 	rv := reflect.ValueOf(entity).Elem()
