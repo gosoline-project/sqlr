@@ -109,8 +109,8 @@ func (r *repositoryCommon[K, E]) saveBelongsToAssociations(q sqlc.Querier, ctx c
 			continue
 		}
 
-		// Insert the related entity and retrieve its auto-generated PK.
-		relPK, err := insertRelatedEntity(q, ctx, relSchema, field, ttx)
+		// Insert the related entity (and its own associations) recursively.
+		relPK, err := createRelatedEntity(q, ctx, relSchema, field, ttx)
 		if err != nil {
 			return fmt.Errorf("failed to insert BelongsTo relation %q: %w", rel.Name, err)
 		}
@@ -155,7 +155,7 @@ func (r *repositoryCommon[K, E]) saveHasOneAssociation(q sqlc.Querier, ctx conte
 		return nil
 	}
 
-	relPK, err := insertRelatedEntity(q, ctx, relSchema, relField, ttx)
+	relPK, err := createRelatedEntity(q, ctx, relSchema, relField, ttx)
 	if err != nil {
 		return fmt.Errorf("failed to insert HasOne relation %q: %w", rel.Name, err)
 	}
@@ -192,7 +192,7 @@ func (r *repositoryCommon[K, E]) saveHasManyAssociation(q sqlc.Querier, ctx cont
 			continue
 		}
 
-		relPK, err := insertRelatedEntity(q, ctx, relSchema, elem, ttx)
+		relPK, err := createRelatedEntity(q, ctx, relSchema, elem, ttx)
 		if err != nil {
 			return fmt.Errorf("failed to insert HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
@@ -226,7 +226,7 @@ func (r *repositoryCommon[K, E]) saveManyToManyAssociation(q sqlc.Querier, ctx c
 		pkField := elem.FieldByIndex(relSchema.PrimaryKey.FieldIndex)
 
 		if pkField.IsZero() {
-			relPK, err := insertRelatedEntity(q, ctx, relSchema, elem, ttx)
+			relPK, err := createRelatedEntity(q, ctx, relSchema, elem, ttx)
 			if err != nil {
 				return fmt.Errorf("failed to insert ManyToMany relation %q[%d]: %w", rel.Name, i, err)
 			}
@@ -239,6 +239,235 @@ func (r *repositoryCommon[K, E]) saveManyToManyAssociation(q sqlc.Querier, ctx c
 
 	// Insert join table rows. Convention: snake_case(ParentType)_id and snake_case(RelatedType)_id.
 	parentColName := toSnakeCase(r.schema.entityType.Name()) + "_id"
+	relatedColName := toSnakeCase(rel.RelatedType.Name()) + "_id"
+
+	if err := insertJoinTableRows(q, ctx, rel.JoinTable, parentColName, relatedColName, parentPK, relatedPKs, ttx); err != nil {
+		return fmt.Errorf("failed to insert join table rows for ManyToMany relation %q: %w", rel.Name, err)
+	}
+
+	return nil
+}
+
+// createRelatedEntity persists a related entity and all of its own populated
+// associations recursively. It mirrors the four-phase flow of
+// createEntityWithAssociations but operates on a bare reflect.Value and
+// *EntitySchema so it can be used for any related entity type without needing
+// a typed repositoryCommon.
+//
+// Phase 1: BelongsTo associations on the related entity are inserted first so
+// that the related entity's FK columns are populated before its own row is
+// written.
+// Phase 2: The related entity row itself is inserted via insertRelatedEntity.
+// Phase 3/4: HasOne, HasMany, and ManyToMany associations on the related entity
+// are inserted with their FK columns pointing to the newly inserted related PK.
+//
+// Returns the primary key value of the inserted (or already-persisted) entity.
+func createRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, ttx *TTx) (any, error) {
+	// Phase 1: persist BelongsTo relations and set FK columns on the current entity.
+	if err := createRelatedBelongsTo(q, ctx, schema, entityValue, ttx); err != nil {
+		return nil, err
+	}
+
+	// Phase 2: insert the related entity row itself.
+	pk, err := insertRelatedEntity(q, ctx, schema, entityValue, ttx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Write the generated PK back onto the entity value.
+	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
+	pkField.Set(reflect.ValueOf(pk).Convert(pkField.Type()))
+
+	// Phase 3+4: persist HasOne, HasMany, and ManyToMany relations.
+	if err := createRelatedForwardAssociations(q, ctx, schema, entityValue, ttx); err != nil {
+		return nil, err
+	}
+
+	return pk, nil
+}
+
+// createRelatedBelongsTo handles Phase 1 of the recursive create flow: for each
+// BelongsTo relation on the entity that is non-zero, it ensures the related
+// entity is persisted (recursively if its PK is zero) and then sets the FK
+// column on the current entity value.
+func createRelatedBelongsTo(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, ttx *TTx) error {
+	for _, rel := range schema.Relationships {
+		if rel.Type != BelongsTo {
+			continue
+		}
+
+		field := entityValue.FieldByIndex(rel.FieldIndex)
+		if field.IsZero() {
+			continue
+		}
+
+		nestedSchema, err := rel.resolveRelationSchema()
+		if err != nil {
+			return fmt.Errorf("failed to resolve schema for BelongsTo relation %q: %w", rel.Name, err)
+		}
+
+		pkField := field.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
+
+		if pkField.IsZero() {
+			nestedPK, err := createRelatedEntity(q, ctx, nestedSchema, field, ttx)
+			if err != nil {
+				return fmt.Errorf("failed to insert BelongsTo relation %q: %w", rel.Name, err)
+			}
+
+			pkField.Set(reflect.ValueOf(nestedPK).Convert(pkField.Type()))
+		}
+
+		// Set the FK column on the current entity to point to the related entity.
+		fkCol, ok := schema.ColumnByName(rel.ForeignKey)
+		if !ok {
+			return fmt.Errorf("BelongsTo relation %q: FK column %q not found on schema", rel.Name, rel.ForeignKey)
+		}
+
+		entityValue.FieldByIndex(fkCol.FieldIndex).Set(pkField)
+	}
+
+	return nil
+}
+
+// createRelatedForwardAssociations handles Phase 3+4 of the recursive create
+// flow: for each HasOne, HasMany, or ManyToMany relation on the entity that is
+// non-zero, it persists the related entities with the parent PK already set.
+func createRelatedForwardAssociations(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, ttx *TTx) error {
+	for _, rel := range schema.Relationships {
+		field := entityValue.FieldByIndex(rel.FieldIndex)
+		if field.IsZero() {
+			continue
+		}
+
+		switch rel.Type {
+		case HasOne:
+			if err := createRelatedHasOne(q, ctx, schema, entityValue, rel, ttx); err != nil {
+				return err
+			}
+		case HasMany:
+			if err := createRelatedHasMany(q, ctx, schema, entityValue, rel, ttx); err != nil {
+				return err
+			}
+		case ManyToMany:
+			if err := createRelatedManyToMany(q, ctx, schema, entityValue, rel, ttx); err != nil {
+				return err
+			}
+		case BelongsTo:
+			// Already handled in Phase 1.
+		}
+	}
+
+	return nil
+}
+
+// createRelatedHasOne handles a HasOne relation on a related entity during
+// recursive association saving. It sets the FK on the nested entity and
+// recursively calls createRelatedEntity for those with a zero PK.
+func createRelatedHasOne(q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, ttx *TTx) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
+	}
+
+	relField := parentValue.FieldByIndex(rel.FieldIndex)
+	if relField.IsZero() {
+		return nil
+	}
+
+	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
+
+	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK); err != nil {
+		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
+	}
+
+	pkField := relField.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
+	if !pkField.IsZero() {
+		return nil
+	}
+
+	nestedPK, err := createRelatedEntity(q, ctx, nestedSchema, relField, ttx)
+	if err != nil {
+		return fmt.Errorf("failed to insert HasOne relation %q: %w", rel.Name, err)
+	}
+
+	pkField.Set(reflect.ValueOf(nestedPK).Convert(pkField.Type()))
+
+	return nil
+}
+
+// createRelatedHasMany handles a HasMany relation on a related entity during
+// recursive association saving. It sets the FK on each element and recursively
+// calls createRelatedEntity for those with a zero PK.
+func createRelatedHasMany(q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, ttx *TTx) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
+	}
+
+	sliceField := parentValue.FieldByIndex(rel.FieldIndex)
+	if sliceField.IsZero() || sliceField.Len() == 0 {
+		return nil
+	}
+
+	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
+
+	for i := range sliceField.Len() {
+		elem := sliceField.Index(i)
+
+		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK); err != nil {
+			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
+		}
+
+		pkField := elem.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
+		if !pkField.IsZero() {
+			continue
+		}
+
+		nestedPK, err := createRelatedEntity(q, ctx, nestedSchema, elem, ttx)
+		if err != nil {
+			return fmt.Errorf("failed to insert HasMany relation %q[%d]: %w", rel.Name, i, err)
+		}
+
+		pkField.Set(reflect.ValueOf(nestedPK).Convert(pkField.Type()))
+	}
+
+	return nil
+}
+
+// createRelatedManyToMany handles a ManyToMany relation on a related entity
+// during recursive association saving. It inserts related entities with zero
+// PKs recursively, then inserts the join table rows.
+func createRelatedManyToMany(q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, ttx *TTx) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
+	}
+
+	sliceField := parentValue.FieldByIndex(rel.FieldIndex)
+	if sliceField.IsZero() || sliceField.Len() == 0 {
+		return nil
+	}
+
+	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
+	relatedPKs := make([]any, 0, sliceField.Len())
+
+	for i := range sliceField.Len() {
+		elem := sliceField.Index(i)
+		pkField := elem.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
+
+		if pkField.IsZero() {
+			nestedPK, err := createRelatedEntity(q, ctx, nestedSchema, elem, ttx)
+			if err != nil {
+				return fmt.Errorf("failed to insert ManyToMany relation %q[%d]: %w", rel.Name, i, err)
+			}
+
+			pkField.Set(reflect.ValueOf(nestedPK).Convert(pkField.Type()))
+		}
+
+		relatedPKs = append(relatedPKs, pkField.Interface())
+	}
+
+	parentColName := toSnakeCase(parentSchema.entityType.Name()) + "_id"
 	relatedColName := toSnakeCase(rel.RelatedType.Name()) + "_id"
 
 	if err := insertJoinTableRows(q, ctx, rel.JoinTable, parentColName, relatedColName, parentPK, relatedPKs, ttx); err != nil {

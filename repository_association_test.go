@@ -78,6 +78,80 @@ type assocComment struct {
 }
 
 // ==========================================================================
+// Test Entity Types (recursive / deeply-nested associations)
+// ==========================================================================
+
+// deepAuthor is the root entity for 3-level HasMany recursion tests.
+// Table: "deep_authors".
+type deepAuthor struct {
+	sqlr.Entity[int64]
+	Name  string     `db:"name"`
+	Posts []deepPost `db:"-,foreignKey:author_id"`
+}
+
+// deepPost belongs to deepAuthor and has many deepComments.
+// Table: "deep_posts".
+type deepPost struct {
+	sqlr.Entity[int64]
+	AuthorID int64         `db:"author_id"`
+	Title    string        `db:"title"`
+	Comments []deepComment `db:"-,foreignKey:post_id"`
+}
+
+// deepComment belongs to deepPost. Table: "deep_comments".
+type deepComment struct {
+	sqlr.Entity[int64]
+	PostID int64  `db:"post_id"`
+	Body   string `db:"body"`
+}
+
+// deepTag is used for recursive ManyToMany tests. Table: "deep_tags".
+type deepTag struct {
+	sqlr.Entity[int64]
+	Name    string       `db:"name"`
+	SubTags []deepSubTag `db:"-,foreignKey:tag_id"`
+}
+
+// deepSubTag belongs to deepTag. Table: "deep_sub_tags".
+type deepSubTag struct {
+	sqlr.Entity[int64]
+	TagID int64  `db:"tag_id"`
+	Label string `db:"label"`
+}
+
+// deepArticle has ManyToMany deepTags (which themselves have HasMany subTags).
+// Table: "deep_articles".
+type deepArticle struct {
+	sqlr.Entity[int64]
+	Title string    `db:"title"`
+	Tags  []deepTag `db:"-,many2many:deep_article_tags"`
+}
+
+// deepLeafComment is used for a recursive BelongsTo chain test.
+// It belongs to deepLeafPost, which itself belongs to deepLeafAuthor.
+// Table: "deep_leaf_comments".
+type deepLeafComment struct {
+	sqlr.Entity[int64]
+	PostID int64        `db:"post_id"`
+	Body   string       `db:"body"`
+	Post   deepLeafPost `db:"-,belongsTo:post_id"`
+}
+
+// deepLeafPost belongs to deepLeafAuthor. Table: "deep_leaf_posts".
+type deepLeafPost struct {
+	sqlr.Entity[int64]
+	AuthorID int64          `db:"author_id"`
+	Title    string         `db:"title"`
+	Author   deepLeafAuthor `db:"-,belongsTo:author_id"`
+}
+
+// deepLeafAuthor is the leaf of the BelongsTo chain. Table: "deep_leaf_authors".
+type deepLeafAuthor struct {
+	sqlr.Entity[int64]
+	Name string `db:"name"`
+}
+
+// ==========================================================================
 // RepositoryAssociationCreateTestSuite
 // ==========================================================================
 
@@ -534,6 +608,191 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_RollbackOnRe
 	err := repo.Create(context.Background(), &entity)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "db error")
+}
+
+// --------------------------------------------------------------------------
+// Recursive: 3-level HasMany chain (deepAuthor → deepPost → deepComment)
+// --------------------------------------------------------------------------
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_Recursive_InsertsNestedAssociations() {
+	repo := mustNewRepo[int64, deepAuthor](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+
+	// Phase 2: insert root author
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Root").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// Phase 3: insert post 1 (author_id=1); post has two comments so post itself
+	// is inserted first, then its comments recursively.
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Post 1").
+		WillReturnResult(sqlmock.NewResult(10, 1))
+
+	// Recursive: comments for post 1
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_comments` (`created_at`, `updated_at`, `post_id`, `body`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(10), "Comment A").
+		WillReturnResult(sqlmock.NewResult(100, 1))
+
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_comments` (`created_at`, `updated_at`, `post_id`, `body`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(10), "Comment B").
+		WillReturnResult(sqlmock.NewResult(101, 1))
+
+	// Phase 3: insert post 2 (author_id=1); no comments → just the post row.
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Post 2").
+		WillReturnResult(sqlmock.NewResult(11, 1))
+
+	s.mock.ExpectCommit()
+
+	entity := deepAuthor{
+		Name: "Root",
+		Posts: []deepPost{
+			{
+				Title: "Post 1",
+				Comments: []deepComment{
+					{Body: "Comment A"},
+					{Body: "Comment B"},
+				},
+			},
+			{Title: "Post 2"},
+		},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity))
+
+	s.Equal(int64(1), entity.GetId())
+
+	s.Require().Len(entity.Posts, 2)
+	s.Equal(int64(10), entity.Posts[0].GetId())
+	s.Equal(int64(1), entity.Posts[0].AuthorID)
+
+	s.Require().Len(entity.Posts[0].Comments, 2)
+	s.Equal(int64(100), entity.Posts[0].Comments[0].GetId())
+	s.Equal(int64(10), entity.Posts[0].Comments[0].PostID)
+	s.Equal(int64(101), entity.Posts[0].Comments[1].GetId())
+	s.Equal(int64(10), entity.Posts[0].Comments[1].PostID)
+
+	s.Equal(int64(11), entity.Posts[1].GetId())
+	s.Equal(int64(1), entity.Posts[1].AuthorID)
+	s.Empty(entity.Posts[1].Comments)
+}
+
+// --------------------------------------------------------------------------
+// Recursive: 3-level BelongsTo chain (deepLeafComment → deepLeafPost → deepLeafAuthor)
+// --------------------------------------------------------------------------
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_Recursive_InsertsNestedChain() {
+	repo := mustNewRepo[int64, deepLeafComment](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+
+	// Phase 1 (deepLeafComment): persist BelongsTo deepLeafPost
+	//   Phase 1 (deepLeafPost): persist BelongsTo deepLeafAuthor
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_leaf_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Leaf Author").
+		WillReturnResult(sqlmock.NewResult(5, 1))
+
+	//   Phase 2 (deepLeafPost): insert post with author_id=5
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_leaf_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(5), "Leaf Post").
+		WillReturnResult(sqlmock.NewResult(50, 1))
+
+	// Phase 2 (deepLeafComment): insert comment with post_id=50
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_leaf_comments` (`created_at`, `updated_at`, `post_id`, `body`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(50), "Leaf Comment").
+		WillReturnResult(sqlmock.NewResult(500, 1))
+
+	s.mock.ExpectCommit()
+
+	entity := deepLeafComment{
+		Body: "Leaf Comment",
+		Post: deepLeafPost{
+			Title: "Leaf Post",
+			Author: deepLeafAuthor{
+				Name: "Leaf Author",
+			},
+		},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity))
+
+	s.Equal(int64(500), entity.GetId())
+	s.Equal(int64(50), entity.PostID)
+	s.Equal(int64(50), entity.Post.GetId())
+	s.Equal(int64(5), entity.Post.AuthorID)
+	s.Equal(int64(5), entity.Post.Author.GetId())
+}
+
+// --------------------------------------------------------------------------
+// Recursive: ManyToMany where each related entity has its own HasMany
+// --------------------------------------------------------------------------
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_Recursive_InsertsNestedHasMany() {
+	repo := mustNewRepo[int64, deepArticle](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+
+	// Phase 2: insert root article
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_articles` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Deep Article").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// Phase 4: insert tag 1 (has two sub-tags)
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Tag A").
+		WillReturnResult(sqlmock.NewResult(10, 1))
+
+	// Recursive HasMany: sub-tags for tag 1
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_sub_tags` (`created_at`, `updated_at`, `tag_id`, `label`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(10), "Sub A1").
+		WillReturnResult(sqlmock.NewResult(100, 1))
+
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_sub_tags` (`created_at`, `updated_at`, `tag_id`, `label`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(10), "Sub A2").
+		WillReturnResult(sqlmock.NewResult(101, 1))
+
+	// Phase 4: insert tag 2 (no sub-tags)
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Tag B").
+		WillReturnResult(sqlmock.NewResult(11, 1))
+
+	// Phase 4: join table rows for both tags
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT IGNORE INTO `deep_article_tags` (`deep_article_id`, `deep_tag_id`) VALUES (?, ?), (?, ?)")).
+		WithArgs(int64(1), int64(10), int64(1), int64(11)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	s.mock.ExpectCommit()
+
+	entity := deepArticle{
+		Title: "Deep Article",
+		Tags: []deepTag{
+			{
+				Name: "Tag A",
+				SubTags: []deepSubTag{
+					{Label: "Sub A1"},
+					{Label: "Sub A2"},
+				},
+			},
+			{Name: "Tag B"},
+		},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity))
+
+	s.Equal(int64(1), entity.GetId())
+
+	s.Require().Len(entity.Tags, 2)
+	s.Equal(int64(10), entity.Tags[0].GetId())
+	s.Require().Len(entity.Tags[0].SubTags, 2)
+	s.Equal(int64(100), entity.Tags[0].SubTags[0].GetId())
+	s.Equal(int64(10), entity.Tags[0].SubTags[0].TagID)
+	s.Equal(int64(101), entity.Tags[0].SubTags[1].GetId())
+	s.Equal(int64(10), entity.Tags[0].SubTags[1].TagID)
+	s.Equal(int64(11), entity.Tags[1].GetId())
+	s.Empty(entity.Tags[1].SubTags)
 }
 
 // --------------------------------------------------------------------------
