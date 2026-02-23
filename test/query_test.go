@@ -60,7 +60,24 @@ func (s *QueryTestSuite) TestQuery() {
 		Status:   "published",
 		Author:   Author{},
 		Comments: nil,
-		Tags:     nil,
+		Tags: []Tag{
+			{
+				Entity: sqlr.Entity[int64]{
+					Id:        1,
+					CreatedAt: time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
+					UpdatedAt: time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
+				},
+				Name: "golang",
+			},
+			{
+				Entity: sqlr.Entity[int64]{
+					Id:        4,
+					CreatedAt: time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
+					UpdatedAt: time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC),
+				},
+				Name: "tutorial",
+			},
+		},
 	}
 
 	s.Equal(expected, post)

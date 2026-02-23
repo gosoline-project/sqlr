@@ -17,6 +17,7 @@ import (
 // including simple queries and joins.
 type RepositoryQueryTestSuite struct {
 	suite.Suite
+	ctx                   context.Context
 	client                sqlc.Client
 	mock                  sqlmock.Sqlmock
 	repo                  sqlr.Repository[int64, testUser]
@@ -33,6 +34,7 @@ func TestRepositoryQueryTestSuite(t *testing.T) {
 
 func (s *RepositoryQueryTestSuite) SetupTest() {
 	client, mock := newTestClient(s.T())
+	s.ctx = s.T().Context()
 	s.client = client
 	s.mock = mock
 
@@ -52,6 +54,8 @@ func (s *RepositoryQueryTestSuite) TearDownTest() {
 // Simple Queries
 // ==========================================================================
 
+// TestQuery_Success verifies that a basic WHERE query returns all matching rows
+// and maps each column to the correct struct field.
 func (s *RepositoryQueryTestSuite) TestQuery_Success() {
 	now := time.Now()
 
@@ -62,7 +66,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_Success() {
 			AddRow(1, now, now, "Alice", "alice@test.com").
 			AddRow(2, now, now, "Alice", "alice2@test.com"))
 
-	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Alice")
 	})
 
@@ -74,6 +78,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_Success() {
 	s.Equal("alice2@test.com", results[1].Email)
 }
 
+// TestQuery_ReusedQueryBuilderDoesNotAccumulateAutoPreloads verifies that
+// reusing the same query-builder closure across two different repositories does
+// not cause auto-preload state from the first call to leak into the second call.
 func (s *RepositoryQueryTestSuite) TestQuery_ReusedQueryBuilderDoesNotAccumulateAutoPreloads() {
 	now := time.Now()
 
@@ -99,24 +106,26 @@ func (s *RepositoryQueryTestSuite) TestQuery_ReusedQueryBuilderDoesNotAccumulate
 		qb.Where("name = ?", "Alice")
 	}
 
-	authors, err := s.authorAutoPreloadRepo.Query(context.Background(), whereAlice)
+	authors, err := s.authorAutoPreloadRepo.Query(s.ctx, whereAlice)
 	s.Require().NoError(err)
 	s.Require().Len(authors, 1)
 	s.Require().Len(authors[0].Posts, 1)
 
-	users, err := s.repo.Query(context.Background(), whereAlice)
+	users, err := s.repo.Query(s.ctx, whereAlice)
 	s.Require().NoError(err)
 	s.Require().Len(users, 1)
 	s.Equal("Alice", users[0].Name)
 }
 
+// TestQuery_EmptyResult verifies that a query matching no rows returns an empty
+// slice and no error.
 func (s *RepositoryQueryTestSuite) TestQuery_EmptyResult() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_users` WHERE name = ?")).
 		WithArgs("Nobody").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}))
 
-	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Nobody")
 	})
 
@@ -124,6 +133,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_EmptyResult() {
 	s.Empty(results)
 }
 
+// TestQuery_WithLimitAndOffset verifies that LIMIT and OFFSET clauses are
+// appended to the SQL query in the correct order and with the correct values.
 func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
 	now := time.Now()
 
@@ -133,7 +144,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 			AddRow(1, now, now, "Alice", "alice@test.com"))
 
-	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Alice").
 			Limit(10).
 			Offset(5)
@@ -143,6 +154,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
 	s.Require().Len(results, 1)
 }
 
+// TestQuery_WithOrderBy verifies that an ORDER BY clause is appended to the
+// query and that the result set preserves the returned row order.
 func (s *RepositoryQueryTestSuite) TestQuery_WithOrderBy() {
 	now := time.Now()
 
@@ -153,7 +166,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithOrderBy() {
 			AddRow(2, now, now, "Alice", "alice2@test.com").
 			AddRow(1, now, now, "Alice", "alice@test.com"))
 
-	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Alice").
 			OrderBy("created_at DESC")
 	})
@@ -162,13 +175,15 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithOrderBy() {
 	s.Require().Len(results, 2)
 }
 
+// TestQuery_Error verifies that a database error is propagated as a wrapped
+// error containing a descriptive message.
 func (s *RepositoryQueryTestSuite) TestQuery_Error() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_users` WHERE name = ?")).
 		WithArgs("Alice").
 		WillReturnError(fmt.Errorf("connection lost"))
 
-	results, err := s.repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Alice")
 	})
 
@@ -181,6 +196,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_Error() {
 // Joins
 // ==========================================================================
 
+// TestQuery_LeftJoinWithoutCondition verifies that a LEFT JOIN without any extra
+// ON condition generates the correct SELECT and FROM clauses and maps the joined
+// columns into the relation field.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithoutCondition() {
 	now := time.Now()
 
@@ -192,7 +210,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithoutCondition() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts")
 	})
 
@@ -206,8 +224,10 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithoutCondition() {
 	})
 }
 
+// TestQuery_LeftJoinWithUnknownRelation verifies that referencing a relation
+// name that does not exist on the entity returns a descriptive error.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnknownRelation() {
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Unknown")
 	})
 
@@ -216,6 +236,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnknownRelation() {
 	s.Contains(err.Error(), `join relation "Unknown" not found`)
 }
 
+// TestQuery_LeftJoinWithUnexpectedJoinedColumn verifies that when the database
+// returns columns whose prefixes reference an unknown relation or don't match
+// any known column, a descriptive mapping error is returned without a panic.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnexpectedJoinedColumn() {
 	now := time.Now()
 	columns := []string{
@@ -236,7 +259,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnexpectedJoinedColumn(
 	var results []testAuthor
 	var err error
 	s.NotPanics(func() {
-		results, err = s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+		results, err = s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 			qb.LeftJoin("Posts")
 		})
 	})
@@ -248,11 +271,14 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithUnexpectedJoinedColumn(
 	s.Contains(err.Error(), `column "unmapped_col" does not map to base entity columns or joined relations`)
 }
 
+// TestQuery_LeftJoinWithRelatedEntityWithoutPrimaryKey verifies that attempting
+// to join a relation whose related entity type has no primary key field returns
+// a descriptive error during schema resolution.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithRelatedEntityWithoutPrimaryKey() {
 	repo, err := sqlr.NewRepositoryWithInterfaces[int64, testAuthorWithPostWithoutPrimaryKey](s.client, sqlr.DefaultSettings())
 	s.Require().NoError(err)
 
-	results, err := repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts")
 	})
 
@@ -262,6 +288,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithRelatedEntityWithoutPri
 	s.Contains(err.Error(), "related entity type testPostWithoutPrimaryKey has no primary key")
 }
 
+// TestQuery_LeftJoinWithCondition verifies that a single ON condition is
+// appended to the LEFT JOIN clause and its argument is passed correctly.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithCondition() {
 	now := time.Now()
 
@@ -275,7 +303,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithCondition() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts", sqlr.Condition("test_posts.status = ?", "published"))
 	})
 
@@ -289,6 +317,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithCondition() {
 	})
 }
 
+// TestQuery_LeftJoinWithMultipleConditions verifies that multiple ON conditions
+// are each appended as separate AND clauses in the JOIN clause.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithMultipleConditions() {
 	now := time.Now()
 
@@ -302,7 +332,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithMultipleConditions() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts",
 			sqlr.Condition("test_posts.status = ?", "published"),
 			sqlr.Condition("test_posts.title IS NOT NULL"),
@@ -319,6 +349,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithMultipleConditions() {
 	})
 }
 
+// TestQuery_LeftJoinWithParameterizedCondition verifies that a parameterized ON
+// condition correctly binds its argument in the JOIN clause.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithParameterizedCondition() {
 	now := time.Now()
 
@@ -332,7 +364,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithParameterizedCondition(
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(42), "First Post", "draft"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts", sqlr.Condition("test_posts.author_id = ?", int64(42)))
 	})
 
@@ -346,6 +378,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithParameterizedCondition(
 	})
 }
 
+// TestQuery_InnerJoin verifies that InnerJoin generates a JOIN (INNER JOIN)
+// clause and maps the joined columns correctly.
 func (s *RepositoryQueryTestSuite) TestQuery_InnerJoin() {
 	now := time.Now()
 
@@ -359,7 +393,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoin() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.InnerJoin("Posts", sqlr.Condition("test_posts.status = ?", "published"))
 	})
 
@@ -373,6 +407,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoin() {
 	})
 }
 
+// TestQuery_RightJoin verifies that RightJoin generates a RIGHT JOIN clause and
+// maps the joined columns correctly.
 func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
 	now := time.Now()
 
@@ -386,7 +422,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Bob", 20, now, now, int64(1), "Draft Post", "draft"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.RightJoin("Posts", sqlr.Condition("test_posts.status = ?", "draft"))
 	})
 
@@ -399,6 +435,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
 	s.Equal("draft", results[0].Posts[0].Status)
 }
 
+// TestQuery_CrossJoin verifies that CrossJoin generates a JOIN clause (without
+// ON conditions beyond the relation key) and correctly maps multiple result rows
+// to distinct parent entities.
 func (s *RepositoryQueryTestSuite) TestQuery_CrossJoin() {
 	now := time.Now()
 
@@ -411,7 +450,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_CrossJoin() {
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "Post A", "published").
 			AddRow(2, now, now, "Bob", 20, now, now, int64(2), "Post B", "draft"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.CrossJoin("Posts")
 	})
 
@@ -431,6 +470,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_CrossJoin() {
 	})
 }
 
+// TestQuery_JoinWithWhere verifies that a WHERE clause on the parent query is
+// correctly placed after the JOIN clause when both are combined.
 func (s *RepositoryQueryTestSuite) TestQuery_JoinWithWhere() {
 	now := time.Now()
 
@@ -444,7 +485,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinWithWhere() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts", sqlr.Condition("test_posts.status = ?", "published")).
 			Where("name = ?", "Alice")
 	})
@@ -459,6 +500,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinWithWhere() {
 	})
 }
 
+// TestQuery_JoinWithOrderBy verifies that an ORDER BY clause is correctly placed
+// after the JOIN clause and that the result set reflects the returned row order.
 func (s *RepositoryQueryTestSuite) TestQuery_JoinWithOrderBy() {
 	now := time.Now()
 
@@ -472,7 +515,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinWithOrderBy() {
 			AddRow(2, now, now, "Bob", 20, now, now, int64(2), "Bob's Post", "draft").
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "Alice's Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts").
 			OrderBy("created_at DESC")
 	})
@@ -493,6 +536,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinWithOrderBy() {
 	})
 }
 
+// TestQuery_MultipleJoins verifies that two simultaneous LEFT JOINs are sorted
+// alphabetically in the SQL and that both joined relations are mapped correctly
+// into the same parent entity.
 func (s *RepositoryQueryTestSuite) TestQuery_MultipleJoins() {
 	now := time.Now()
 
@@ -519,7 +565,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_MultipleJoins() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Comments__id", "Comments__created_at", "Comments__updated_at", "Comments__author_id", "Comments__post_id", "Comments__body", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "Great work!", 10, now, now, int64(1), "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts", sqlr.Condition("test_posts.status = ?", "published")).
 			LeftJoin("Comments")
 	})
@@ -537,6 +583,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_MultipleJoins() {
 	})
 }
 
+// TestQuery_LeftJoinMultipleRelated verifies that multiple rows sharing the same
+// parent primary key are collected into a single parent entity's relation slice.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelated() {
 	now := time.Now()
 
@@ -550,7 +598,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelated() {
 			AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Second Post", "draft").
 			AddRow(1, now, now, "Alice", 12, now, now, int64(1), "Third Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts")
 	})
 
@@ -566,6 +614,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelated() {
 	})
 }
 
+// TestQuery_LeftJoinMultipleRelations verifies that joining two relations at
+// once produces a Cartesian product in the result set and that duplicate rows
+// are deduplicated correctly into distinct slices on the parent entity.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelations() {
 	now := time.Now()
 
@@ -592,7 +643,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelations() {
 			AddRow(1, now, now, "Alice", 101, now, now, int64(1), int64(11), "Second Comment", 10, now, now, int64(1), "Post A", "published").
 			AddRow(1, now, now, "Alice", 101, now, now, int64(1), int64(11), "Second Comment", 11, now, now, int64(1), "Post B", "draft"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts").
 			LeftJoin("Comments")
 	})
@@ -612,6 +663,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelations() {
 	})
 }
 
+// TestQuery_LeftJoinNoRelated verifies that when all joined columns contain
+// zero values (i.e. the LEFT JOIN found no match), the relation slice on the
+// parent entity is left empty rather than containing a zero-value element.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
 	zeroTime := time.Time{}
 
@@ -623,7 +677,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, zeroTime, zeroTime, "Alice", int64(0), zeroTime, zeroTime, int64(0), "", ""))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts")
 	})
 
@@ -633,6 +687,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
 	s.Empty(results[0].Posts)
 }
 
+// TestQuery_LeftJoinHasOne verifies that a HasOne relation is correctly mapped
+// from joined columns into a non-slice struct field.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOne() {
 	now := time.Now()
 
@@ -644,7 +700,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOne() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "Go engineer"))
 
-	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Profile")
 	})
 
@@ -656,6 +712,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOne() {
 	s.Equal("Go engineer", results[0].Profile.Bio)
 }
 
+// TestQuery_LeftJoinHasOneNoRelated verifies that when all joined columns for a
+// HasOne relation are zero values, the field is left as its zero value rather
+// than being populated with an empty struct.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneNoRelated() {
 	zeroTime := time.Time{}
 
@@ -667,7 +726,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneNoRelated() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, zeroTime, zeroTime, "Alice", int64(0), zeroTime, zeroTime, int64(0), ""))
 
-	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Profile")
 	})
 
@@ -677,6 +736,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneNoRelated() {
 	s.Equal(testProfile{}, results[0].Profile)
 }
 
+// TestQuery_LeftJoinHasOneMultipleRows verifies that when multiple rows are
+// returned for a HasOne relation (e.g. due to a broad join), only the first
+// encountered row is used and subsequent rows are silently discarded.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneMultipleRows() {
 	now := time.Now()
 
@@ -689,7 +751,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneMultipleRows() {
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "First profile").
 			AddRow(1, now, now, "Alice", 101, now, now, int64(1), "Second profile"))
 
-	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Profile")
 	})
 
@@ -700,6 +762,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneMultipleRows() {
 	s.Equal("First profile", results[0].Profile.Bio)
 }
 
+// TestQuery_InnerJoinHasOne verifies that InnerJoin works correctly for a HasOne
+// relation and that an ON condition filters the joined rows.
 func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinHasOne() {
 	now := time.Now()
 
@@ -713,7 +777,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinHasOne() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "Go engineer"))
 
-	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.InnerJoin("Profile", sqlr.Condition("test_profiles.bio <> ?", ""))
 	})
 
@@ -724,6 +788,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinHasOne() {
 	s.Equal("Go engineer", results[0].Profile.Bio)
 }
 
+// TestQuery_LeftJoinBelongsTo verifies that a BelongsTo relation is correctly
+// resolved via LEFT JOIN, using the child's foreign key to join to the parent
+// table, and that all columns are mapped correctly.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsTo() {
 	now := time.Now()
 
@@ -734,7 +801,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsTo() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
-	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Author")
 	})
 
@@ -748,6 +815,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsTo() {
 	s.Equal("Alice", results[0].Author.Name)
 }
 
+// TestQuery_LeftJoinBelongsToWithCondition verifies that a condition on a
+// BelongsTo LEFT JOIN is correctly appended to the ON clause.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToWithCondition() {
 	now := time.Now()
 
@@ -760,7 +829,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToWithCondition() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
-	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Author", sqlr.Condition("test_authors.name = ?", "Alice"))
 	})
 
@@ -769,6 +838,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToWithCondition() {
 	s.Equal("Alice", results[0].Author.Name)
 }
 
+// TestQuery_InnerJoinBelongsTo verifies that InnerJoin works correctly for a
+// BelongsTo relation, generating an INNER JOIN clause.
 func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinBelongsTo() {
 	now := time.Now()
 
@@ -779,7 +850,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinBelongsTo() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
-	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.InnerJoin("Author")
 	})
 
@@ -789,6 +860,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinBelongsTo() {
 	s.Equal(int64(1), results[0].Author.GetId())
 }
 
+// TestQuery_RightJoinBelongsTo verifies that RightJoin works correctly for a
+// BelongsTo relation, generating a RIGHT JOIN clause.
 func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
 	now := time.Now()
 
@@ -799,7 +872,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
-	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.RightJoin("Author")
 	})
 
@@ -808,6 +881,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
 	s.Equal("Alice", results[0].Author.Name)
 }
 
+// TestQuery_CrossJoinBelongsTo verifies that CrossJoin works correctly for a
+// BelongsTo relation, generating a JOIN clause without extra ON conditions.
 func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
 	now := time.Now()
 
@@ -818,7 +893,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
-	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.CrossJoin("Author")
 	})
 
@@ -827,6 +902,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
 	s.Equal("Alice", results[0].Author.Name)
 }
 
+// TestQuery_LeftJoinBelongsToNoRelated verifies that when all joined columns for
+// a BelongsTo relation are zero values (no matching parent row), the relation
+// field is left as its zero value without error.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToNoRelated() {
 	now := time.Now()
 	zeroTime := time.Time{}
@@ -838,7 +916,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToNoRelated() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(0), "Orphan Post", "draft", int64(0), zeroTime, zeroTime, ""))
 
-	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Author")
 	})
 
@@ -848,6 +926,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToNoRelated() {
 	s.Equal(testAuthor{}, results[0].Author)
 }
 
+// TestQuery_JoinBelongsToWithWhere verifies that a WHERE clause on the main
+// query is correctly placed after the BelongsTo JOIN clause when both are used.
 func (s *RepositoryQueryTestSuite) TestQuery_JoinBelongsToWithWhere() {
 	now := time.Now()
 
@@ -860,7 +940,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinBelongsToWithWhere() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
-	results, err := s.postRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Author", sqlr.Condition("test_authors.name = ?", "Alice")).
 			Where("status = ?", "published")
 	})
@@ -875,8 +955,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_JoinBelongsToWithWhere() {
 // Many-to-Many Joins
 // ==========================================================================
 
+// TestQuery_ManyToManyJoinNotSupported verifies that attempting to use any join
+// method on a ManyToMany relation returns a descriptive error, as join-based
+// loading is not supported for many-to-many associations.
 func (s *RepositoryQueryTestSuite) TestQuery_ManyToManyJoinNotSupported() {
-	results, err := s.articleRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.articleRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Tags")
 	})
 
@@ -889,8 +972,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_ManyToManyJoinNotSupported() {
 // Nested/Dotted Joins
 // ==========================================================================
 
+// TestQuery_NestedJoinNotSupported verifies that a dot-separated join path
+// (e.g. "Posts.Comments") is rejected with a descriptive error that points the
+// caller to use Preload instead.
 func (s *RepositoryQueryTestSuite) TestQuery_NestedJoinNotSupported() {
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts.Comments")
 	})
 
@@ -900,8 +986,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_NestedJoinNotSupported() {
 	s.Contains(err.Error(), "use Preload")
 }
 
+// TestQuery_NestedJoinNotSupported_InnerJoin verifies the same nested-path
+// restriction as TestQuery_NestedJoinNotSupported but via InnerJoin, confirming
+// the guard applies to all join types.
 func (s *RepositoryQueryTestSuite) TestQuery_NestedJoinNotSupported_InnerJoin() {
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.InnerJoin("Posts.Comments")
 	})
 

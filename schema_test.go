@@ -23,6 +23,78 @@ type schemaPrimaryKeyEntityWithDirectField struct {
 	Value string `db:"value"`
 }
 
+type schemaNoPrimaryKey struct {
+	Name string `db:"name"`
+}
+
+type schemaPointerIntPK struct {
+	ID   *int64 `db:"id,primaryKey"`
+	Name string `db:"name"`
+}
+
+type schemaAutoTimestamps struct {
+	ID        int64  `db:"id,primaryKey"`
+	Name      string `db:"name"`
+	CreatedAt string `db:"created_at,autoCreateTime"`
+	UpdatedAt string `db:"updated_at,autoUpdateTime"`
+}
+
+type schemaHasOneProfile struct {
+	ID       int64  `db:"id,primaryKey"`
+	AuthorID int64  `db:"author_id"`
+	Bio      string `db:"bio"`
+}
+
+type schemaHasOneAuthor struct {
+	ID      int64               `db:"id,primaryKey"`
+	Name    string              `db:"name"`
+	Profile schemaHasOneProfile `db:"-,foreignKey:author_id"`
+}
+
+type schemaManyToManyTag struct {
+	ID   int64  `db:"id,primaryKey"`
+	Name string `db:"name"`
+}
+
+type schemaManyToManyArticle struct {
+	ID   int64                 `db:"id,primaryKey"`
+	Name string                `db:"name"`
+	Tags []schemaManyToManyTag `db:"-,many2many:article_tags"`
+}
+
+type schemaMixedPreloadPost struct {
+	ID   int64  `db:"id,primaryKey"`
+	Body string `db:"body"`
+}
+
+type schemaMixedPreloadComment struct {
+	ID   int64  `db:"id,primaryKey"`
+	Body string `db:"body"`
+}
+
+type schemaMixedPreloadAuthor struct {
+	ID       int64                       `db:"id,primaryKey"`
+	Name     string                      `db:"name"`
+	Posts    []schemaMixedPreloadPost    `db:"-,foreignKey:author_id,preload"`
+	Comments []schemaMixedPreloadComment `db:"-,foreignKey:author_id"`
+}
+
+type schemaMissingFKRelation struct {
+	ID    int64               `db:"id,primaryKey"`
+	Other schemaHasOneProfile `db:"-,foreignKey:"`
+}
+
+type schemaRelationNonStruct struct {
+	ID    int64  `db:"id,primaryKey"`
+	Other string `db:"-,foreignKey:other_id"`
+}
+
+type schemaDashField struct {
+	ID      int64  `db:"id,primaryKey"`
+	Name    string `db:"name"`
+	Ignored string `db:"-"`
+}
+
 type schemaCacheComment struct {
 	ID       int64  `db:"id,primaryKey"`
 	AuthorID int64  `db:"author_id"`
@@ -250,4 +322,142 @@ func TestParseSchema_BelongsToMissingForeignKeyColumnRejected(t *testing.T) {
 
 func TestIsRelationshipField_BelongsTo(t *testing.T) {
 	assert.True(t, isRelationshipField([]string{"belongsTo:author_id"}))
+}
+
+func TestParseSchema_NonStructType_ReturnsError(t *testing.T) {
+	_, err := parseSchema[int]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "is not a struct")
+}
+
+func TestParseSchema_NoPrimaryKey_ReturnsError(t *testing.T) {
+	_, err := parseSchema[schemaNoPrimaryKey]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "has no primary key")
+}
+
+func TestParseSchema_PointerToStruct_UnwrapsSuccessfully(t *testing.T) {
+	schema, err := parseSchema[*schemaPrimaryKeyEntityWithEmbedded]()
+	require.NoError(t, err)
+	require.NotNil(t, schema.PrimaryKey)
+	assert.Equal(t, "id", schema.PrimaryKey.Name)
+	assert.Equal(t, []string{"id", "name"}, schema.AllColumns())
+}
+
+func TestParseSchema_StringPK_IncludedInInsertColumns(t *testing.T) {
+	schema, err := parseSchema[schemaPrimaryKeyEntityWithDirectField]()
+	require.NoError(t, err)
+	require.NotNil(t, schema.PrimaryKey)
+	assert.False(t, schema.PrimaryKey.AutoIncrement)
+	assert.Contains(t, schema.InsertColumns(), "key")
+	assert.Equal(t, []string{"key", "value"}, schema.InsertColumns())
+}
+
+func TestResolveRelationSchema_RelatedTypeNoPrimaryKey_ReturnsError(t *testing.T) {
+	rel := &Relationship{
+		RelatedType: reflect.TypeOf(schemaNoPrimaryKey{}),
+	}
+
+	_, err := rel.resolveRelationSchema()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "has no primary key")
+}
+
+func TestParseSchema_MissingForeignKey_ReturnsError(t *testing.T) {
+	_, err := parseSchema[schemaMissingFKRelation]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "requires a foreignKey option")
+}
+
+func TestParseSchema_RelationshipOnNonStructField_ReturnsError(t *testing.T) {
+	_, err := parseSchema[schemaRelationNonStruct]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "must be a struct or slice of structs")
+}
+
+func TestParseSchema_AutoCreateTimeAndUpdateTime(t *testing.T) {
+	schema, err := parseSchema[schemaAutoTimestamps]()
+	require.NoError(t, err)
+
+	createdAt, ok := schema.ColumnByName("created_at")
+	require.True(t, ok)
+	assert.True(t, createdAt.AutoCreateTime)
+	assert.False(t, createdAt.AutoUpdateTime)
+
+	updatedAt, ok := schema.ColumnByName("updated_at")
+	require.True(t, ok)
+	assert.True(t, updatedAt.AutoUpdateTime)
+	assert.False(t, updatedAt.AutoCreateTime)
+}
+
+func TestParseSchema_PointerIntegerPK_AutoIncrementTrue(t *testing.T) {
+	schema, err := parseSchema[schemaPointerIntPK]()
+	require.NoError(t, err)
+	require.NotNil(t, schema.PrimaryKey)
+	assert.True(t, schema.PrimaryKey.AutoIncrement)
+	assert.Equal(t, []string{"name"}, schema.InsertColumns())
+}
+
+func TestParseSchema_HasOne_Relationship(t *testing.T) {
+	schema, err := parseSchema[schemaHasOneAuthor]()
+	require.NoError(t, err)
+
+	rel, ok := schema.Relationships["Profile"]
+	require.True(t, ok)
+	assert.Equal(t, HasOne, rel.Type)
+	assert.Equal(t, "author_id", rel.ForeignKey)
+}
+
+func TestParseSchema_ManyToMany_Relationship(t *testing.T) {
+	schema, err := parseSchema[schemaManyToManyArticle]()
+	require.NoError(t, err)
+
+	rel, ok := schema.Relationships["Tags"]
+	require.True(t, ok)
+	assert.Equal(t, ManyToMany, rel.Type)
+	assert.Equal(t, "article_tags", rel.JoinTable)
+	assert.Equal(t, "", rel.ForeignKey)
+}
+
+func TestParseSchema_MixedPreloadAndNonPreload_AutoPreloads(t *testing.T) {
+	schema, err := parseSchema[schemaMixedPreloadAuthor]()
+	require.NoError(t, err)
+
+	autoPreloads := schema.AutoPreloads()
+	require.Len(t, autoPreloads, 1)
+	assert.Equal(t, "Posts", autoPreloads[0].relation)
+}
+
+func TestIsRelationshipField_ForeignKey(t *testing.T) {
+	assert.True(t, isRelationshipField([]string{"foreignKey:post_id"}))
+}
+
+func TestIsRelationshipField_ManyToMany(t *testing.T) {
+	assert.True(t, isRelationshipField([]string{"many2many:post_tags"}))
+}
+
+func TestIsRelationshipField_NoRelationshipOption_ReturnsFalse(t *testing.T) {
+	assert.False(t, isRelationshipField([]string{"primaryKey"}))
+}
+
+func TestIsRelationshipField_EmptySlice_ReturnsFalse(t *testing.T) {
+	assert.False(t, isRelationshipField([]string{}))
+}
+
+func TestParseSchema_DbDashWithoutRelationship_FieldSkipped(t *testing.T) {
+	schema, err := parseSchema[schemaDashField]()
+	require.NoError(t, err)
+
+	_, ok := schema.ColumnByName("-")
+	assert.False(t, ok)
+	assert.Equal(t, []string{"id", "name"}, schema.AllColumns())
+	assert.Empty(t, schema.Relationships)
+}
+
+func TestValidRelationNames_SortedOutput(t *testing.T) {
+	schema, err := parseSchema[schemaCacheAuthor]()
+	require.NoError(t, err)
+
+	names := schema.ValidRelationNames()
+	assert.Equal(t, []string{"Comments", "Posts"}, names)
 }

@@ -17,6 +17,7 @@ import (
 // and auto-preloads via the "preload" struct tag.
 type RepositoryPreloadTestSuite struct {
 	suite.Suite
+	ctx                    context.Context
 	client                 sqlc.Client
 	mock                   sqlmock.Sqlmock
 	authorRepo             sqlr.Repository[int64, testAuthor]
@@ -40,6 +41,7 @@ func TestRepositoryPreloadTestSuite(t *testing.T) {
 
 func (s *RepositoryPreloadTestSuite) SetupTest() {
 	client, mock := newTestClient(s.T())
+	s.ctx = s.T().Context()
 	s.client = client
 	s.mock = mock
 
@@ -66,6 +68,8 @@ func (s *RepositoryPreloadTestSuite) TearDownTest() {
 // Preloads
 // ==========================================================================
 
+// TestQuery_PreloadWithoutCondition verifies that a HasMany relation (Posts) is
+// loaded via a secondary IN-query when a single parent record is returned.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition() {
 	now := time.Now()
 
@@ -82,7 +86,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, 1, "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts")
 	})
 
@@ -96,6 +100,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition() {
 	})
 }
 
+// TestQuery_PreloadWithoutCondition_MultipleParents verifies that HasMany preload
+// correctly distributes related records across multiple parent entities using a
+// single batched IN-query.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition_MultipleParents() {
 	now := time.Now()
 
@@ -113,7 +120,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition_MultipleP
 			AddRow(10, now, now, 1, "Alice Post", "published").
 			AddRow(21, now, now, 2, "Bob Post 2", "draft"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts")
 	})
 
@@ -129,6 +136,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithoutCondition_MultipleP
 	s.Equal("Bob Post 2", results[1].Posts[1].Title)
 }
 
+// TestQuery_PreloadHasOne verifies that a HasOne relation (Profile) is loaded
+// for a single parent record and mapped to the struct field correctly.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOne() {
 	now := time.Now()
 
@@ -143,7 +152,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOne() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
 			AddRow(10, now, now, 1, "Alice profile"))
 
-	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Profile")
 	})
 
@@ -155,6 +164,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOne() {
 	s.Equal("Alice profile", results[0].Profile.Bio)
 }
 
+// TestQuery_PreloadHasOneMultipleParents verifies that a HasOne relation is
+// correctly distributed across multiple parent records in a single batched query.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneMultipleParents() {
 	now := time.Now()
 
@@ -171,7 +182,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneMultipleParents() {
 			AddRow(20, now, now, 2, "Bob profile").
 			AddRow(10, now, now, 1, "Alice profile"))
 
-	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Profile")
 	})
 
@@ -185,6 +196,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneMultipleParents() {
 	s.Equal("Bob profile", results[1].Profile.Bio)
 }
 
+// TestQuery_PreloadHasOneNoRelated verifies that when no related record exists for
+// a HasOne relation, the field is left as its zero value without error.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneNoRelated() {
 	now := time.Now()
 
@@ -198,7 +211,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneNoRelated() {
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 
-	results, err := s.authorWithProfileRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Profile")
 	})
 
@@ -208,6 +221,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneNoRelated() {
 	s.Equal(testProfile{}, results[0].Profile)
 }
 
+// TestQuery_PreloadBelongsTo verifies that a BelongsTo relation (Author) is
+// loaded for a single child record by querying the parent table using the
+// foreign key value stored on the child.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsTo() {
 	now := time.Now()
 
@@ -222,7 +238,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsTo() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
-	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postWithAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author")
 	})
 
@@ -232,6 +248,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsTo() {
 	s.Equal("Alice", results[0].Author.Name)
 }
 
+// TestQuery_PreloadBelongsToMultipleParents verifies that BelongsTo preload
+// deduplicates foreign keys across multiple child records, issues a single
+// batched query, and handles a zero-value foreign key (no author assigned).
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToMultipleParents() {
 	now := time.Now()
 
@@ -250,7 +269,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToMultipleParents()
 			AddRow(2, now, now, "Bob").
 			AddRow(1, now, now, "Alice"))
 
-	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postWithAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author")
 	})
 
@@ -262,6 +281,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToMultipleParents()
 	s.Equal(testAuthor{}, results[3].Author)
 }
 
+// TestQuery_PreloadBelongsToWithMultipleNilForeignKeys verifies that BelongsTo
+// preload handles nullable foreign keys correctly: nil values are excluded from
+// the IN-query and the corresponding relation field is left as its zero value.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithMultipleNilForeignKeys() {
 	now := time.Now()
 
@@ -278,7 +300,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithMultipleNilFo
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
-	results, err := s.postWithNullableAuthor.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postWithNullableAuthor.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author")
 	})
 
@@ -289,6 +311,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithMultipleNilFo
 	s.Equal(testAuthor{}, results[2].Author)
 }
 
+// TestQuery_PreloadBelongsToNoRelated verifies that when the parent record
+// referenced by a BelongsTo foreign key does not exist, the relation field
+// is left as its zero value without returning an error.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToNoRelated() {
 	now := time.Now()
 
@@ -302,7 +327,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToNoRelated() {
 		WithArgs(int64(999)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}))
 
-	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postWithAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author")
 	})
 
@@ -311,6 +336,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToNoRelated() {
 	s.Equal(testAuthor{}, results[0].Author)
 }
 
+// TestQuery_PreloadBelongsToWithCondition verifies that an extra WHERE condition
+// passed to Preload is appended to the BelongsTo preload query.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithCondition() {
 	now := time.Now()
 
@@ -325,7 +352,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithCondition() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
-	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postWithAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author", sqlr.Condition("name = ?", "Alice"))
 	})
 
@@ -334,8 +361,10 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithCondition() {
 	s.Equal("Alice", results[0].Author.Name)
 }
 
+// TestQuery_PreloadWithUnknownRelation verifies that referencing a relation name
+// that does not exist on the entity returns a descriptive error.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithUnknownRelation() {
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Unknown")
 	})
 
@@ -344,11 +373,14 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithUnknownRelation() {
 	s.Contains(err.Error(), `preload relation "Unknown" not found`)
 }
 
+// TestQuery_PreloadWithRelatedEntityWithoutPrimaryKey verifies that attempting to
+// preload a relation whose related entity type has no primary key field returns
+// a descriptive error during schema resolution.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithRelatedEntityWithoutPrimaryKey() {
 	repo, err := sqlr.NewRepositoryWithInterfaces[int64, testAuthorWithPostWithoutPrimaryKey](s.client, sqlr.DefaultSettings())
 	s.Require().NoError(err)
 
-	results, err := repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts")
 	})
 
@@ -358,6 +390,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithRelatedEntityWithoutPr
 	s.Contains(err.Error(), "related entity type testPostWithoutPrimaryKey has no primary key")
 }
 
+// TestQuery_PreloadWithForeignKeyNotMappedInRelatedStruct verifies that when the
+// foreign key column declared in the relation tag is absent from the related
+// struct's db tags, a descriptive mapping error is returned.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithForeignKeyNotMappedInRelatedStruct() {
 	now := time.Now()
 
@@ -372,7 +407,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithForeignKeyNotMappedInR
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(10, now, now, 1, "Broken Post"))
 
-	results, err := s.brokenAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.brokenAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts")
 	})
 
@@ -381,6 +416,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithForeignKeyNotMappedInR
 	s.Contains(err.Error(), `failed to map preload foreign key column "author_id" for relation "Posts"`)
 }
 
+// TestQuery_PreloadWithCondition verifies that an extra WHERE condition passed to
+// Preload is appended to the HasMany preload query.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithCondition() {
 	now := time.Now()
 
@@ -397,7 +434,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithCondition() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, 1, "Published Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts", sqlr.Condition("status = ?", "published"))
 	})
 
@@ -411,6 +448,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithCondition() {
 	})
 }
 
+// TestQuery_PreloadMultipleRelations verifies that two sibling preloads (Posts
+// and Comments) are executed concurrently and both results are mapped correctly.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {
 	now := time.Now()
 
@@ -438,7 +477,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "body"}).
 			AddRow(20, now, now, 1, "A comment"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts").
 			Preload("Comments")
 	})
@@ -456,6 +495,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {
 	})
 }
 
+// TestQuery_PreloadWithWhere verifies that a WHERE clause on the main query
+// correctly filters the parent records while the preload query still uses the
+// IDs of only those filtered records.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithWhere() {
 	now := time.Now()
 
@@ -473,7 +515,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithWhere() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, 1, "First Post", "published"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts").
 			Where("name = ?", "Alice")
 	})
@@ -488,6 +530,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithWhere() {
 	})
 }
 
+// TestQuery_PreloadManyToManyAllowed verifies that a ManyToMany relation (Tags)
+// is loaded via two sequential queries: first the join table, then the related
+// entity table.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyAllowed() {
 	now := time.Now()
 
@@ -511,7 +556,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyAllowed() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(100, now, now, "Go"))
 
-	results, err := s.articleRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.articleRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Tags")
 	})
 
@@ -525,6 +570,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyAllowed() {
 	})
 }
 
+// TestQuery_PreloadManyToManyWithUint64Key verifies that ManyToMany preload works
+// correctly when the primary key type is uint64 rather than int64.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithUint64Key() {
 	now := time.Now()
 	uint64ID := uint64(9001)
@@ -549,7 +596,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithUint64Key() 
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(uint64ID, now, now, "BigTag"))
 
-	results, err := s.articleUint64Repo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.articleUint64Repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Tags")
 	})
 
@@ -561,6 +608,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithUint64Key() 
 	s.Equal(uint64ID, results[0].Tags[0].GetId())
 }
 
+// TestQuery_PreloadManyToManyWithEmptyStringKey verifies that ManyToMany preload
+// handles a string primary key whose value is an empty string without skipping
+// the record (empty string is a valid key, unlike nil).
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithEmptyStringKey() {
 	now := time.Now()
 
@@ -581,7 +631,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithEmptyStringK
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow("", now, now, "EmptyTag"))
 
-	results, err := s.articleStringRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.articleStringRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Tags")
 	})
 
@@ -593,6 +643,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithEmptyStringK
 	s.Equal("", results[0].Tags[0].GetId())
 }
 
+// TestQuery_PreloadNested verifies that a dot-separated path ("Posts.Comments")
+// loads an intermediate relation first and then applies preload conditions to
+// the leaf relation only.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNested() {
 	now := time.Now()
 
@@ -613,7 +666,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNested() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
 			AddRow(100, now, now, 1, 10, "keep"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts.Comments", sqlr.Condition("body = ?", "keep"))
 	})
 
@@ -624,6 +677,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNested() {
 	s.Equal("keep", results[0].Posts[0].Comments[0].Body)
 }
 
+// TestQuery_PreloadNestedNoIntermediateResults verifies that when the
+// intermediate relation returns no records, the leaf preload query is skipped
+// entirely and the result is an empty slice without error.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedNoIntermediateResults() {
 	now := time.Now()
 
@@ -637,7 +693,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedNoIntermediateResult
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts.Comments")
 	})
 
@@ -646,6 +702,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedNoIntermediateResult
 	s.Empty(results[0].Posts)
 }
 
+// TestQuery_PreloadNestedThreeLevels verifies that a three-level dot-separated
+// path ("Posts.Comments.Reactions") chains three sequential preload queries and
+// maps all results into the correct nested struct fields.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedThreeLevels() {
 	now := time.Now()
 
@@ -672,7 +731,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedThreeLevels() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "comment_id", "kind"}).
 			AddRow(1000, now, now, 100, "like"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts.Comments.Reactions")
 	})
 
@@ -684,6 +743,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedThreeLevels() {
 	s.Equal("like", results[0].Posts[0].Comments[0].Reactions[0].Kind)
 }
 
+// TestQuery_PreloadNestedMixed verifies that specifying both "Posts" and
+// "Posts.Comments" as separate Preload calls merges correctly: Posts is loaded
+// once and Comments is loaded as a nested preload beneath it.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixed() {
 	now := time.Now()
 
@@ -704,7 +766,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixed() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
 			AddRow(100, now, now, 1, 10, "Nested Comment"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts").
 			Preload("Posts.Comments")
 	})
@@ -716,6 +778,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixed() {
 	s.Equal("Nested Comment", results[0].Posts[0].Comments[0].Body)
 }
 
+// TestQuery_PreloadNestedMixedReverseOrder verifies that the order in which
+// "Posts.Comments" and "Posts" are declared does not affect the outcome: the
+// tree is merged the same way regardless of declaration order.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixedReverseOrder() {
 	now := time.Now()
 
@@ -736,7 +801,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixedReverseOrder() 
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
 			AddRow(100, now, now, 1, 10, "Nested Comment"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts.Comments").
 			Preload("Posts")
 	})
@@ -748,6 +813,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedMixedReverseOrder() 
 	s.Equal("Nested Comment", results[0].Posts[0].Comments[0].Body)
 }
 
+// TestQuery_PreloadNestedBelongsToSegment verifies that a nested path starting
+// with a BelongsTo segment ("Author.Comments") loads the parent via BelongsTo
+// and then loads Comments via HasMany on the resolved parent records.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedBelongsToSegment() {
 	now := time.Now()
 
@@ -768,7 +836,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedBelongsToSegment() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "body"}).
 			AddRow(100, now, now, 1, "Author Comment"))
 
-	results, err := s.postWithAuthorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.postWithAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author.Comments")
 	})
 
@@ -779,6 +847,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedBelongsToSegment() {
 	s.Equal("Author Comment", results[0].Author.Comments[0].Body)
 }
 
+// TestQuery_PreloadNestedManyToManySegment verifies that a ManyToMany relation
+// can appear as a nested segment ("Posts.Tags"), executing the join-table and
+// related-table queries beneath the intermediate HasMany preload.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedManyToManySegment() {
 	now := time.Now()
 
@@ -805,7 +876,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedManyToManySegment() 
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(100, now, now, "Go"))
 
-	results, err := s.authorRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts.Tags")
 	})
 
@@ -820,6 +891,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedManyToManySegment() 
 // Auto-Preloads (preload tag)
 // ==========================================================================
 
+// TestQuery_AutoPreloadWithoutExplicitPreload verifies that a relation tagged
+// with "preload" in the struct tag is automatically loaded without any explicit
+// Preload() call on the query builder.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadWithoutExplicitPreload() {
 	now := time.Now()
 
@@ -836,7 +910,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadWithoutExplicitPreload
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, 1, "First Post", "published"))
 
-	results, err := s.authorAutoPreloadRepo.Query(context.Background())
+	results, err := s.authorAutoPreloadRepo.Query(s.ctx)
 
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
@@ -849,6 +923,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadWithoutExplicitPreload
 	})
 }
 
+// TestQuery_AutoPreloadHasOne verifies that a HasOne relation tagged with
+// "preload" is automatically loaded without an explicit Preload() call.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadHasOne() {
 	now := time.Now()
 
@@ -863,7 +939,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadHasOne() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
 			AddRow(10, now, now, 1, "Auto profile"))
 
-	results, err := s.profileAutoPreloadRepo.Query(context.Background())
+	results, err := s.profileAutoPreloadRepo.Query(s.ctx)
 
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
@@ -872,6 +948,8 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadHasOne() {
 	s.Equal("Auto profile", results[0].Profile.Bio)
 }
 
+// TestQuery_AutoPreloadBelongsTo verifies that a BelongsTo relation tagged with
+// "preload" is automatically loaded without an explicit Preload() call.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadBelongsTo() {
 	now := time.Now()
 
@@ -886,13 +964,16 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadBelongsTo() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
-	results, err := s.postWithAuthorAutoRepo.Query(context.Background())
+	results, err := s.postWithAuthorAutoRepo.Query(s.ctx)
 
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
 	s.Equal("Alice", results[0].Author.Name)
 }
 
+// TestQuery_AutoPreloadNested verifies that the "preload" tag is followed
+// transitively: when a relation's own related type also has "preload"-tagged
+// fields, those nested relations are loaded automatically as well.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNested() {
 	now := time.Now()
 
@@ -913,7 +994,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNested() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
 			AddRow(100, now, now, 1, 10, "Nested Comment"))
 
-	results, err := s.deepAuthorAutoRepo.Query(context.Background())
+	results, err := s.deepAuthorAutoRepo.Query(s.ctx)
 
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
@@ -922,6 +1003,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNested() {
 	s.Equal("Nested Comment", results[0].Posts[0].Comments[0].Body)
 }
 
+// TestQuery_AutoPreloadNestedMixed verifies that deep auto-preload does not
+// exceed the tagged relation boundaries: relations without the "preload" tag on
+// a nested entity (e.g. Reactions on Comment) are not loaded automatically.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNestedMixed() {
 	now := time.Now()
 
@@ -942,7 +1026,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNestedMixed() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
 			AddRow(100, now, now, 1, 10, "Nested Comment"))
 
-	results, err := s.deepAuthorAutoRepo.Query(context.Background())
+	results, err := s.deepAuthorAutoRepo.Query(s.ctx)
 
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
@@ -951,6 +1035,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadNestedMixed() {
 	s.Empty(results[0].Posts[0].Comments[0].Reactions)
 }
 
+// TestQuery_AutoPreloadDeduplication verifies that when an explicit Preload()
+// call targets a relation that is also auto-preloaded via the struct tag, only
+// one preload query is issued (no duplicate).
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadDeduplication() {
 	now := time.Now()
 
@@ -967,7 +1054,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadDeduplication() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, 1, "First Post", "published"))
 
-	results, err := s.authorAutoPreloadRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorAutoPreloadRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts") // explicit preload for a relation that also has the "preload" tag
 	})
 
@@ -980,6 +1067,10 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadDeduplication() {
 	})
 }
 
+// TestQuery_AutoPreloadExplicitWithConditionTakesPrecedence verifies that when
+// an explicit Preload() with a condition is provided for a relation that is also
+// auto-preloaded, the explicit (conditioned) version takes precedence and only
+// one query with the condition is executed.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadExplicitWithConditionTakesPrecedence() {
 	now := time.Now()
 
@@ -997,7 +1088,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadExplicitWithConditionT
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, 1, "Published Post", "published"))
 
-	results, err := s.authorAutoPreloadRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorAutoPreloadRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Posts", sqlr.Condition("status = ?", "published"))
 	})
 
@@ -1007,6 +1098,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadExplicitWithConditionT
 	s.Equal("Published Post", results[0].Posts[0].Title)
 }
 
+// TestQuery_AutoPreloadMixedWithExplicit verifies that auto-preload and an
+// explicit Preload() for a different relation coexist: both are executed and
+// their results are merged into the result set.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadMixedWithExplicit() {
 	now := time.Now()
 
@@ -1034,7 +1128,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadMixedWithExplicit() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(10, now, now, 1, "First Post", "published"))
 
-	results, err := s.authorAutoPreloadRepo.Query(context.Background(), func(qb *sqlr.QueryBuilderSelect) {
+	results, err := s.authorAutoPreloadRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Comments") // explicit preload for non-auto relation
 	})
 
@@ -1050,6 +1144,9 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadMixedWithExplicit() {
 	})
 }
 
+// TestQuery_AutoPreloadManyToMany verifies that a ManyToMany relation tagged
+// with "preload" is automatically loaded via the two-step join-table query
+// without any explicit Preload() call.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadManyToMany() {
 	now := time.Now()
 
@@ -1073,7 +1170,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadManyToMany() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(100, now, now, "Go"))
 
-	results, err := s.articleAutoPreloadRepo.Query(context.Background()) // no explicit Preload call
+	results, err := s.articleAutoPreloadRepo.Query(s.ctx) // no explicit Preload call
 
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
@@ -1085,13 +1182,16 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadManyToMany() {
 	})
 }
 
+// TestQuery_AutoPreloadEmptyResultNoPreloadQuery verifies that when the main
+// query returns no rows, no preload queries are issued at all, even for
+// relations marked with the "preload" struct tag.
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadEmptyResultNoPreloadQuery() {
 	// When the main query returns no results, preload queries should NOT execute.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_author_auto_preloads`")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}))
 
-	results, err := s.authorAutoPreloadRepo.Query(context.Background())
+	results, err := s.authorAutoPreloadRepo.Query(s.ctx)
 
 	s.Require().NoError(err)
 	s.Empty(results)

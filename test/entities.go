@@ -9,7 +9,7 @@ type Post struct {
 	Status   string    `db:"status"`
 	Author   Author    `db:"-,belongsTo:author_id"`
 	Comments []Comment `db:"-,foreignKey:post_id"`
-	Tags     []Tag     `db:"-,many2many:post_tags"`
+	Tags     []Tag     `db:"-,many2many:post_tags,preload"`
 }
 
 type Tag struct {
