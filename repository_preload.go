@@ -342,10 +342,10 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 	var entities []reflect.Value
 	var relatedByID map[any]reflect.Value
 
-	// Derive the join table column names from the entity type names.
-	// Convention: snake_case(EntityType) + "_id" for each side.
-	parentColName := toSnakeCase(parentSchema.entityType.Name()) + "_id"
-	relatedColName := toSnakeCase(rel.RelatedType.Name()) + "_id"
+	// Derive the join table column names. Use explicit overrides from the
+	// relationship tag (JoinParentKey / JoinRelatedKey) when set; otherwise fall
+	// back to SchemaNameTransformer so that any custom naming convention is respected.
+	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, relSchema)
 
 	pkValues := collectFieldValues(parents, parentSchema.PrimaryKey.FieldIndex)
 
@@ -375,6 +375,27 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 	}
 
 	return assignM2MRelations(parents, parentSchema, rel, links, relatedByID)
+}
+
+// resolveM2MColumnNames returns the join table column names for both sides of a
+// ManyToMany relationship. When the Relationship has explicit JoinParentKey or
+// JoinRelatedKey values (set via parentKey:/relatedKey: tag options), those are
+// used directly. Otherwise the names are derived from the entity type names using
+// SchemaNameTransformer so that any custom naming convention is respected.
+func resolveM2MColumnNames(rel *Relationship, parentSchema, relSchema *EntitySchema) (parentColName, relatedColName string) {
+	if rel.JoinParentKey != "" {
+		parentColName = rel.JoinParentKey
+	} else {
+		parentColName = SchemaNameTransformer(parentSchema.entityType.Name()) + "_id"
+	}
+
+	if rel.JoinRelatedKey != "" {
+		relatedColName = rel.JoinRelatedKey
+	} else {
+		relatedColName = SchemaNameTransformer(relSchema.entityType.Name()) + "_id"
+	}
+
+	return parentColName, relatedColName
 }
 
 // m2mLink represents a single row from a many-to-many join table.

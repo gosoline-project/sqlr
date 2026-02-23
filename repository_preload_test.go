@@ -578,20 +578,20 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithUint64Key() 
 
 	// Main query.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_uint64articles`")).
+		"SELECT * FROM `test_uint64_articles`")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title"}).
 			AddRow(uint64ID, now, now, "Large Article"))
 
 	// Many-to-many preload step 1: Query join table.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `uint64_article_tags` WHERE `uint64_article_tags`.`test_uint64article_id` IN (?)")).
+		"SELECT * FROM `uint64_article_tags` WHERE `uint64_article_tags`.`test_uint64_article_id` IN (?)")).
 		WithArgs(uint64ID).
-		WillReturnRows(sqlmock.NewRows([]string{"test_uint64article_id", "test_uint64tag_id"}).
+		WillReturnRows(sqlmock.NewRows([]string{"test_uint64_article_id", "test_uint64_tag_id"}).
 			AddRow(uint64ID, uint64ID))
 
 	// Many-to-many preload step 2: Query related tags.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_uint64tags` WHERE `test_uint64tags`.`id` IN (?)")).
+		"SELECT * FROM `test_uint64_tags` WHERE `test_uint64_tags`.`id` IN (?)")).
 		WithArgs(uint64ID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(uint64ID, now, now, "BigTag"))

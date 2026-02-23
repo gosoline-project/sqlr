@@ -59,6 +59,8 @@ func (s *RepositoryReadTestSuite) TearDownTest() {
 // Basic Read Operations
 // ==========================================================================
 
+// TestRead_Success verifies that Read fetches a single entity by primary key
+// and correctly maps all returned columns to the struct fields.
 func (s *RepositoryReadTestSuite) TestRead_Success() {
 	now := time.Now()
 
@@ -78,6 +80,8 @@ func (s *RepositoryReadTestSuite) TestRead_Success() {
 	s.Equal("alice@test.com", result.Email)
 }
 
+// TestRead_NotFound verifies that Read returns ErrNotFound (with the entity id
+// in the message) when the database returns no rows for the given primary key.
 func (s *RepositoryReadTestSuite) TestRead_NotFound() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?")).
@@ -92,6 +96,12 @@ func (s *RepositoryReadTestSuite) TestRead_NotFound() {
 	s.Contains(err.Error(), "entity id=999")
 }
 
+// ==========================================================================
+// Key Type Variations
+// ==========================================================================
+
+// TestRead_CustomPrimaryKey verifies that Read works correctly when the primary
+// key column name differs from the default "id" (here: "user_id").
 func (s *RepositoryReadTestSuite) TestRead_CustomPrimaryKey() {
 	now := time.Now()
 
@@ -109,10 +119,8 @@ func (s *RepositoryReadTestSuite) TestRead_CustomPrimaryKey() {
 	s.Equal("Custom PK", result.Name)
 }
 
-// ==========================================================================
-// Key Type Variations
-// ==========================================================================
-
+// TestRead_StringPrimaryKey verifies that Read correctly handles a string-typed
+// primary key, ensuring no numeric coercion occurs in the WHERE clause.
 func (s *RepositoryReadTestSuite) TestRead_StringPrimaryKey() {
 	now := time.Now()
 
@@ -130,6 +138,8 @@ func (s *RepositoryReadTestSuite) TestRead_StringPrimaryKey() {
 	s.Equal("String User", result.Name)
 }
 
+// TestRead_BoolPrimaryKey verifies that Read correctly handles a bool-typed
+// primary key, which is an unusual but valid KeyTypes value.
 func (s *RepositoryReadTestSuite) TestRead_BoolPrimaryKey() {
 	now := time.Now()
 
@@ -147,6 +157,8 @@ func (s *RepositoryReadTestSuite) TestRead_BoolPrimaryKey() {
 	s.Equal("Bool User", result.Name)
 }
 
+// TestRead_FloatPrimaryKey verifies that Read correctly handles a float64-typed
+// primary key and passes the exact float value as the query argument.
 func (s *RepositoryReadTestSuite) TestRead_FloatPrimaryKey() {
 	now := time.Now()
 
@@ -168,6 +180,9 @@ func (s *RepositoryReadTestSuite) TestRead_FloatPrimaryKey() {
 // Auto-Preloads on Read (preload tag)
 // ==========================================================================
 
+// TestRead_AutoPreloadHasMany verifies that when the entity schema carries the
+// "preload" tag on a HasMany relation, Read automatically issues a second query
+// to populate the related slice without any explicit QueryBuilderRead option.
 func (s *RepositoryReadTestSuite) TestRead_AutoPreloadHasMany() {
 	now := time.Now()
 
@@ -200,6 +215,9 @@ func (s *RepositoryReadTestSuite) TestRead_AutoPreloadHasMany() {
 	})
 }
 
+// TestRead_AutoPreloadHasOne verifies that the "preload" tag on a HasOne
+// relation triggers an automatic secondary query to populate the single nested
+// struct field on Read.
 func (s *RepositoryReadTestSuite) TestRead_AutoPreloadHasOne() {
 	now := time.Now()
 
@@ -224,6 +242,9 @@ func (s *RepositoryReadTestSuite) TestRead_AutoPreloadHasOne() {
 	s.Equal("Read profile", result.Profile.Bio)
 }
 
+// TestRead_AutoPreloadBelongsTo verifies that the "preload" tag on a BelongsTo
+// relation causes Read to automatically load the parent entity using the
+// foreign key stored on the child.
 func (s *RepositoryReadTestSuite) TestRead_AutoPreloadBelongsTo() {
 	now := time.Now()
 
@@ -247,6 +268,9 @@ func (s *RepositoryReadTestSuite) TestRead_AutoPreloadBelongsTo() {
 	s.Equal("Alice", result.Author.Name)
 }
 
+// TestRead_AutoPreloadNested verifies that auto-preload is applied recursively:
+// when Posts carries a "preload" tag for Comments, a Read on Author should
+// automatically load Posts and then Comments in a second pass.
 func (s *RepositoryReadTestSuite) TestRead_AutoPreloadNested() {
 	now := time.Now()
 
@@ -277,6 +301,9 @@ func (s *RepositoryReadTestSuite) TestRead_AutoPreloadNested() {
 	s.Equal("Nested Comment", result.Posts[0].Comments[0].Body)
 }
 
+// TestRead_NoAutoPreloadOnEntityWithoutTag verifies that Read issues only the
+// main SELECT when the entity has no relationship fields with the "preload" tag,
+// preventing unnecessary queries.
 func (s *RepositoryReadTestSuite) TestRead_NoAutoPreloadOnEntityWithoutTag() {
 	now := time.Now()
 
@@ -295,6 +322,9 @@ func (s *RepositoryReadTestSuite) TestRead_NoAutoPreloadOnEntityWithoutTag() {
 	// sqlmock TearDownTest will verify no unexpected queries were executed.
 }
 
+// TestRead_AutoPreloadManyToMany verifies that the "preload" tag on a ManyToMany
+// relation triggers two automatic queries: one against the join table and one
+// against the related entity table.
 func (s *RepositoryReadTestSuite) TestRead_AutoPreloadManyToMany() {
 	now := time.Now()
 
@@ -364,6 +394,8 @@ func (s *RepositoryReadPreparedTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+// TestRead_PreparedStatement_Success verifies that with PreparedStatements enabled
+// the query is prepared once and reused on subsequent calls, reducing round-trips.
 func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_Success() {
 	now := time.Now()
 	readSQL := "SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"
@@ -395,6 +427,8 @@ func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_Success() {
 	s.Equal("Bob", result2.Name)
 }
 
+// TestRead_PreparedStatement_NotFound verifies that ErrNotFound is correctly
+// returned when a prepared-statement Read finds no rows.
 func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_NotFound() {
 	readSQL := "SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"
 
@@ -447,10 +481,13 @@ func (s *RepositoryReadWithRelationsTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
-// --------------------------------------------------------------------------
+// ==========================================================================
 // Preload Tests
-// --------------------------------------------------------------------------
+// ==========================================================================
 
+// TestRead_WithPreload verifies that passing Preload("Posts") to Read issues a
+// separate SELECT against the related table and populates the slice field on
+// the returned entity.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreload() {
 	now := time.Now()
 
@@ -484,6 +521,8 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreload() {
 	})
 }
 
+// TestRead_WithPreloadCondition verifies that a condition passed to Preload is
+// appended to the secondary SELECT so that only matching related rows are loaded.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadCondition() {
 	now := time.Now()
 
@@ -514,6 +553,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadCondition() {
 	})
 }
 
+// TestRead_WithNestedPreload verifies that a dot-notation path ("Posts.Comments")
+// triggers a cascading set of preload queries that populate multiple levels of
+// the entity graph.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithNestedPreload() {
 	now := time.Now()
 
@@ -550,6 +592,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithNestedPreload() {
 	s.Equal("Great post!", result.Posts[0].Comments[0].Body)
 }
 
+// TestRead_WithPreloadBelongsTo verifies that Preload works for BelongsTo
+// relations, loading the parent entity by collecting foreign key values from
+// the child and querying the parent table.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadBelongsTo() {
 	now := time.Now()
 
@@ -577,6 +622,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadBelongsTo() {
 	s.Equal("Alice", result.Author.Name)
 }
 
+// TestRead_WithPreloadManyToMany verifies that Preload resolves a ManyToMany
+// relation by first querying the join table and then fetching the related
+// entities in a second query.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadManyToMany() {
 	now := time.Now()
 
@@ -618,10 +666,13 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadManyToMany() 
 	})
 }
 
-// --------------------------------------------------------------------------
+// ==========================================================================
 // Join Tests
-// --------------------------------------------------------------------------
+// ==========================================================================
 
+// TestRead_WithLeftJoin verifies that LeftJoin("Posts") produces a LEFT JOIN
+// query with aliased columns and correctly hydrates both the root entity and
+// its related slice from a single result set.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin() {
 	now := time.Now()
 
@@ -650,6 +701,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin() {
 	})
 }
 
+// TestRead_WithLeftJoinCondition verifies that a condition passed to LeftJoin
+// is appended to the ON clause of the generated SQL, filtering joined rows at
+// the database level.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinCondition() {
 	now := time.Now()
 
@@ -677,6 +731,8 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinCondition() 
 	})
 }
 
+// TestRead_WithInnerJoin verifies that InnerJoin("Posts") produces a JOIN (inner)
+// clause instead of LEFT JOIN, and that result hydration still works correctly.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithInnerJoin() {
 	now := time.Now()
 
@@ -704,6 +760,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithInnerJoin() {
 	})
 }
 
+// TestRead_WithLeftJoinBelongsTo verifies that LeftJoin works for BelongsTo
+// relations, joining the parent table on the child's foreign key column and
+// populating the embedded parent struct.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinBelongsTo() {
 	now := time.Now()
 
@@ -727,6 +786,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinBelongsTo() 
 	s.Equal("Alice", result.Author.Name)
 }
 
+// TestRead_WithLeftJoinHasOne verifies that LeftJoin works for HasOne relations,
+// joining the child table on the parent's primary key and populating the single
+// embedded child struct.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOne() {
 	now := time.Now()
 
@@ -751,10 +813,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOne() {
 	s.Equal("A bio", result.Profile.Bio)
 }
 
-// --------------------------------------------------------------------------
+// ==========================================================================
 // Not Found with Relations
-// --------------------------------------------------------------------------
+// ==========================================================================
 
+// TestRead_WithLeftJoin_NotFound verifies that when a LEFT JOIN query returns no
+// rows, Read returns ErrNotFound with the entity id in the error message.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin_NotFound() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
@@ -775,6 +839,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin_NotFound() 
 	s.Contains(err.Error(), "entity id=999")
 }
 
+// TestRead_WithPreload_NotFound verifies that when the main query returns no
+// rows (before any preload query is issued), Read returns ErrNotFound with the
+// entity id in the error message.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreload_NotFound() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
@@ -791,10 +858,13 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreload_NotFound() {
 	s.Contains(err.Error(), "entity id=999")
 }
 
-// --------------------------------------------------------------------------
+// ==========================================================================
 // Edge Cases
-// --------------------------------------------------------------------------
+// ==========================================================================
 
+// TestRead_WithEmptyOpts verifies that when a QueryBuilderRead callback is
+// provided but adds no joins or preloads, Read falls back to the fast path
+// (plain column-list SELECT) rather than the generic join path.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithEmptyOpts() {
 	now := time.Now()
 
@@ -814,6 +884,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithEmptyOpts() {
 	s.Equal("Alice", result.Name)
 }
 
+// TestRead_WithAutoPreloadAndExplicitPreload verifies that explicit Preload
+// options are merged with schema-level auto-preloads without duplication, so
+// both sets of relations are loaded in a single Read call.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithAutoPreloadAndExplicitPreload() {
 	now := time.Now()
 
@@ -859,6 +932,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithAutoPreloadAndExplic
 	})
 }
 
+// TestRead_WithLeftJoinMultiplePosts verifies that when a LEFT JOIN produces
+// multiple rows for the same root entity (one per related row), the result is
+// correctly deduplicated into a single entity with all posts in its slice.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinMultiplePosts() {
 	now := time.Now()
 
@@ -889,6 +965,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinMultiplePost
 	})
 }
 
+// TestRead_WithUnknownJoinRelation verifies that requesting a LeftJoin on a
+// relation name that does not exist in the schema returns a descriptive error
+// without issuing any query.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithUnknownJoinRelation() {
 	result, err := s.authorRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
 		qb.LeftJoin("Unknown")
@@ -899,6 +978,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithUnknownJoinRelation(
 	s.Contains(err.Error(), `join relation "Unknown" not found`)
 }
 
+// TestRead_WithUnknownPreloadRelation verifies that requesting a Preload on a
+// relation name that does not exist in the schema returns a descriptive error
+// without issuing any query.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithUnknownPreloadRelation() {
 	result, err := s.authorRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
 		qb.Preload("Unknown")
@@ -909,6 +991,9 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithUnknownPreloadRelati
 	s.Contains(err.Error(), `preload relation "Unknown" not found`)
 }
 
+// TestRead_WithMultiplePreloads verifies that chaining multiple Preload calls
+// on the same QueryBuilderRead loads all requested relations concurrently and
+// populates each corresponding field on the entity.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithMultiplePreloads() {
 	now := time.Now()
 

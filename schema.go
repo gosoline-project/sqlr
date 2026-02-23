@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
-	"github.com/jinzhu/inflection"
 )
 
 // RelationType describes the cardinality of a relationship between entities.
@@ -59,7 +57,17 @@ type Relationship struct {
 	// related entity primary key. For ManyToMany this field is not used directly.
 	ForeignKey string
 	// JoinTable is the name of the intermediate table for ManyToMany relationships.
+	// When empty it is auto-derived at parse time by sorting the two entity table
+	// names alphabetically and joining them with an underscore.
 	JoinTable string
+	// JoinParentKey is the join table column name that references the parent
+	// entity's primary key. When empty the name is derived at query time as
+	// SchemaNameTransformer(parentType.Name()) + "_id".
+	JoinParentKey string
+	// JoinRelatedKey is the join table column name that references the related
+	// entity's primary key. When empty the name is derived at query time as
+	// SchemaNameTransformer(relatedType.Name()) + "_id".
+	JoinRelatedKey string
 	// RelatedType is the reflect.Type of the related entity (element type, not slice).
 	RelatedType reflect.Type
 	// RelatedSchema is the parsed schema of the related entity. It is lazily
@@ -144,29 +152,49 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 }
 
 // parseSchema parses the entity type E using reflection to build an EntitySchema.
-// It reads `db` tags for column mappings and field behavior metadata. The db tag
+// It reads `db` tags for column mappings and field behaviour metadata. The db tag
 // format is "column_name[,option1][,option2]..." where options include primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
 // many2many:<table>, and preload.
 //
+// When a public field has no db tag, its name is transformed by
+// SchemaNameTransformer (default: toSnakeCase) to derive the column name. Public
+// struct and slice-of-struct fields with no db tag are auto-detected as
+// relationships: a non-slice struct field becomes BelongsTo with a foreign key
+// derived as SchemaNameTransformer(fieldName)+"_id", and a slice field becomes
+// HasMany with a foreign key derived as
+// SchemaNameTransformer(parentTypeName)+"_id". Unexported fields with no db tag
+// are silently ignored. To explicitly exclude a public field from mapping, use
+// db:"-".
+//
 // Relationship examples:
 //
+//	// Explicit db tag (all options provided):
 //	type Author struct {
 //		Entity[int64]
 //		Posts []Post `db:"-,foreignKey:author_id"`
 //	}
 //
-//	type AuthorWithProfile struct {
+//	// Auto-detected relationship (no db tag):
+//	type Post struct {
 //		Entity[int64]
-//		AuthorProfile Profile `db:"-,foreignKey:author_id"`
+//		AuthorID int64  // column "author_id" via SchemaNameTransformer
+//		Author   Person // BelongsTo, FK = "author_id" (derived from field name)
 //	}
 //
+//	type Person struct {
+//		Entity[int64]
+//		Posts []Post // HasMany, FK = "person_id" (derived from parent type name "Person")
+//	}
+//
+//	// Explicit relationship with belongsTo option:
 //	type PostWithAuthor struct {
 //		Entity[int64]
 //		AuthorID int64  `db:"author_id"`
 //		AuthorRef Author `db:"-,belongsTo:author_id"`
 //	}
 //
+//	// ManyToMany (always requires explicit db tag):
 //	type Article struct {
 //		Entity[int64]
 //		Tags []Tag `db:"-,many2many:article_tags"`
@@ -255,24 +283,23 @@ func tryParseEmbeddedField(field reflect.StructField, fieldIndex []int, schema *
 }
 
 // parseFieldTag parses a single struct field's db tag and adds it to the schema
-// as either a relationship or a column.
+// as either a relationship or a column. When no db tag is present on a public
+// field, the field name is passed through SchemaNameTransformer to derive the
+// column name. Public struct and slice-of-struct fields without a db tag are
+// auto-detected as relationships (BelongsTo for non-slices, HasMany for slices)
+// with the foreign key inferred from the field or parent entity type name.
 func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySchema) error {
-	var dbTag string
-	var parts []string
-	var colName string
-	var options []string
-
-	dbTag = field.Tag.Get("db")
+	dbTag := field.Tag.Get("db")
 	if dbTag == "" {
-		return nil
+		return parseUntaggedField(field, fieldIndex, schema)
 	}
 
-	parts = strings.Split(dbTag, ",")
-	colName = parts[0]
-	options = parts[1:]
+	parts := strings.Split(dbTag, ",")
+	colName := parts[0]
+	options := parts[1:]
 
 	if isRelationshipField(options) {
-		rel, err := parseRelationship(field, options, fieldIndex)
+		rel, err := parseRelationship(field, options, fieldIndex, schema.entityType)
 		if err != nil {
 			return fmt.Errorf("field %s: %w", field.Name, err)
 		}
@@ -287,6 +314,32 @@ func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySc
 	}
 
 	col := parseColumnInfo(field, colName, fieldIndex, options)
+	schema.Columns = append(schema.Columns, col)
+
+	return nil
+}
+
+// parseUntaggedField handles a struct field that has no db tag. Unexported fields
+// are silently skipped. Public struct and slice-of-struct fields are auto-detected
+// as relationships; all other public fields are mapped to a column whose name is
+// derived by applying SchemaNameTransformer to the Go field name.
+func parseUntaggedField(field reflect.StructField, fieldIndex []int, schema *EntitySchema) error {
+	if !isPublicField(field) {
+		return nil
+	}
+
+	if isAutoRelationshipType(field.Type) {
+		rel, err := parseRelationship(field, nil, fieldIndex, schema.entityType)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", field.Name, err)
+		}
+
+		schema.Relationships[rel.Name] = rel
+
+		return nil
+	}
+
+	col := parseColumnInfo(field, SchemaNameTransformer(field.Name), fieldIndex, nil)
 	schema.Columns = append(schema.Columns, col)
 
 	return nil
@@ -339,6 +392,10 @@ func setPrimaryKeyFromColumns(schema *EntitySchema) {
 
 func validateRelationships(schema *EntitySchema) error {
 	for _, rel := range schema.Relationships {
+		if rel.Type == ManyToMany && rel.JoinTable == "" {
+			return fmt.Errorf("relationship %s is ManyToMany but has no join table; provide many2many:<table> or leave the table name empty for auto-detection", rel.Name)
+		}
+
 		if rel.Type != BelongsTo {
 			continue
 		}
@@ -434,7 +491,7 @@ func parseRelatedSchemaForAutoPreload(relatedType reflect.Type) (*EntitySchema, 
 	var err error
 
 	relatedSchema := &EntitySchema{
-		TableName:     inflection.Plural(toSnakeCase(relatedType.Name())),
+		TableName:     tableNameForType(relatedType),
 		Relationships: make(map[string]*Relationship),
 		entityType:    relatedType,
 	}
@@ -443,6 +500,43 @@ func parseRelatedSchemaForAutoPreload(relatedType reflect.Type) (*EntitySchema, 
 	}
 
 	return relatedSchema, nil
+}
+
+// isPublicField returns true if the struct field is exported (accessible from
+// outside the package). Unexported fields (PkgPath != "") are never mapped.
+func isPublicField(field reflect.StructField) bool {
+	return field.PkgPath == ""
+}
+
+// valueTypePackages lists standard-library packages whose struct types are
+// scalar value types and must never be auto-detected as entity relationships.
+// Fields with types from these packages (e.g. time.Time, sql.NullString) are
+// treated as plain database columns even when they carry no db tag.
+//
+// This set can be extended at program startup if additional packages need to be
+// excluded from auto-relationship detection.
+var valueTypePackages = map[string]struct{}{ //nolint:gochecknoglobals // intentional package-level default, extendable at startup
+	"time":         {},
+	"database/sql": {},
+	"net":          {},
+	"net/url":      {},
+}
+
+// isAutoRelationshipType returns true when the field's underlying type is a
+// struct or a slice of structs that can be auto-detected as a relationship when
+// no db tag is present. Types whose package is listed in valueTypePackages (e.g.
+// time.Time, sql.NullString) are excluded so they map to columns instead.
+func isAutoRelationshipType(ft reflect.Type) bool {
+	unwrapped, _ := unwrapRelatedType(ft)
+	if unwrapped.Kind() != reflect.Struct {
+		return false
+	}
+
+	if _, excluded := valueTypePackages[unwrapped.PkgPath()]; excluded {
+		return false
+	}
+
+	return true
 }
 
 func isIntegerKind(k reflect.Kind) bool {
@@ -471,8 +565,26 @@ func isRelationshipField(options []string) bool {
 	return false
 }
 
+// hasExplicitFKOption returns true when options contain an explicit foreignKey:
+// or belongsTo: key, regardless of whether its value is empty. This is used to
+// distinguish "user wrote foreignKey: with an empty value" from "no FK option
+// was given at all", so that the empty-value case still triggers a validation
+// error rather than being silently replaced by a derived default.
+func hasExplicitFKOption(options []string) bool {
+	for _, opt := range options {
+		if strings.HasPrefix(opt, "foreignKey:") || strings.HasPrefix(opt, "belongsTo:") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // parseRelationship parses a struct field's db tag options to create a Relationship.
-func parseRelationship(field reflect.StructField, options []string, fieldIndex []int) (*Relationship, error) {
+// parentEntityType is the reflect.Type of the entity being parsed; its Name() is used
+// to derive a default foreign key for HasOne/HasMany relationships, and its derived
+// table name is used when auto-detecting the ManyToMany join table name.
+func parseRelationship(field reflect.StructField, options []string, fieldIndex []int, parentEntityType reflect.Type) (*Relationship, error) {
 	var ft reflect.Type
 	var isSlice bool
 
@@ -487,9 +599,81 @@ func parseRelationship(field reflect.StructField, options []string, fieldIndex [
 		RelatedType: ft,
 	}
 
+	autoDetected := len(options) == 0
 	applyRelationshipOptions(rel, options)
 
+	// Only derive a default FK when the caller did not supply any explicit
+	// foreignKey:/belongsTo: option (even an empty one). An explicit but empty
+	// option (e.g. `db:"-,foreignKey:"`) must still be caught by the validator.
+	hasFKOption := hasExplicitFKOption(options)
+	applyDefaultForeignKey(rel, field.Name, parentEntityType.Name(), isSlice, autoDetected && !hasFKOption)
+
+	// Auto-detect the join table name when the relationship is ManyToMany but no
+	// explicit table name was provided via many2many:<table>.
+	if rel.Type == ManyToMany && rel.JoinTable == "" {
+		applyDefaultJoinTable(rel, parentEntityType, ft)
+	}
+
 	return rel, validateRelationshipType(rel, isSlice)
+}
+
+// applyDefaultForeignKey derives a foreign key name when none was set by the db
+// tag. The convention mirrors ActiveRecord / GORM defaults:
+//
+//   - BelongsTo (non-slice): FK = SchemaNameTransformer(fieldName) + "_id"
+//     e.g. field "Author Author" → FK "author_id" on the current entity table.
+//   - HasMany (slice): FK = SchemaNameTransformer(parentEntityTypeName) + "_id"
+//     e.g. field "Posts []Post" on "Author" → FK "author_id" on the Posts table.
+//
+// autoDetected must be true for defaults to be applied. It is false when the
+// caller supplied explicit db tag options (even with an empty foreignKey: value),
+// so that validation errors for missing FK values are preserved.
+func applyDefaultForeignKey(rel *Relationship, fieldName, parentEntityTypeName string, isSlice, autoDetected bool) {
+	if !autoDetected || rel.Type == ManyToMany {
+		return
+	}
+
+	if rel.ForeignKey == "" {
+		if isSlice {
+			// HasMany: FK on the related table references this entity's PK.
+			rel.ForeignKey = SchemaNameTransformer(parentEntityTypeName) + "_id"
+		} else {
+			// BelongsTo: FK on the current entity table references the related entity's PK.
+			rel.ForeignKey = SchemaNameTransformer(fieldName) + "_id"
+		}
+	}
+
+	// For auto-detected relationships (no db tag at all) set the relationship
+	// type from the field shape: slice → HasMany, non-slice → BelongsTo.
+	// This must not override an explicitly-set type from a db tag option.
+	if isSlice {
+		rel.Type = HasMany
+	} else {
+		rel.Type = BelongsTo
+	}
+}
+
+// applyDefaultJoinTable derives a join table name for a ManyToMany relationship
+// when none was supplied via the many2many: tag option. The convention is:
+//
+//  1. Derive the table name for each side using tableNameForType (which honours
+//     the TableNamer interface and applies inflection.Plural).
+//  2. Sort the two names alphabetically.
+//  3. Join them with an underscore.
+//
+// Example: Article + Tag → "articles" and "tags" → sorted: ["articles", "tags"]
+// → join table: "articles_tags".
+//
+// This mirrors the Rails/GORM auto-join-table convention and produces a
+// deterministic, symmetric name regardless of which side the field is declared on.
+func applyDefaultJoinTable(rel *Relationship, parentType, relatedType reflect.Type) {
+	parentTable := tableNameForType(parentType)
+	relatedTable := tableNameForType(relatedType)
+
+	names := []string{parentTable, relatedTable}
+	sort.Strings(names)
+
+	rel.JoinTable = names[0] + "_" + names[1]
 }
 
 // unwrapRelatedType extracts the element type from a field type, unwrapping
@@ -521,6 +705,10 @@ func applyRelationshipOptions(rel *Relationship, options []string) {
 		case strings.HasPrefix(opt, "many2many:"):
 			rel.JoinTable = strings.TrimPrefix(opt, "many2many:")
 			rel.Type = ManyToMany
+		case strings.HasPrefix(opt, "parentKey:"):
+			rel.JoinParentKey = strings.TrimPrefix(opt, "parentKey:")
+		case strings.HasPrefix(opt, "relatedKey:"):
+			rel.JoinRelatedKey = strings.TrimPrefix(opt, "relatedKey:")
 		case strings.HasPrefix(opt, "belongsTo:"):
 			rel.ForeignKey = strings.TrimPrefix(opt, "belongsTo:")
 			rel.Type = BelongsTo
@@ -558,7 +746,7 @@ func (r *Relationship) resolveRelationSchema() (*EntitySchema, error) {
 		t := r.RelatedType
 
 		schema := &EntitySchema{
-			TableName:     inflection.Plural(toSnakeCase(t.Name())),
+			TableName:     tableNameForType(t),
 			Relationships: make(map[string]*Relationship),
 			entityType:    t,
 		}
@@ -569,6 +757,12 @@ func (r *Relationship) resolveRelationSchema() (*EntitySchema, error) {
 			return
 		}
 		setPrimaryKeyFromColumns(schema)
+
+		if err := validateRelationships(schema); err != nil {
+			r.resolveErr = fmt.Errorf("failed to validate relationships for %s: %w", t.Name(), err)
+
+			return
+		}
 
 		if schema.PrimaryKey == nil {
 			r.resolveErr = fmt.Errorf("related entity type %s has no primary key", t.Name())

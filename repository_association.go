@@ -251,8 +251,7 @@ func createRelatedManyToMany(q sqlc.Querier, ctx context.Context, parentSchema *
 		relatedPKs = append(relatedPKs, pkField.Interface())
 	}
 
-	parentColName := toSnakeCase(parentSchema.entityType.Name()) + "_id"
-	relatedColName := toSnakeCase(rel.RelatedType.Name()) + "_id"
+	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, nestedSchema)
 
 	if err := insertJoinTableRows(q, ctx, rel.JoinTable, parentColName, relatedColName, parentPK, relatedPKs); err != nil {
 		return fmt.Errorf("failed to insert join table rows for ManyToMany relation %q: %w", rel.Name, err)
