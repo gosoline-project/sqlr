@@ -97,7 +97,7 @@ func TestQueryBuilderRead_CrossJoin(t *testing.T) {
 	qbr.CrossJoin("Posts")
 
 	require.Len(t, qbr.joins, 1)
-	assert.Equal(t, sqlc.JoinCross, qbr.joins[0].joinType)
+	assert.Equal(t, sqlc.JoinInner, qbr.joins[0].joinType)
 	assert.Equal(t, "Posts", qbr.joins[0].relation)
 	assert.Nil(t, qbr.joins[0].where)
 }

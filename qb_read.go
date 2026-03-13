@@ -67,13 +67,17 @@ func (r *QueryBuilderRead) RightJoin(relation string, conditions ...*sqlc.SqlerW
 	return r.addJoin(sqlc.JoinRight, relation, conditions)
 }
 
-// CrossJoin adds a CROSS JOIN on the named relation, producing a Cartesian
-// product of the primary entity and the joined relation. Cross joins do not
-// accept conditions. See LeftJoin for supported relation types.
+// CrossJoin adds a conditionless relation join on the named relation.
+//
+// Because repository joins are relation-aware and hydrate joined rows back into
+// the entity graph, CrossJoin behaves like an INNER JOIN using the relation key
+// predicate rather than a Cartesian product. It is retained as a compatibility
+// alias for callers that want an unconditional relation join. See LeftJoin for
+// supported relation types.
 //
 // Returns the same QueryBuilderRead instance for method chaining.
 func (r *QueryBuilderRead) CrossJoin(relation string) *QueryBuilderRead {
-	return r.addJoin(sqlc.JoinCross, relation, nil)
+	return r.addJoin(sqlc.JoinInner, relation, nil)
 }
 
 // addJoin appends a join entry and returns the builder for chaining.
