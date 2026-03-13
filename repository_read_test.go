@@ -456,8 +456,11 @@ type RepositoryReadWithRelationsTestSuite struct {
 	mock                  sqlmock.Sqlmock
 	authorRepo            sqlr.Repository[int64, testAuthor]
 	authorWithProfileRepo sqlr.Repository[int64, testAuthorWithProfile]
+	authorProfilePtrRepo  sqlr.Repository[int64, testAuthorWithProfilePointer]
 	postRepo              sqlr.Repository[int64, testPost]
+	postPointerRepo       sqlr.Repository[int64, testPostWithAuthorPointer]
 	articleRepo           sqlr.Repository[int64, testArticle]
+	articlePointerRepo    sqlr.Repository[int64, testArticleWithPointerTags]
 	authorAutoPreloadRepo sqlr.Repository[int64, testAuthorAutoPreload]
 }
 
@@ -472,8 +475,11 @@ func (s *RepositoryReadWithRelationsTestSuite) SetupTest() {
 
 	s.authorRepo = mustNewRepo[int64, testAuthor](s.T(), s.client)
 	s.authorWithProfileRepo = mustNewRepo[int64, testAuthorWithProfile](s.T(), s.client)
+	s.authorProfilePtrRepo = mustNewRepo[int64, testAuthorWithProfilePointer](s.T(), s.client)
 	s.postRepo = mustNewRepo[int64, testPost](s.T(), s.client)
+	s.postPointerRepo = mustNewRepo[int64, testPostWithAuthorPointer](s.T(), s.client)
 	s.articleRepo = mustNewRepo[int64, testArticle](s.T(), s.client)
+	s.articlePointerRepo = mustNewRepo[int64, testArticleWithPointerTags](s.T(), s.client)
 	s.authorAutoPreloadRepo = mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
 }
 
@@ -619,6 +625,33 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadBelongsTo() {
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
 	s.Equal("First Post", result.Title)
+	s.Equal("Alice", result.Author.Name)
+}
+
+// TestRead_WithPreloadBelongsToPointer verifies that Read preloads a pointer
+// BelongsTo relation.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadBelongsToPointer() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_post_with_author_pointers` WHERE `test_post_with_author_pointers`.`id` = ? LIMIT ?")).
+		WithArgs(int64(10), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(10, now, now, int64(1), "First Post"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	result, err := s.postPointerRepo.Read(context.Background(), 10, func(qb *sqlr.QueryBuilderRead) {
+		qb.Preload("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().NotNil(result.Author)
 	s.Equal("Alice", result.Author.Name)
 }
 
@@ -809,6 +842,32 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOne() {
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
 	s.Equal("Alice", result.Name)
+	s.Equal(int64(10), result.Profile.GetId())
+	s.Equal("A bio", result.Profile.Bio)
+}
+
+// TestRead_WithLeftJoinHasOnePointer verifies that Read join hydration populates
+// a pointer HasOne relation.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOnePointer() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_with_profile_pointers`.`id`, `test_author_with_profile_pointers`.`created_at`, `test_author_with_profile_pointers`.`updated_at`, `test_author_with_profile_pointers`.`name`, "+
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, "+
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`"+
+			" FROM `test_author_with_profile_pointers` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profile_pointers`.`id` = `Profile`.`author_id`"+
+			" WHERE `test_author_with_profile_pointers`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "A bio"))
+
+	result, err := s.authorProfilePtrRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
+		qb.LeftJoin("Profile")
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().NotNil(result.Profile)
 	s.Equal(int64(10), result.Profile.GetId())
 	s.Equal("A bio", result.Profile.Bio)
 }

@@ -15,6 +15,11 @@ import (
 // *EntitySchema so it can be used for any related entity type without needing
 // a typed repositoryCommon.
 func createRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) (any, error) {
+	entityValue = unwrapEntityValue(entityValue)
+	if !entityValue.IsValid() {
+		return nil, fmt.Errorf("invalid entity value for schema %s", schema.TableName)
+	}
+
 	if err := createRelatedBelongsTo(q, ctx, schema, entityValue); err != nil {
 		return nil, err
 	}
@@ -41,7 +46,8 @@ func createRelatedBelongsTo(q sqlc.Querier, ctx context.Context, schema *EntityS
 		}
 
 		field := entityValue.FieldByIndex(rel.FieldIndex)
-		if field.IsZero() {
+		field = unwrapEntityValue(field)
+		if !field.IsValid() || field.IsZero() {
 			continue
 		}
 
@@ -103,6 +109,11 @@ func createRelatedHasOne(q sqlc.Querier, ctx context.Context, parentSchema *Enti
 	}
 
 	relField := parentValue.FieldByIndex(rel.FieldIndex)
+	relField = unwrapEntityValue(relField)
+	if !relField.IsValid() {
+		return fmt.Errorf("HasOne relation %q is nil", rel.Name)
+	}
+
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
 
 	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK); err != nil {
@@ -135,7 +146,10 @@ func createRelatedHasMany(q sqlc.Querier, ctx context.Context, parentSchema *Ent
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
 
 	for i := range sliceField.Len() {
-		elem := sliceField.Index(i)
+		elem := unwrapEntityValue(sliceField.Index(i))
+		if !elem.IsValid() {
+			return fmt.Errorf("HasMany relation %q[%d] is nil", rel.Name, i)
+		}
 
 		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK); err != nil {
 			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
@@ -169,7 +183,11 @@ func createRelatedManyToMany(q sqlc.Querier, ctx context.Context, parentSchema *
 	relatedPKs := make([]any, 0, sliceField.Len())
 
 	for i := range sliceField.Len() {
-		elem := sliceField.Index(i)
+		elem := unwrapEntityValue(sliceField.Index(i))
+		if !elem.IsValid() {
+			return fmt.Errorf("ManyToMany relation %q[%d] is nil", rel.Name, i)
+		}
+
 		pkField := elem.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 
 		if pkField.IsZero() {

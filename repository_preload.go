@@ -213,17 +213,7 @@ func collectAssignedRelated(parents []reflect.Value, rel *Relationship) []reflec
 	related := make([]reflect.Value, 0)
 	for _, parent := range parents {
 		relField := parent.FieldByIndex(rel.FieldIndex)
-		if relField.Kind() == reflect.Slice {
-			for i := range relField.Len() {
-				related = append(related, relField.Index(i))
-			}
-
-			continue
-		}
-
-		if !relField.IsZero() {
-			related = append(related, relField)
-		}
+		related = append(related, collectAssignedRelatedValues(relField)...)
 	}
 
 	return related
@@ -549,7 +539,9 @@ func assignM2MRelations(parents []reflect.Value, parentSchema *EntitySchema, rel
 
 		for _, link := range linksByParentID[parentID] {
 			if relEntity, found := relatedByID[link.relatedID]; found {
-				assignRelated(relField, relEntity)
+				if err := assignRelated(relField, relEntity); err != nil {
+					return fmt.Errorf("failed to assign many-to-many relation %q: %w", rel.Name, err)
+				}
 			}
 		}
 	}
@@ -690,7 +682,9 @@ func assignRelatedToParentsByPK(parents []reflect.Value, parentSchema *EntitySch
 
 		relField := parent.FieldByIndex(rel.FieldIndex)
 		for _, relEntity := range relatedByFK[pkKey] {
-			assignRelated(relField, relEntity)
+			if err := assignRelated(relField, relEntity); err != nil {
+				return fmt.Errorf("failed to assign relation %q by primary key: %w", rel.Name, err)
+			}
 		}
 	}
 
@@ -767,7 +761,9 @@ func assignBelongsToRelations(parents []reflect.Value, fkFieldIndex []int, rel *
 
 		relField := parent.FieldByIndex(rel.FieldIndex)
 		if relEntity, found := relatedByPK[fkKey]; found {
-			assignRelated(relField, relEntity)
+			if err := assignRelated(relField, relEntity); err != nil {
+				return fmt.Errorf("failed to assign belongsTo relation %q: %w", rel.Name, err)
+			}
 		}
 	}
 

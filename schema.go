@@ -46,6 +46,9 @@ type ColumnInfo struct {
 }
 
 // Relationship holds metadata about a relationship between two entity types.
+// Relation fields may be declared as values or pointers, and slice relations may
+// use either value or pointer elements. RelatedType always stores the unwrapped
+// non-pointer entity type used for schema resolution.
 type Relationship struct {
 	// Name is the Go struct field name (e.g., "Posts", "Tags").
 	Name string
@@ -202,6 +205,16 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 //
 // The schema is used at query time for SQL generation, relationship validation,
 // and struct hydration.
+//
+// Pointer relation semantics:
+//   - Scalar HasOne and BelongsTo relations may be declared as either T or *T.
+//   - Collection HasMany and ManyToMany relations may be declared as either []T
+//     or []*T.
+//   - Relationship kind is determined by db tag options or field shape, not by
+//     pointer usage.
+//   - Missing related rows keep the field at its natural zero value: nil for
+//     pointer scalars, zero struct for value scalars, and empty or nil slices
+//     for collection relations when no related rows are assigned.
 func parseSchema[E any]() (*EntitySchema, error) {
 	var zero E
 	t := reflect.TypeOf(zero)

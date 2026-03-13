@@ -60,11 +60,11 @@ func (s *QueryBuilderSelect) RightJoin(relation string, conditions ...*sqlc.Sqle
 
 // CrossJoin adds a conditionless relation join on the named relation.
 //
-// Because repository joins are relation-aware and hydrate joined rows back into
-// the entity graph, CrossJoin behaves like an INNER JOIN using the relation key
-// predicate rather than a Cartesian product. It is retained as a compatibility
-// alias for callers that want an unconditional relation join. See LeftJoin for
-// supported relation types and limitations.
+// Deprecated: CrossJoin does not produce a SQL Cartesian product. Repository
+// joins are relation-aware, so this method behaves like InnerJoin(relation)
+// using the relation key predicate. It is retained for compatibility; prefer
+// InnerJoin for new code. See LeftJoin for supported relation types and
+// limitations.
 func (s *QueryBuilderSelect) CrossJoin(relation string) *QueryBuilderSelect {
 	return s.addJoin(sqlc.JoinInner, relation, nil)
 }

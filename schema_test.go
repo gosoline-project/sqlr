@@ -323,6 +323,13 @@ type schemaBelongsToPost struct {
 	Author   schemaBelongsToAuthor `db:"-,belongsTo:author_id"`
 }
 
+type schemaBelongsToPointerPost struct {
+	ID       int64                  `db:"id,primaryKey"`
+	AuthorID int64                  `db:"author_id"`
+	Title    string                 `db:"title"`
+	Author   *schemaBelongsToAuthor `db:"-,belongsTo:author_id"`
+}
+
 type schemaBelongsToPostInvalidSlice struct {
 	ID       int64                   `db:"id,primaryKey"`
 	AuthorID int64                   `db:"author_id"`
@@ -346,6 +353,19 @@ func TestParseSchema_BelongsTo(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, BelongsTo, rel.Type)
 	assert.Equal(t, "author_id", rel.ForeignKey)
+}
+
+// TestParseSchema_BelongsToPointer verifies that a pointer scalar field tagged
+// with belongsTo is parsed the same way as the value form.
+func TestParseSchema_BelongsToPointer(t *testing.T) {
+	schema, err := parseSchema[schemaBelongsToPointerPost]()
+	require.NoError(t, err)
+
+	rel, ok := schema.Relationships["Author"]
+	require.True(t, ok)
+	assert.Equal(t, BelongsTo, rel.Type)
+	assert.Equal(t, "author_id", rel.ForeignKey)
+	assert.Equal(t, reflect.TypeOf(schemaBelongsToAuthor{}), rel.RelatedType)
 }
 
 // TestParseSchema_BelongsToSliceRejected verifies that a slice field tagged as
@@ -381,6 +401,18 @@ type schemaManyToManyArticle struct {
 	Tags []schemaManyToManyTag `db:"-,many2many:article_tags"`
 }
 
+type schemaHasManyPointerAuthor struct {
+	ID    int64                  `db:"id,primaryKey"`
+	Name  string                 `db:"name"`
+	Posts []*schemaBelongsToPost `db:"-,foreignKey:author_id"`
+}
+
+type schemaManyToManyPointerArticle struct {
+	ID   int64                  `db:"id,primaryKey"`
+	Name string                 `db:"name"`
+	Tags []*schemaManyToManyTag `db:"-,many2many:article_tags"`
+}
+
 // TestParseSchema_ManyToMany_Relationship verifies that a slice field tagged
 // with many2many is parsed as a ManyToMany relationship with the correct join
 // table name and no foreign key.
@@ -393,6 +425,29 @@ func TestParseSchema_ManyToMany_Relationship(t *testing.T) {
 	assert.Equal(t, ManyToMany, rel.Type)
 	assert.Equal(t, "article_tags", rel.JoinTable)
 	assert.Equal(t, "", rel.ForeignKey)
+}
+
+// TestParseSchema_PointerCollectionRelationships verifies that pointer-element
+// slices are accepted for HasMany and ManyToMany relations and resolve the same
+// related entity type as value-element slices.
+func TestParseSchema_PointerCollectionRelationships(t *testing.T) {
+	authorSchema, err := parseSchema[schemaHasManyPointerAuthor]()
+	require.NoError(t, err)
+
+	postsRel, ok := authorSchema.Relationships["Posts"]
+	require.True(t, ok)
+	assert.Equal(t, HasMany, postsRel.Type)
+	assert.Equal(t, "author_id", postsRel.ForeignKey)
+	assert.Equal(t, reflect.TypeOf(schemaBelongsToPost{}), postsRel.RelatedType)
+
+	articleSchema, err := parseSchema[schemaManyToManyPointerArticle]()
+	require.NoError(t, err)
+
+	tagsRel, ok := articleSchema.Relationships["Tags"]
+	require.True(t, ok)
+	assert.Equal(t, ManyToMany, tagsRel.Type)
+	assert.Equal(t, "article_tags", tagsRel.JoinTable)
+	assert.Equal(t, reflect.TypeOf(schemaManyToManyTag{}), tagsRel.RelatedType)
 }
 
 // ============================================================

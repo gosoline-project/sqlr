@@ -135,6 +135,48 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsTo_UpdatesRelat
 	s.Equal("Alice Updated", result.Author.Name)
 }
 
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsToPointer_UpdatesRelatedAndParentFK() {
+	repo := mustNewRepo[int64, assocPostWithPointerAuthor](s.T(), s.client)
+	now := time.Now()
+	authorNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(authorNow, "Alice Updated", isTimestamp{}, int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_post_with_pointer_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(int64(7), now, "Updated Post", isTimestamp{}, int64(5)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocPostWithPointerAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        5,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Title: "Updated Post",
+		Author: &assocAuthor{
+			Entity: sqlr.Entity[int64]{
+				Id:        7,
+				CreatedAt: authorNow,
+				UpdatedAt: authorNow,
+			},
+			Name: "Alice Updated",
+		},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAssociations)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().NotNil(result.Author)
+	s.Equal(int64(7), result.AuthorID)
+	s.Equal("Alice Updated", result.Author.Name)
+}
+
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAndDeletesMissingChildren() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -317,6 +359,66 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_EmptySlice_
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
 	s.Empty(result.Tags)
+}
+
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasManyPointerElements_RejectsNilElement() {
+	repo := mustNewRepo[int64, assocAuthorWithPointerPosts](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_author_with_pointer_posts` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Old Post"))
+	s.mock.ExpectRollback()
+
+	entity := assocAuthorWithPointerPosts{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Alice Updated",
+		Posts: []*assocPost{nil},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAssociations)
+	s.Require().Error(err)
+	s.Nil(result)
+	s.ErrorContains(err, "HasMany relation \"Posts\"[0] is nil")
+}
+
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToManyPointerElements_RejectsNilElement() {
+	repo := mustNewRepo[int64, assocArticleWithPointerTags](s.T(), s.client)
+	now := time.Now()
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_article_with_pointer_tags` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectRollback()
+
+	entity := assocArticleWithPointerTags{
+		Entity: sqlr.Entity[int64]{
+			Id:        2,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Title: "Go Tips Updated",
+		Tags:  []*assocTag{nil},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAssociations)
+	s.Require().Error(err)
+	s.Nil(result)
+	s.ErrorContains(err, "ManyToMany relation \"Tags\"[0] is nil")
 }
 
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociations_BelongsToWithNullableFK() {

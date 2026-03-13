@@ -22,9 +22,12 @@ type RepositoryQueryTestSuite struct {
 	mock                  sqlmock.Sqlmock
 	repo                  sqlr.Repository[int64, testUser]
 	postRepo              sqlr.Repository[int64, testPost]
+	postPointerRepo       sqlr.Repository[int64, testPostWithAuthorPointer]
 	authorRepo            sqlr.Repository[int64, testAuthor]
 	authorWithProfileRepo sqlr.Repository[int64, testAuthorWithProfile]
+	authorProfilePtrRepo  sqlr.Repository[int64, testAuthorWithProfilePointer]
 	articleRepo           sqlr.Repository[int64, testArticle]
+	articlePointerRepo    sqlr.Repository[int64, testArticleWithPointerTags]
 	authorAutoPreloadRepo sqlr.Repository[int64, testAuthorAutoPreload]
 }
 
@@ -40,9 +43,12 @@ func (s *RepositoryQueryTestSuite) SetupTest() {
 
 	s.repo = mustNewRepo[int64, testUser](s.T(), s.client)
 	s.postRepo = mustNewRepo[int64, testPost](s.T(), s.client)
+	s.postPointerRepo = mustNewRepo[int64, testPostWithAuthorPointer](s.T(), s.client)
 	s.authorRepo = mustNewRepo[int64, testAuthor](s.T(), s.client)
 	s.authorWithProfileRepo = mustNewRepo[int64, testAuthorWithProfile](s.T(), s.client)
+	s.authorProfilePtrRepo = mustNewRepo[int64, testAuthorWithProfilePointer](s.T(), s.client)
 	s.articleRepo = mustNewRepo[int64, testArticle](s.T(), s.client)
+	s.articlePointerRepo = mustNewRepo[int64, testArticleWithPointerTags](s.T(), s.client)
 	s.authorAutoPreloadRepo = mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
 }
 
@@ -900,6 +906,28 @@ func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
 
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
+	s.Equal("Alice", results[0].Author.Name)
+}
+
+// TestQuery_LeftJoinBelongsToPointer verifies that join hydration populates a
+// pointer belongsTo relation field.
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToPointer() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_post_with_author_pointers`.`id`, `test_post_with_author_pointers`.`created_at`, `test_post_with_author_pointers`.`updated_at`, `test_post_with_author_pointers`.`author_id`, `test_post_with_author_pointers`.`title`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_post_with_author_pointers` LEFT JOIN `test_authors` AS Author ON `test_post_with_author_pointers`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
+			AddRow(10, now, now, int64(1), "First Post", 1, now, now, "Alice"))
+
+	results, err := s.postPointerRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Require().NotNil(results[0].Author)
 	s.Equal("Alice", results[0].Author.Name)
 }
 

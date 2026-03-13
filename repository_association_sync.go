@@ -100,7 +100,8 @@ func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx contex
 		}
 
 		field := entityValue.FieldByIndex(rel.FieldIndex)
-		if field.IsZero() {
+		field = unwrapEntityValue(field)
+		if !field.IsValid() || field.IsZero() {
 			continue
 		}
 
@@ -176,6 +177,10 @@ func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Co
 
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
 	relField := parentValue.FieldByIndex(rel.FieldIndex)
+	relField = unwrapEntityValue(relField)
+	if !relField.IsValid() {
+		return fmt.Errorf("HasOne relation %q is nil", rel.Name)
+	}
 
 	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK); err != nil {
 		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
@@ -230,7 +235,10 @@ func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 	desiredKeys := make(map[any]struct{})
 	sliceField := parentValue.FieldByIndex(rel.FieldIndex)
 	for i := range sliceField.Len() {
-		elem := sliceField.Index(i)
+		elem := unwrapEntityValue(sliceField.Index(i))
+		if !elem.IsValid() {
+			return fmt.Errorf("HasMany relation %q[%d] is nil", rel.Name, i)
+		}
 
 		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK); err != nil {
 			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
@@ -280,7 +288,10 @@ func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx contex
 	desiredPKs := make([]any, 0, sliceField.Len())
 
 	for i := range sliceField.Len() {
-		elem := sliceField.Index(i)
+		elem := unwrapEntityValue(sliceField.Index(i))
+		if !elem.IsValid() {
+			return fmt.Errorf("ManyToMany relation %q[%d] is nil", rel.Name, i)
+		}
 
 		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state); err != nil {
 			return fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)

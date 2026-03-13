@@ -61,14 +61,76 @@ func scanDestForPrecomputedField(rv reflect.Value, fieldIndex []int) any {
 	return &discard
 }
 
-func assignRelated(relField, relEntity reflect.Value) {
-	if relField.Kind() == reflect.Slice {
-		relField.Set(reflect.Append(relField, relEntity))
-
-		return
+func assignRelated(relField, relEntity reflect.Value) error {
+	assignedValue, err := relationAssignmentValue(relField.Type(), relEntity)
+	if err != nil {
+		return err
 	}
 
-	relField.Set(relEntity)
+	if relField.Kind() == reflect.Slice {
+		relField.Set(reflect.Append(relField, assignedValue))
+
+		return nil
+	}
+
+	relField.Set(assignedValue)
+
+	return nil
+}
+
+func relationAssignmentValue(targetType reflect.Type, relEntity reflect.Value) (reflect.Value, error) {
+	if targetType.Kind() == reflect.Slice {
+		return relationAssignmentValue(targetType.Elem(), relEntity)
+	}
+
+	if relEntity.Type().AssignableTo(targetType) {
+		return relEntity, nil
+	}
+
+	if relEntity.Type().ConvertibleTo(targetType) {
+		return relEntity.Convert(targetType), nil
+	}
+
+	if targetType.Kind() == reflect.Ptr {
+		if relEntity.Type().AssignableTo(targetType.Elem()) {
+			ptr := reflect.New(targetType.Elem())
+			ptr.Elem().Set(relEntity)
+
+			return ptr, nil
+		}
+
+		if relEntity.Type().ConvertibleTo(targetType.Elem()) {
+			ptr := reflect.New(targetType.Elem())
+			ptr.Elem().Set(relEntity.Convert(targetType.Elem()))
+
+			return ptr, nil
+		}
+	}
+
+	return reflect.Value{}, fmt.Errorf("related entity type %s is not assignable to relation field type %s", relEntity.Type(), targetType)
+}
+
+func collectAssignedRelatedValues(relField reflect.Value) []reflect.Value {
+	if relField.Kind() == reflect.Slice {
+		related := make([]reflect.Value, 0, relField.Len())
+		for i := range relField.Len() {
+			elem := unwrapEntityValue(relField.Index(i))
+			if !elem.IsValid() {
+				continue
+			}
+
+			related = append(related, elem)
+		}
+
+		return related
+	}
+
+	relValue := unwrapEntityValue(relField)
+	if !relValue.IsValid() || relValue.IsZero() {
+		return nil
+	}
+
+	return []reflect.Value{relValue}
 }
 
 // newScanDestForColumn allocates a scan destination matching the column field type.

@@ -17,22 +17,25 @@ import (
 // and auto-preloads via the "preload" struct tag.
 type RepositoryPreloadTestSuite struct {
 	suite.Suite
-	ctx                    context.Context
-	client                 sqlc.Client
-	mock                   sqlmock.Sqlmock
-	authorRepo             sqlr.Repository[int64, testAuthor]
-	authorWithProfileRepo  sqlr.Repository[int64, testAuthorWithProfile]
-	postWithAuthorRepo     sqlr.Repository[int64, testPostWithAuthor]
-	postWithNullableAuthor sqlr.Repository[int64, testPostWithNullableAuthor]
-	postWithAuthorAutoRepo sqlr.Repository[int64, testPostWithAuthorAutoPreload]
-	brokenAuthorRepo       sqlr.Repository[int64, testBrokenAuthor]
-	articleRepo            sqlr.Repository[int64, testArticle]
-	articleUint64Repo      sqlr.Repository[uint64, testUint64Article]
-	articleStringRepo      sqlr.Repository[string, testStringArticle]
-	authorAutoPreloadRepo  sqlr.Repository[int64, testAuthorAutoPreload]
-	deepAuthorAutoRepo     sqlr.Repository[int64, testAuthorDeepAutoPreload]
-	profileAutoPreloadRepo sqlr.Repository[int64, testAuthorWithProfileAutoPreload]
-	articleAutoPreloadRepo sqlr.Repository[int64, testArticleAutoPreload]
+	ctx                      context.Context
+	client                   sqlc.Client
+	mock                     sqlmock.Sqlmock
+	authorRepo               sqlr.Repository[int64, testAuthor]
+	authorWithProfileRepo    sqlr.Repository[int64, testAuthorWithProfile]
+	authorWithProfilePtrRepo sqlr.Repository[int64, testAuthorWithProfilePointer]
+	postWithAuthorRepo       sqlr.Repository[int64, testPostWithAuthor]
+	postWithAuthorPtrRepo    sqlr.Repository[int64, testPostWithAuthorPointer]
+	postWithNullableAuthor   sqlr.Repository[int64, testPostWithNullableAuthor]
+	postWithAuthorAutoRepo   sqlr.Repository[int64, testPostWithAuthorAutoPreload]
+	brokenAuthorRepo         sqlr.Repository[int64, testBrokenAuthor]
+	articleRepo              sqlr.Repository[int64, testArticle]
+	articlePointerTagsRepo   sqlr.Repository[int64, testArticleWithPointerTags]
+	articleUint64Repo        sqlr.Repository[uint64, testUint64Article]
+	articleStringRepo        sqlr.Repository[string, testStringArticle]
+	authorAutoPreloadRepo    sqlr.Repository[int64, testAuthorAutoPreload]
+	deepAuthorAutoRepo       sqlr.Repository[int64, testAuthorDeepAutoPreload]
+	profileAutoPreloadRepo   sqlr.Repository[int64, testAuthorWithProfileAutoPreload]
+	articleAutoPreloadRepo   sqlr.Repository[int64, testArticleAutoPreload]
 }
 
 func TestRepositoryPreloadTestSuite(t *testing.T) {
@@ -47,11 +50,14 @@ func (s *RepositoryPreloadTestSuite) SetupTest() {
 
 	s.authorRepo = mustNewRepo[int64, testAuthor](s.T(), s.client)
 	s.authorWithProfileRepo = mustNewRepo[int64, testAuthorWithProfile](s.T(), s.client)
+	s.authorWithProfilePtrRepo = mustNewRepo[int64, testAuthorWithProfilePointer](s.T(), s.client)
 	s.postWithAuthorRepo = mustNewRepo[int64, testPostWithAuthor](s.T(), s.client)
+	s.postWithAuthorPtrRepo = mustNewRepo[int64, testPostWithAuthorPointer](s.T(), s.client)
 	s.postWithNullableAuthor = mustNewRepo[int64, testPostWithNullableAuthor](s.T(), s.client)
 	s.postWithAuthorAutoRepo = mustNewRepo[int64, testPostWithAuthorAutoPreload](s.T(), s.client)
 	s.brokenAuthorRepo = mustNewRepo[int64, testBrokenAuthor](s.T(), s.client)
 	s.articleRepo = mustNewRepo[int64, testArticle](s.T(), s.client)
+	s.articlePointerTagsRepo = mustNewRepo[int64, testArticleWithPointerTags](s.T(), s.client)
 	s.articleUint64Repo = mustNewRepo[uint64, testUint64Article](s.T(), s.client)
 	s.articleStringRepo = mustNewRepo[string, testStringArticle](s.T(), s.client)
 	s.authorAutoPreloadRepo = mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
@@ -162,6 +168,59 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOne() {
 	s.Equal(int64(10), results[0].Profile.GetId())
 	s.Equal(int64(1), results[0].Profile.AuthorID)
 	s.Equal("Alice profile", results[0].Profile.Bio)
+}
+
+// TestQuery_PreloadHasOnePointer verifies that a HasOne preload populates a
+// pointer relation field when a related row exists.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOnePointer() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_author_with_profile_pointers`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_profiles` WHERE `test_profiles`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
+			AddRow(10, now, now, 1, "Alice profile"))
+
+	results, err := s.authorWithProfilePtrRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Profile")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Require().NotNil(results[0].Profile)
+	s.Equal(int64(10), results[0].Profile.GetId())
+	s.Equal("Alice profile", results[0].Profile.Bio)
+}
+
+// TestQuery_PreloadBelongsToPointer verifies that a BelongsTo preload populates
+// a pointer relation field when a related row exists.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToPointer() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_post_with_author_pointers`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(10, now, now, 1, "First Post"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	results, err := s.postWithAuthorPtrRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Require().NotNil(results[0].Author)
+	s.Equal("Alice", results[0].Author.Name)
 }
 
 // TestQuery_PreloadHasOneMultipleParents verifies that a HasOne relation is

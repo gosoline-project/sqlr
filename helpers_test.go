@@ -154,6 +154,12 @@ type testAuthorWithProfile struct {
 	Profile testProfile `db:"-,foreignKey:author_id"`
 }
 
+type testAuthorWithProfilePointer struct {
+	sqlr.Entity[int64]
+	Name    string       `db:"name"`
+	Profile *testProfile `db:"-,foreignKey:author_id"`
+}
+
 type testAuthorWithProfileAutoPreload struct {
 	sqlr.Entity[int64]
 	Name    string      `db:"name"`
@@ -178,6 +184,19 @@ type testArticle struct {
 	sqlr.Entity[int64]
 	Title string    `db:"title"`
 	Tags  []testTag `db:"-,many2many:article_tags"`
+}
+
+type testArticleWithPointerTags struct {
+	sqlr.Entity[int64]
+	Title string     `db:"title"`
+	Tags  []*testTag `db:"-,many2many:article_tags"`
+}
+
+type testPostWithAuthorPointer struct {
+	sqlr.Entity[int64]
+	AuthorID int64       `db:"author_id"`
+	Title    string      `db:"title"`
+	Author   *testAuthor `db:"-,belongsTo:author_id"`
 }
 
 // testAuthorAutoPreload is an entity where Posts are automatically preloaded via

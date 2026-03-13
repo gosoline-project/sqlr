@@ -220,7 +220,9 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 		}
 
 		target := reflect.ValueOf(&results[idx]).Elem()
-		assignJoinedRelations(target, relationStates, relatedSeen[pk])
+		if err = assignJoinedRelations(target, relationStates, relatedSeen[pk]); err != nil {
+			return nil, err
+		}
 	}
 
 	if err = rows.Err(); err != nil {
@@ -236,7 +238,7 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 
 // assignJoinedRelations assigns scanned join relation values to the target entity,
 // tracking already-seen related entities to avoid duplicates.
-func assignJoinedRelations(target reflect.Value, relationStates []joinRelationState, seen map[string]map[any]struct{}) {
+func assignJoinedRelations(target reflect.Value, relationStates []joinRelationState, seen map[string]map[any]struct{}) error {
 	for i := range relationStates {
 		state := relationStates[i]
 		if state.joinInfo.schema.PrimaryKey == nil {
@@ -263,15 +265,21 @@ func assignJoinedRelations(target reflect.Value, relationStates []joinRelationSt
 
 		relField := target.FieldByIndex(state.joinInfo.rel.FieldIndex)
 		if relField.Kind() == reflect.Slice {
-			assignRelated(relField, state.value)
+			if err := assignRelated(relField, state.value); err != nil {
+				return fmt.Errorf("failed to assign joined relation %q: %w", state.name, err)
+			}
 
 			continue
 		}
 
 		if relField.IsZero() {
-			assignRelated(relField, state.value)
+			if err := assignRelated(relField, state.value); err != nil {
+				return fmt.Errorf("failed to assign joined relation %q: %w", state.name, err)
+			}
 		}
 	}
+
+	return nil
 }
 
 func addJoinToBuilder(

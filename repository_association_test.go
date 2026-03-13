@@ -25,6 +25,12 @@ type assocAuthor struct {
 	Profile assocProfile `db:"-,foreignKey:author_id"`
 }
 
+type assocAuthorWithPointerProfile struct {
+	sqlr.Entity[int64]
+	Name    string        `db:"name"`
+	Profile *assocProfile `db:"-,foreignKey:author_id"`
+}
+
 // assocPost is a post belonging to an author. Table: "assoc_posts".
 type assocPost struct {
 	sqlr.Entity[int64]
@@ -47,11 +53,30 @@ type assocPostWithAuthor struct {
 	Author   assocAuthor `db:"-,belongsTo:author_id"`
 }
 
+type assocPostWithPointerAuthor struct {
+	sqlr.Entity[int64]
+	AuthorID int64        `db:"author_id"`
+	Title    string       `db:"title"`
+	Author   *assocAuthor `db:"-,belongsTo:author_id"`
+}
+
 // assocArticle has a ManyToMany relationship with assocTag. Table: "assoc_articles".
 type assocArticle struct {
 	sqlr.Entity[int64]
 	Title string     `db:"title"`
 	Tags  []assocTag `db:"-,many2many:assoc_article_tags"`
+}
+
+type assocArticleWithPointerTags struct {
+	sqlr.Entity[int64]
+	Title string      `db:"title"`
+	Tags  []*assocTag `db:"-,many2many:assoc_article_tags"`
+}
+
+type assocAuthorWithPointerPosts struct {
+	sqlr.Entity[int64]
+	Name  string       `db:"name"`
+	Posts []*assocPost `db:"-,foreignKey:author_id"`
 }
 
 // assocTag is a tag used in many-to-many tests. Table: "assoc_tags".
@@ -315,6 +340,29 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_InsertsAssociat
 	s.Equal(int64(5), entity.Profile.AuthorID)
 }
 
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOnePointer_InsertsAssociation() {
+	repo := mustNewRepo[int64, assocAuthorWithPointerProfile](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_author_with_pointer_profiles` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Carol").
+		WillReturnResult(sqlmock.NewResult(5, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_profiles` (`created_at`, `updated_at`, `author_id`, `bio`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(5), "My bio").
+		WillReturnResult(sqlmock.NewResult(50, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthorWithPointerProfile{
+		Name:    "Carol",
+		Profile: &assocProfile{Bio: "My bio"},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity))
+	s.Require().NotNil(entity.Profile)
+	s.Equal(int64(50), entity.Profile.GetId())
+	s.Equal(int64(5), entity.Profile.AuthorID)
+}
+
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_SkipsExistingAssociation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -374,6 +422,68 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_InsertsRelat
 	s.Equal(int64(30), entity.GetId())
 	s.Equal(int64(3), entity.AuthorID) // FK set on parent
 	s.Equal(int64(3), entity.Author.GetId())
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsToPointer_InsertsRelatedFirst() {
+	repo := mustNewRepo[int64, assocPostWithPointerAuthor](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Eve").
+		WillReturnResult(sqlmock.NewResult(3, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_post_with_pointer_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(3), "My Post").
+		WillReturnResult(sqlmock.NewResult(8, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocPostWithPointerAuthor{
+		Title:  "My Post",
+		Author: &assocAuthor{Name: "Eve"},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity))
+	s.Require().NotNil(entity.Author)
+	s.Equal(int64(3), entity.Author.GetId())
+	s.Equal(int64(3), entity.AuthorID)
+	s.Equal(int64(8), entity.GetId())
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasManyPointerElements_RejectsNilElement() {
+	repo := mustNewRepo[int64, assocAuthorWithPointerPosts](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_author_with_pointer_posts` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectRollback()
+
+	entity := assocAuthorWithPointerPosts{
+		Name:  "Alice",
+		Posts: []*assocPost{nil},
+	}
+
+	err := repo.Create(context.Background(), &entity)
+	s.Require().Error(err)
+	s.ErrorContains(err, "HasMany relation \"Posts\"[0] is nil")
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToManyPointerElements_RejectsNilElement() {
+	repo := mustNewRepo[int64, assocArticleWithPointerTags](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_article_with_pointer_tags` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Go Tips").
+		WillReturnResult(sqlmock.NewResult(2, 1))
+	s.mock.ExpectRollback()
+
+	entity := assocArticleWithPointerTags{
+		Title: "Go Tips",
+		Tags:  []*assocTag{nil},
+	}
+
+	err := repo.Create(context.Background(), &entity)
+	s.Require().Error(err)
+	s.ErrorContains(err, "ManyToMany relation \"Tags\"[0] is nil")
 }
 
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExistingRelated_SetsFK() {
