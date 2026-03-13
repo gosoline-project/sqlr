@@ -236,9 +236,18 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 		SetMap(setMap).
 		Where(sqlc.Col(r.schema.PrimaryKey.Name).Eq(pkValue))
 
-	_, _, err := r.statementCache.Exec(ctx, sqler, q)
+	_, result, err := r.statementCache.Exec(ctx, sqler, q)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update entity: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound)
 	}
 
 	return entity, nil

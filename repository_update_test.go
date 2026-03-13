@@ -2,6 +2,7 @@ package sqlr_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"testing"
@@ -99,6 +100,31 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_Error() {
 	s.Require().Error(err)
 	s.Nil(result)
 	s.Contains(err.Error(), "failed to update entity")
+}
+
+func (s *RepositoryUpdateTestSuite) TestUpdate_NotFound() {
+	now := time.Now()
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        99,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Missing",
+		Email: "missing@test.com",
+	}
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	result, err := s.repo.Update(context.Background(), &entity)
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
 // ==========================================================================
@@ -301,4 +327,31 @@ func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_Error()
 	s.Require().Error(err)
 	s.Nil(result)
 	s.Contains(err.Error(), "failed to update entity")
+}
+
+func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_NotFound() {
+	now := time.Now()
+	updateSQL := "UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"
+
+	s.mock.ExpectPrepare(regexp.QuoteMeta(updateSQL))
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        99,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Missing",
+		Email: "missing@test.com",
+	}
+
+	s.mock.ExpectExec(regexp.QuoteMeta(updateSQL)).
+		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	result, err := s.repo.Update(context.Background(), &entity)
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
