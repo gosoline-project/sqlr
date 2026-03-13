@@ -435,9 +435,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
 	s.Equal("draft", results[0].Posts[0].Status)
 }
 
-// TestQuery_CrossJoin verifies that CrossJoin generates a JOIN clause (without
-// ON conditions beyond the relation key) and correctly maps multiple result rows
-// to distinct parent entities.
+// TestQuery_CrossJoin verifies the current CrossJoin behavior: it reuses the
+// relation-aware JOIN implementation and therefore emits an inner JOIN with the
+// relation key predicate instead of a Cartesian product.
 func (s *RepositoryQueryTestSuite) TestQuery_CrossJoin() {
 	now := time.Now()
 
@@ -881,8 +881,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
 	s.Equal("Alice", results[0].Author.Name)
 }
 
-// TestQuery_CrossJoinBelongsTo verifies that CrossJoin works correctly for a
-// BelongsTo relation, generating a JOIN clause without extra ON conditions.
+// TestQuery_CrossJoinBelongsTo verifies the current CrossJoin behavior for a
+// BelongsTo relation, which also uses an inner JOIN with the relation key
+// predicate.
 func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
 	now := time.Now()
 
