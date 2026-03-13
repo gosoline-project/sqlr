@@ -94,28 +94,19 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E) error {
 }
 
 func (r *repository[K, E]) Read(ctx context.Context, id K, opts ...func(qb *QueryBuilderRead)) (*E, error) {
-	qbr := NewQueryBuilderRead()
-	for _, opt := range opts {
-		opt(qbr)
-	}
+	qbr := applyOptions(NewQueryBuilderRead(), opts)
 
 	return r.readEntityWithOpts(r.client, ctx, id, qbr)
 }
 
 func (r *repository[K, E]) Query(ctx context.Context, opts ...func(qb *QueryBuilderSelect)) ([]E, error) {
-	qb := NewQueryBuilderSelect()
-	for _, opt := range opts {
-		opt(qb)
-	}
+	qb := applyOptions(NewQueryBuilderSelect(), opts)
 
 	return r.queryEntities(r.client, ctx, qb)
 }
 
 func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error) {
-	qb := NewQueryBuilderUpdate()
-	for _, opt := range opts {
-		opt(qb)
-	}
+	qb := applyOptions(NewQueryBuilderUpdate(), opts)
 
 	if !qb.shouldSyncAssociations() {
 		return r.updateEntity(r.client, ctx, entity)

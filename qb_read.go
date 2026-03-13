@@ -29,10 +29,7 @@ func NewQueryBuilderRead() *QueryBuilderRead {
 //
 // Returns the same QueryBuilderRead instance for method chaining.
 func (r *QueryBuilderRead) Preload(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderRead {
-	r.preloads = append(r.preloads, preloadEntry{
-		relation: relation,
-		where:    conditions,
-	})
+	appendPreload(&r.preloads, relation, conditions)
 
 	return r
 }
@@ -82,11 +79,7 @@ func (r *QueryBuilderRead) CrossJoin(relation string) *QueryBuilderRead {
 
 // addJoin appends a join entry and returns the builder for chaining.
 func (r *QueryBuilderRead) addJoin(joinType sqlc.JoinType, relation string, conditions []*sqlc.SqlerWhere) *QueryBuilderRead {
-	r.joins = append(r.joins, joinEntry{
-		joinType: joinType,
-		relation: relation,
-		where:    conditions,
-	})
+	appendJoin(&r.joins, joinType, relation, conditions)
 
 	return r
 }

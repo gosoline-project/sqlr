@@ -33,10 +33,7 @@ type preloadEntry struct {
 //	Preload("Posts.Comments")                                               // nested preload
 //	Preload("Posts.Comments", Condition("body = ?", "keep"))               // condition applies to Comments only
 func (s *QueryBuilderSelect) Preload(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
-	s.preloads = append(s.preloads, preloadEntry{
-		relation: relation,
-		where:    conditions,
-	})
+	appendPreload(&s.preloads, relation, conditions)
 
 	return s
 }

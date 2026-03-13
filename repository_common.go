@@ -43,6 +43,14 @@ type repositoryCommon[K KeyTypes, E Entitier[K]] struct {
 	statementCache *statementCache
 }
 
+func applyOptions[T any](builder T, opts []func(T)) T {
+	for _, opt := range opts {
+		opt(builder)
+	}
+
+	return builder
+}
+
 // createEntityWithAssociations persists an entity together with all populated
 // association fields. It handles the four relationship types in the correct order:
 //

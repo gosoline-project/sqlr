@@ -22,11 +22,7 @@ type joinEntry struct {
 
 // addJoin appends a join entry to the query builder and returns it for chaining.
 func (s *QueryBuilderSelect) addJoin(joinType sqlc.JoinType, relation string, conditions []*sqlc.SqlerWhere) *QueryBuilderSelect {
-	s.joins = append(s.joins, joinEntry{
-		joinType: joinType,
-		relation: relation,
-		where:    conditions,
-	})
+	appendJoin(&s.joins, joinType, relation, conditions)
 
 	return s
 }
