@@ -383,6 +383,27 @@ func assertTag(s *suite.Suite, actual testTag, expected expectedTag) {
 	}
 }
 
+func assertExpectedPosts(s *suite.Suite, actual []testPost, expected []expectedPost) {
+	s.Require().Len(actual, len(expected))
+	for i, expectedPost := range expected {
+		assertPost(s, actual[i], expectedPost)
+	}
+}
+
+func assertExpectedComments(s *suite.Suite, actual []testComment, expected []expectedComment) {
+	s.Require().Len(actual, len(expected))
+	for i, expectedComment := range expected {
+		assertComment(s, actual[i], expectedComment)
+	}
+}
+
+func assertExpectedTags(s *suite.Suite, actual []testTag, expected []expectedTag) {
+	s.Require().Len(actual, len(expected))
+	for i, expectedTag := range expected {
+		assertTag(s, actual[i], expectedTag)
+	}
+}
+
 // assertAuthor checks a testAuthor entity against expected values.
 // Only non-nil fields in the expected struct are asserted.
 // For slices: nil = don't check, empty = assert empty, non-empty = assert contents.
@@ -392,17 +413,11 @@ func assertAuthor(s *suite.Suite, actual testAuthor, expected expectedAuthor) {
 	}
 
 	if expected.Posts != nil {
-		s.Require().Len(actual.Posts, len(expected.Posts))
-		for i, expectedPost := range expected.Posts {
-			assertPost(s, actual.Posts[i], expectedPost)
-		}
+		assertExpectedPosts(s, actual.Posts, expected.Posts)
 	}
 
 	if expected.Comments != nil {
-		s.Require().Len(actual.Comments, len(expected.Comments))
-		for i, expectedComment := range expected.Comments {
-			assertComment(s, actual.Comments[i], expectedComment)
-		}
+		assertExpectedComments(s, actual.Comments, expected.Comments)
 	}
 }
 
@@ -415,17 +430,11 @@ func assertAuthorAutoPreload(s *suite.Suite, actual testAuthorAutoPreload, expec
 	}
 
 	if expected.Posts != nil {
-		s.Require().Len(actual.Posts, len(expected.Posts))
-		for i, expectedPost := range expected.Posts {
-			assertPost(s, actual.Posts[i], expectedPost)
-		}
+		assertExpectedPosts(s, actual.Posts, expected.Posts)
 	}
 
 	if expected.Comments != nil {
-		s.Require().Len(actual.Comments, len(expected.Comments))
-		for i, expectedComment := range expected.Comments {
-			assertComment(s, actual.Comments[i], expectedComment)
-		}
+		assertExpectedComments(s, actual.Comments, expected.Comments)
 	}
 }
 
@@ -438,10 +447,7 @@ func assertArticle(s *suite.Suite, actual testArticle, expected expectedArticle)
 	}
 
 	if expected.Tags != nil {
-		s.Require().Len(actual.Tags, len(expected.Tags))
-		for i, expectedTag := range expected.Tags {
-			assertTag(s, actual.Tags[i], expectedTag)
-		}
+		assertExpectedTags(s, actual.Tags, expected.Tags)
 	}
 }
 
@@ -454,9 +460,6 @@ func assertArticleAutoPreload(s *suite.Suite, actual testArticleAutoPreload, exp
 	}
 
 	if expected.Tags != nil {
-		s.Require().Len(actual.Tags, len(expected.Tags))
-		for i, expectedTag := range expected.Tags {
-			assertTag(s, actual.Tags[i], expectedTag)
-		}
+		assertExpectedTags(s, actual.Tags, expected.Tags)
 	}
 }
