@@ -244,6 +244,23 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 	return entity, nil
 }
 
+// updateEntityWithAssociations synchronizes the entity graph rooted at entity.
+// It updates the parent row and all explicitly-present associations in one
+// transaction-aware operation after the caller opted into association sync via
+// QueryBuilderUpdate. BelongsTo relations are synchronized first so the parent's
+// foreign keys are current before the root row is updated. HasOne, HasMany, and
+// ManyToMany relations are synchronized afterwards.
+func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E) (*E, error) {
+	state := newAssociationSyncState()
+	rv := reflect.ValueOf(entity).Elem()
+
+	if err := syncExistingEntityGraph(r.statementCache, q, ctx, r.schema, rv, state); err != nil {
+		return nil, err
+	}
+
+	return entity, nil
+}
+
 // deleteEntity removes the entity with the given id from the database. Returns an
 // error if no entity with that id exists. Related rows are not cascade-deleted by
 // this method.

@@ -15,7 +15,7 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// related entities. Schema auto-preloads are always applied.
 	Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRead)) (*E, error)
 	Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)) ([]E, error)
-	Update(ttx TTx, entity *E) (*E, error)
+	Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	Delete(ttx TTx, id K) error
 	// Close releases resources held by the repository, including prepared statements
 	// when PreparedStatements is enabled. Returns the first error encountered, if any.
@@ -75,8 +75,17 @@ func (t *repositoryTx[K, E]) Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)
 	return t.queryEntities(ttx, ttx, qb)
 }
 
-func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E) (*E, error) {
-	return t.updateEntity(ttx, ttx, entity)
+func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error) {
+	qb := NewQueryBuilderUpdate()
+	for _, opt := range opts {
+		opt(qb)
+	}
+
+	if !qb.shouldSyncAssociations() {
+		return t.updateEntity(ttx, ttx, entity)
+	}
+
+	return t.updateEntityWithAssociations(ttx, ttx, entity)
 }
 
 func (t *repositoryTx[K, E]) Delete(ttx TTx, id K) error {

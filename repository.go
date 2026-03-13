@@ -11,16 +11,18 @@ import (
 
 var _ Repository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])(nil)
 
-// Repository provides CRUD and query operations for an entity type.
-// Create/Update/Delete only persist the base entity table and are not
-// relationship-aware (no cascade writes/deletes). Read and Query are
-// relation-aware for loading: both support joins for direct HasOne/HasMany/
-// BelongsTo relations and preloads for HasOne/HasMany/BelongsTo/ManyToMany;
-// both execute schema auto-preloads (db tag option "preload"), including nested
-// preload paths. Read uses QueryBuilderRead (restricted to relation-loading
-// methods) while Query uses QueryBuilderSelect (full query capabilities).
+// Repository provides CRUD and query operations for an entity type. Create
+// synchronizes populated relationship fields together with the base entity row.
+// Update persists the base entity row by default and can explicitly synchronize
+// associations via QueryBuilderUpdate. Delete only removes the base entity row. Read
+// and Query are relation-aware for loading: both support joins for direct
+// HasOne/HasMany/BelongsTo relations and preloads for
+// HasOne/HasMany/BelongsTo/ManyToMany; both execute schema auto-preloads (db
+// tag option "preload"), including nested preload paths. Read uses
+// QueryBuilderRead (restricted to relation-loading methods) while Query uses
+// QueryBuilderSelect (full query capabilities).
 type Repository[K KeyTypes, E Entitier[K]] interface {
-	// Create inserts the base entity row only; related entities are ignored.
+	// Create inserts the entity row and synchronizes populated associations.
 	Create(ctx context.Context, entity *E) error
 	// Read loads one entity by primary key. Optional functions receive a
 	// QueryBuilderRead to configure joins and preloads for eager-loading
@@ -31,8 +33,9 @@ type Repository[K KeyTypes, E Entitier[K]] interface {
 	// Limit, OrderBy, Preload, LeftJoin, etc. When no options are provided the
 	// query selects all rows (with auto-preloads still applied).
 	Query(ctx context.Context, opts ...func(qb *QueryBuilderSelect)) ([]E, error)
-	// Update updates the base entity row only; related entities are ignored.
-	Update(ctx context.Context, entity *E) (*E, error)
+	// Update updates the base entity row. Optional functions receive a
+	// QueryBuilderUpdate to enable association synchronization for this call.
+	Update(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	// Delete removes the base entity row only; related entities are not cascaded.
 	Delete(ctx context.Context, id K) error
 	// Close releases resources held by the repository, including prepared statements
@@ -108,8 +111,29 @@ func (r *repository[K, E]) Query(ctx context.Context, opts ...func(qb *QueryBuil
 	return r.queryEntities(r.client, ctx, qb)
 }
 
-func (r *repository[K, E]) Update(ctx context.Context, entity *E) (*E, error) {
-	return r.updateEntity(r.client, ctx, entity)
+func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error) {
+	qb := NewQueryBuilderUpdate()
+	for _, opt := range opts {
+		opt(qb)
+	}
+
+	if !qb.shouldSyncAssociations() {
+		return r.updateEntity(r.client, ctx, entity)
+	}
+
+	var err error
+	var updated *E
+
+	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
+		updated, err = r.updateEntityWithAssociations(tx, ctx, entity)
+
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updated, nil
 }
 
 func (r *repository[K, E]) Delete(ctx context.Context, id K) error {

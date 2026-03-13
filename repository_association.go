@@ -260,6 +260,595 @@ func createRelatedManyToMany(q sqlc.Querier, ctx context.Context, parentSchema *
 	return nil
 }
 
+type associationSyncState struct {
+	active map[string]struct{}
+}
+
+func newAssociationSyncState() *associationSyncState {
+	return &associationSyncState{
+		active: make(map[string]struct{}),
+	}
+}
+
+func (s *associationSyncState) enter(key string) bool {
+	if _, exists := s.active[key]; exists {
+		return false
+	}
+
+	s.active[key] = struct{}{}
+
+	return true
+}
+
+func (s *associationSyncState) leave(key string) {
+	delete(s.active, key)
+}
+
+func syncExistingEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) error {
+	_, err := syncEntityGraph(cache, q, ctx, schema, entityValue, state)
+
+	return err
+}
+
+func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) (any, error) {
+	entityValue = unwrapEntityValue(entityValue)
+	if !entityValue.IsValid() {
+		return nil, fmt.Errorf("invalid entity value for schema %s", schema.TableName)
+	}
+
+	if state == nil {
+		state = newAssociationSyncState()
+	}
+
+	key, hasKey := associationSyncKey(schema, entityValue)
+	if hasKey {
+		if !state.enter(key) {
+			return entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface(), nil
+		}
+
+		defer state.leave(key)
+	}
+
+	if err := syncBelongsToAssociations(cache, q, ctx, schema, entityValue, state); err != nil {
+		return nil, err
+	}
+
+	pk, err := persistEntityGraphNode(cache, q, ctx, schema, entityValue)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := syncForwardAssociations(cache, q, ctx, schema, entityValue, state); err != nil {
+		return nil, err
+	}
+
+	return pk, nil
+}
+
+func persistEntityGraphNode(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) (any, error) {
+	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
+	if !pkField.IsZero() {
+		if err := updateStoredEntity(cache, q, ctx, schema, entityValue); err != nil {
+			return nil, err
+		}
+
+		return pkField.Interface(), nil
+	}
+
+	pk, err := insertRelatedEntity(q, ctx, schema, entityValue)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := setEntityPrimaryKey(schema, entityValue, pk); err != nil {
+		return nil, err
+	}
+
+	return entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface(), nil
+}
+
+func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) error {
+	for _, rel := range schema.Relationships {
+		if rel.Type != BelongsTo {
+			continue
+		}
+
+		field := entityValue.FieldByIndex(rel.FieldIndex)
+		if field.IsZero() {
+			continue
+		}
+
+		nestedSchema, err := rel.resolveRelationSchema()
+		if err != nil {
+			return fmt.Errorf("failed to resolve schema for BelongsTo relation %q: %w", rel.Name, err)
+		}
+
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, field, state); err != nil {
+			return fmt.Errorf("failed to synchronize BelongsTo relation %q: %w", rel.Name, err)
+		}
+
+		pkField := unwrapEntityValue(field).FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
+
+		fkCol, ok := schema.ColumnByName(rel.ForeignKey)
+		if !ok {
+			return fmt.Errorf("BelongsTo relation %q: FK column %q not found on schema", rel.Name, rel.ForeignKey)
+		}
+
+		fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
+		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey); err != nil {
+			return fmt.Errorf("BelongsTo relation %q: %w", rel.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func syncForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) error {
+	for _, rel := range schema.Relationships {
+		if err := syncForwardAssociation(cache, q, ctx, schema, entityValue, rel, state); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func syncForwardAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+	field := entityValue.FieldByIndex(rel.FieldIndex)
+
+	switch rel.Type {
+	case HasOne:
+		if field.IsZero() {
+			return nil
+		}
+
+		return syncHasOneAssociation(cache, q, ctx, schema, entityValue, rel, state)
+	case HasMany:
+		if field.IsNil() {
+			return nil
+		}
+
+		return syncHasManyAssociation(cache, q, ctx, schema, entityValue, rel, state)
+	case ManyToMany:
+		if field.IsNil() {
+			return nil
+		}
+
+		return syncManyToManyAssociation(cache, q, ctx, schema, entityValue, rel, state)
+	case BelongsTo:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
+	}
+
+	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
+	relField := parentValue.FieldByIndex(rel.FieldIndex)
+
+	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK); err != nil {
+		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
+	}
+
+	if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, relField, state); err != nil {
+		return fmt.Errorf("failed to synchronize HasOne relation %q: %w", rel.Name, err)
+	}
+
+	currentChildren, err := loadChildrenByForeignKey(cache, q, ctx, nestedSchema, rel.ForeignKey, parentPK)
+	if err != nil {
+		return fmt.Errorf("failed to load existing HasOne relation %q: %w", rel.Name, err)
+	}
+
+	desiredPK := unwrapEntityValue(relField).FieldByIndex(nestedSchema.PrimaryKey.FieldIndex).Interface()
+	desiredKey, ok := comparableKey(desiredPK)
+	if !ok {
+		return fmt.Errorf("HasOne relation %q produced non-comparable primary key type %T", rel.Name, desiredPK)
+	}
+
+	for _, current := range currentChildren {
+		currentPK := current.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex).Interface()
+		currentKey, ok := comparableKey(currentPK)
+		if !ok {
+			return fmt.Errorf("existing HasOne relation %q produced non-comparable primary key type %T", rel.Name, currentPK)
+		}
+
+		if currentKey == desiredKey {
+			continue
+		}
+
+		if err := deleteEntityGraph(cache, q, ctx, nestedSchema, current, state); err != nil {
+			return fmt.Errorf("failed to delete replaced HasOne relation %q: %w", rel.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
+	}
+
+	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
+	currentChildren, err := loadChildrenByForeignKey(cache, q, ctx, nestedSchema, rel.ForeignKey, parentPK)
+	if err != nil {
+		return fmt.Errorf("failed to load existing HasMany relation %q: %w", rel.Name, err)
+	}
+
+	desiredKeys := make(map[any]struct{})
+	sliceField := parentValue.FieldByIndex(rel.FieldIndex)
+	for i := range sliceField.Len() {
+		elem := sliceField.Index(i)
+
+		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK); err != nil {
+			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
+		}
+
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state); err != nil {
+			return fmt.Errorf("failed to synchronize HasMany relation %q[%d]: %w", rel.Name, i, err)
+		}
+
+		pk := unwrapEntityValue(elem).FieldByIndex(nestedSchema.PrimaryKey.FieldIndex).Interface()
+		key, ok := comparableKey(pk)
+		if !ok {
+			return fmt.Errorf("HasMany relation %q[%d] produced non-comparable primary key type %T", rel.Name, i, pk)
+		}
+
+		desiredKeys[key] = struct{}{}
+	}
+
+	for _, current := range currentChildren {
+		currentPK := current.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex).Interface()
+		currentKey, ok := comparableKey(currentPK)
+		if !ok {
+			return fmt.Errorf("existing HasMany relation %q produced non-comparable primary key type %T", rel.Name, currentPK)
+		}
+
+		if _, keep := desiredKeys[currentKey]; keep {
+			continue
+		}
+
+		if err := deleteEntityGraph(cache, q, ctx, nestedSchema, current, state); err != nil {
+			return fmt.Errorf("failed to delete orphaned HasMany relation %q: %w", rel.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
+	}
+
+	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
+	sliceField := parentValue.FieldByIndex(rel.FieldIndex)
+	desiredKeys := make(map[any]struct{}, sliceField.Len())
+	desiredPKs := make([]any, 0, sliceField.Len())
+
+	for i := range sliceField.Len() {
+		elem := sliceField.Index(i)
+
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state); err != nil {
+			return fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
+		}
+
+		pk := unwrapEntityValue(elem).FieldByIndex(nestedSchema.PrimaryKey.FieldIndex).Interface()
+		key, ok := comparableKey(pk)
+		if !ok {
+			return fmt.Errorf("ManyToMany relation %q[%d] produced non-comparable primary key type %T", rel.Name, i, pk)
+		}
+
+		if _, exists := desiredKeys[key]; exists {
+			continue
+		}
+
+		desiredKeys[key] = struct{}{}
+		desiredPKs = append(desiredPKs, pk)
+	}
+
+	links, err := loadM2MLinks(cache, q, ctx, parentSchema, nestedSchema, rel, parentPK)
+	if err != nil {
+		return fmt.Errorf("failed to load existing ManyToMany relation %q: %w", rel.Name, err)
+	}
+
+	existingKeys := make(map[any]struct{}, len(links))
+	obsoletePKs := make([]any, 0)
+	for _, link := range links {
+		existingKeys[link.relatedID] = struct{}{}
+		if _, keep := desiredKeys[link.relatedID]; !keep {
+			obsoletePKs = append(obsoletePKs, link.relatedID)
+		}
+	}
+
+	if len(obsoletePKs) > 0 {
+		if err := deleteM2MLinks(cache, q, ctx, rel, parentSchema, nestedSchema, parentPK, obsoletePKs); err != nil {
+			return fmt.Errorf("failed to delete obsolete ManyToMany links for relation %q: %w", rel.Name, err)
+		}
+	}
+
+	missingPKs := make([]any, 0)
+	for _, desiredPK := range desiredPKs {
+		key, _ := comparableKey(desiredPK)
+		if _, exists := existingKeys[key]; exists {
+			continue
+		}
+
+		missingPKs = append(missingPKs, desiredPK)
+	}
+
+	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, nestedSchema)
+	if err := insertJoinTableRows(q, ctx, rel.JoinTable, parentColName, relatedColName, parentPK, missingPKs); err != nil {
+		return fmt.Errorf("failed to insert ManyToMany links for relation %q: %w", rel.Name, err)
+	}
+
+	return nil
+}
+
+func deleteEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) error {
+	entityValue = unwrapEntityValue(entityValue)
+	if !entityValue.IsValid() {
+		return nil
+	}
+
+	if state == nil {
+		state = newAssociationSyncState()
+	}
+
+	key, hasKey := associationSyncKey(schema, entityValue)
+	if hasKey {
+		if !state.enter(key) {
+			return nil
+		}
+
+		defer state.leave(key)
+	}
+
+	parentPK := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
+	if err := deleteEntityAssociations(cache, q, ctx, schema, parentPK, state); err != nil {
+		return err
+	}
+
+	if err := deleteStoredEntity(cache, q, ctx, schema, parentPK); err != nil {
+		return fmt.Errorf("failed to delete entity %s: %w", schema.TableName, err)
+	}
+
+	return nil
+}
+
+func deleteEntityAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, parentPK any, state *associationSyncState) error {
+	for _, rel := range schema.Relationships {
+		if err := deleteAssociationForEntity(cache, q, ctx, schema, rel, parentPK, state); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func deleteAssociationForEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any, state *associationSyncState) error {
+	switch rel.Type {
+	case HasOne, HasMany:
+		return deleteChildAssociation(cache, q, ctx, schema, rel, parentPK, state)
+	case ManyToMany:
+		return deleteManyToManyAssociation(cache, q, ctx, schema, rel, parentPK)
+	case BelongsTo:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func deleteChildAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any, state *associationSyncState) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for delete relation %q: %w", rel.Name, err)
+	}
+
+	children, err := loadChildrenByForeignKey(cache, q, ctx, nestedSchema, rel.ForeignKey, parentPK)
+	if err != nil {
+		return fmt.Errorf("failed to load related rows for delete relation %q: %w", rel.Name, err)
+	}
+
+	for _, child := range children {
+		if err := deleteEntityGraph(cache, q, ctx, nestedSchema, child, state); err != nil {
+			return fmt.Errorf("failed to cascade delete relation %q: %w", rel.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func deleteManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any) error {
+	nestedSchema, err := rel.resolveRelationSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for ManyToMany delete relation %q: %w", rel.Name, err)
+	}
+
+	if err := deleteAllM2MLinks(cache, q, ctx, rel, schema, nestedSchema, parentPK); err != nil {
+		return fmt.Errorf("failed to delete ManyToMany links for relation %q: %w", rel.Name, err)
+	}
+
+	return nil
+}
+
+func unwrapEntityValue(entityValue reflect.Value) reflect.Value {
+	for entityValue.IsValid() && entityValue.Kind() == reflect.Ptr {
+		if entityValue.IsNil() {
+			return reflect.Value{}
+		}
+
+		entityValue = entityValue.Elem()
+	}
+
+	return entityValue
+}
+
+func associationSyncKey(schema *EntitySchema, entityValue reflect.Value) (string, bool) {
+	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
+	if !pkField.IsZero() {
+		pk := pkField.Interface()
+		key, ok := comparableKey(pk)
+		if !ok {
+			return "", false
+		}
+
+		return fmt.Sprintf("%s:%v", schema.TableName, key), true
+	}
+
+	if entityValue.CanAddr() {
+		return fmt.Sprintf("%s:new:%x", schema.TableName, entityValue.Addr().Pointer()), true
+	}
+
+	return "", false
+}
+
+func setEntityPrimaryKey(schema *EntitySchema, entityValue reflect.Value, pk any) error {
+	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
+
+	return setFieldValue(pkField, pk, schema.TableName, schema.PrimaryKey.Name)
+}
+
+func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) error {
+	now := time.Now()
+
+	for _, col := range schema.Columns {
+		if col.AutoUpdateTime {
+			entityValue.FieldByIndex(col.FieldIndex).Set(reflect.ValueOf(now))
+		}
+	}
+
+	setMap := make(map[string]any, len(schema.Columns))
+	pkValue := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
+
+	for _, col := range schema.Columns {
+		if col.IsPrimaryKey {
+			continue
+		}
+
+		setMap[col.Name] = entityValue.FieldByIndex(col.FieldIndex).Interface()
+	}
+
+	sqler := sqlc.Update(schema.TableName).
+		SetMap(setMap).
+		Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue))
+
+	_, result, err := cache.Exec(ctx, sqler, q)
+	if err != nil {
+		return fmt.Errorf("failed to update entity %s: %w", schema.TableName, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected for %s: %w", schema.TableName, err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)
+	}
+
+	return nil
+}
+
+func loadChildrenByForeignKey(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, foreignKey string, parentPK any) ([]reflect.Value, error) {
+	qb := sqlc.From(schema.TableName).Where(sqlc.Col(schema.TableName, foreignKey).Eq(parentPK))
+
+	return querySchemaEntities(cache, q, ctx, qb, schema)
+}
+
+func querySchemaEntities(cache *statementCache, q sqlc.Querier, ctx context.Context, sqler sqlc.Sqler, schema *EntitySchema) ([]reflect.Value, error) {
+	rows, err := cache.Query(ctx, sqler, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck // safe to ignore in defer
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get query columns for %s: %w", schema.TableName, err)
+	}
+
+	entities, err := hydrateRows(rows, columns, schema, schema.entityType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hydrate rows for %s: %w", schema.TableName, err)
+	}
+
+	return entities, nil
+}
+
+func loadM2MLinks(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, relSchema *EntitySchema, rel *Relationship, parentPK any) ([]m2mLink, error) {
+	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, relSchema)
+	sqler := sqlc.From(rel.JoinTable).
+		Where(sqlc.Col(rel.JoinTable, parentColName).Eq(parentPK))
+
+	joinRows, err := cache.Query(ctx, sqler, q)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query join table %s: %w", rel.JoinTable, err)
+	}
+	defer joinRows.Close() //nolint:errcheck // safe to ignore in defer
+
+	joinColumns, err := joinRows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get join table columns: %w", err)
+	}
+
+	parentColIdx, relatedColIdx := findJoinColumnIndices(joinColumns, parentColName, relatedColName)
+	if parentColIdx < 0 || relatedColIdx < 0 {
+		return nil, fmt.Errorf("join table %q missing expected columns %q or %q", rel.JoinTable, parentColName, relatedColName)
+	}
+
+	links, _, err := scanJoinTableRows(joinRows, joinColumns, parentColIdx, relatedColIdx, parentSchema, relSchema, rel)
+	if err != nil {
+		return nil, err
+	}
+
+	return links, nil
+}
+
+func deleteM2MLinks(cache *statementCache, q sqlc.Querier, ctx context.Context, rel *Relationship, parentSchema *EntitySchema, relSchema *EntitySchema, parentPK any, relatedPKs []any) error {
+	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, relSchema)
+
+	for _, relatedPK := range relatedPKs {
+		sqler := sqlc.Delete(rel.JoinTable).
+			Where(sqlc.Col(parentColName).Eq(parentPK)).
+			Where(sqlc.Col(relatedColName).Eq(relatedPK))
+
+		if _, _, err := cache.Exec(ctx, sqler, q); err != nil {
+			return fmt.Errorf("failed to delete join table row from %s: %w", rel.JoinTable, err)
+		}
+	}
+
+	return nil
+}
+
+func deleteAllM2MLinks(cache *statementCache, q sqlc.Querier, ctx context.Context, rel *Relationship, parentSchema *EntitySchema, relSchema *EntitySchema, parentPK any) error {
+	parentColName, _ := resolveM2MColumnNames(rel, parentSchema, relSchema)
+	sqler := sqlc.Delete(rel.JoinTable).Where(sqlc.Col(parentColName).Eq(parentPK))
+
+	if _, _, err := cache.Exec(ctx, sqler, q); err != nil {
+		return fmt.Errorf("failed to delete join rows from %s: %w", rel.JoinTable, err)
+	}
+
+	return nil
+}
+
+func deleteStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, pkValue any) error {
+	sqler := sqlc.Delete(schema.TableName).Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue))
+
+	if _, _, err := cache.Exec(ctx, sqler, q); err != nil {
+		return fmt.Errorf("failed to delete row from %s: %w", schema.TableName, err)
+	}
+
+	return nil
+}
+
 // insertRelatedEntity builds and executes an INSERT for a related entity using its
 // schema. It sets autoCreateTime and autoUpdateTime fields, skips auto-increment
 // PKs in the INSERT columns, and returns the generated primary key value.
@@ -349,13 +938,69 @@ func setRelatedFK(entityValue reflect.Value, schema *EntitySchema, fkColName str
 	}
 
 	fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
-	pkVal := reflect.ValueOf(parentPK)
 
-	if !pkVal.Type().ConvertibleTo(fkField.Type()) {
-		return fmt.Errorf("parent PK type %s is not convertible to FK field type %s for column %q", pkVal.Type(), fkField.Type(), fkColName)
+	return setFieldValue(fkField, parentPK, schema.TableName, fkColName)
+}
+
+func setFieldValue(field reflect.Value, value any, tableName string, columnName string) error {
+	valueRef := reflect.ValueOf(value)
+	if !valueRef.IsValid() {
+		return fmt.Errorf("invalid value for %s.%s", tableName, columnName)
 	}
 
-	fkField.Set(pkVal.Convert(fkField.Type()))
+	for valueRef.Kind() == reflect.Interface {
+		if valueRef.IsNil() {
+			return fmt.Errorf("invalid value for %s.%s", tableName, columnName)
+		}
+
+		valueRef = valueRef.Elem()
+	}
+
+	if field.Kind() == reflect.Ptr {
+		return setPointerFieldValue(field, valueRef, tableName, columnName)
+	}
+
+	if valueRef.Kind() == reflect.Ptr {
+		if valueRef.IsNil() {
+			return fmt.Errorf("nil value is not assignable to non-pointer field %s.%s", tableName, columnName)
+		}
+
+		valueRef = valueRef.Elem()
+	}
+
+	if !valueRef.Type().ConvertibleTo(field.Type()) {
+		return fmt.Errorf("value type %s is not convertible to field type %s for %s.%s", valueRef.Type(), field.Type(), tableName, columnName)
+	}
+
+	field.Set(valueRef.Convert(field.Type()))
+
+	return nil
+}
+
+func setPointerFieldValue(field reflect.Value, valueRef reflect.Value, tableName string, columnName string) error {
+	if valueRef.Kind() == reflect.Ptr {
+		if valueRef.IsNil() {
+			field.Set(reflect.Zero(field.Type()))
+
+			return nil
+		}
+
+		if valueRef.Type().ConvertibleTo(field.Type()) {
+			field.Set(valueRef.Convert(field.Type()))
+
+			return nil
+		}
+
+		valueRef = valueRef.Elem()
+	}
+
+	if !valueRef.Type().ConvertibleTo(field.Type().Elem()) {
+		return fmt.Errorf("value type %s is not convertible to field type %s for %s.%s", valueRef.Type(), field.Type(), tableName, columnName)
+	}
+
+	ptr := reflect.New(field.Type().Elem())
+	ptr.Elem().Set(valueRef.Convert(field.Type().Elem()))
+	field.Set(ptr)
 
 	return nil
 }
