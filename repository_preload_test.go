@@ -221,6 +221,71 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHasOneNoRelated() {
 	s.Equal(testProfile{}, results[0].Profile)
 }
 
+// TestQuery_WithJoinAndPreload verifies that Query still executes explicit
+// preloads when the main load path uses joins.
+func (s *RepositoryPreloadTestSuite) TestQuery_WithJoinAndPreload() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_comments` WHERE `test_comments`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
+			AddRow(100, now, now, 1, 10, "A comment"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts")
+		qb.Preload("Comments")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name:     ptr("Alice"),
+		Posts:    []expectedPost{{Title: ptr("First Post"), Status: ptr("published")}},
+		Comments: []expectedComment{{Body: ptr("A comment")}},
+	})
+}
+
+// TestQuery_WithJoinAndAutoPreload verifies that schema auto-preloads still run
+// when Query uses joins.
+func (s *RepositoryPreloadTestSuite) TestQuery_WithJoinAndAutoPreload() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_auto_preloads`.`id`, `test_author_auto_preloads`.`created_at`, `test_author_auto_preloads`.`updated_at`, `test_author_auto_preloads`.`name`, " +
+			"`Comments`.`id` AS `Comments__id`, `Comments`.`created_at` AS `Comments__created_at`, `Comments`.`updated_at` AS `Comments__updated_at`, " +
+			"`Comments`.`author_id` AS `Comments__author_id`, `Comments`.`post_id` AS `Comments__post_id`, `Comments`.`body` AS `Comments__body`" +
+			" FROM `test_author_auto_preloads` LEFT JOIN `test_comments` AS Comments ON `test_author_auto_preloads`.`id` = `Comments`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Comments__id", "Comments__created_at", "Comments__updated_at", "Comments__author_id", "Comments__post_id", "Comments__body"}).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "A comment"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	results, err := s.authorAutoPreloadRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Comments")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthorAutoPreload(&s.Suite, results[0], expectedAuthor{
+		Name:     ptr("Alice"),
+		Posts:    []expectedPost{{Title: ptr("First Post"), Status: ptr("published")}},
+		Comments: []expectedComment{{Body: ptr("A comment")}},
+	})
+}
+
 // TestQuery_PreloadBelongsTo verifies that a BelongsTo relation (Author) is
 // loaded for a single child record by querying the parent table using the
 // foreign key value stored on the child.

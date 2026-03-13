@@ -345,7 +345,7 @@ func (r *repositoryCommon[K, E]) queryEntities(q sqlc.Querier, ctx context.Conte
 	}
 
 	if hasJoins {
-		return r.queryWithJoins(q, ctx, qb)
+		return r.queryWithJoins(q, ctx, qb, preloads)
 	}
 
 	return r.querySimple(q, ctx, qb, preloads)

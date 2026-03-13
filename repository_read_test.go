@@ -932,6 +932,79 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithAutoPreloadAndExplic
 	})
 }
 
+// TestRead_WithJoinAndPreload verifies that joined reads still execute explicit
+// preloads after join hydration so both loading strategies can be combined.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithJoinAndPreload() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
+			" WHERE `test_authors`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_comments` WHERE `test_comments`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
+			AddRow(100, now, now, 1, 10, "A comment"))
+
+	result, err := s.authorRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
+		qb.LeftJoin("Posts")
+		qb.Preload("Comments")
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	assertAuthor(&s.Suite, *result, expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), AuthorID: ptr(int64(1)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+		Comments: []expectedComment{
+			{Body: ptr("A comment")},
+		},
+	})
+}
+
+// TestRead_WithJoinAndAutoPreload verifies that schema auto-preloads still run
+// when Read uses joins.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithJoinAndAutoPreload() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_auto_preloads`.`id`, `test_author_auto_preloads`.`created_at`, `test_author_auto_preloads`.`updated_at`, `test_author_auto_preloads`.`name`, "+
+			"`Comments`.`id` AS `Comments__id`, `Comments`.`created_at` AS `Comments__created_at`, `Comments`.`updated_at` AS `Comments__updated_at`, "+
+			"`Comments`.`author_id` AS `Comments__author_id`, `Comments`.`post_id` AS `Comments__post_id`, `Comments`.`body` AS `Comments__body`"+
+			" FROM `test_author_auto_preloads` LEFT JOIN `test_comments` AS Comments ON `test_author_auto_preloads`.`id` = `Comments`.`author_id`"+
+			" WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Comments__id", "Comments__created_at", "Comments__updated_at", "Comments__author_id", "Comments__post_id", "Comments__body"}).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "A comment"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	result, err := s.authorAutoPreloadRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
+		qb.LeftJoin("Comments")
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	assertAuthorAutoPreload(&s.Suite, *result, expectedAuthor{
+		Name:     ptr("Alice"),
+		Posts:    []expectedPost{{Title: ptr("First Post"), Status: ptr("published")}},
+		Comments: []expectedComment{{Body: ptr("A comment")}},
+	})
+}
+
 // TestRead_WithLeftJoinMultiplePosts verifies that when a LEFT JOIN produces
 // multiple rows for the same root entity (one per related row), the result is
 // correctly deduplicated into a single entity with all posts in its slice.
