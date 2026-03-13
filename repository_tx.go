@@ -36,6 +36,10 @@ func NewRepositoryTxWithSettings[K KeyTypes, E Entitier[K]](client sqlc.Client, 
 	var err error
 	var common repositoryCommon[K, E]
 
+	if settings.PreparedStatements && client == nil {
+		return nil, fmt.Errorf("prepared statements require a client")
+	}
+
 	if common, err = newRepositoryCommon[K, E](client, settings); err != nil {
 		return nil, fmt.Errorf("failed to create repository common: %w", err)
 	}
