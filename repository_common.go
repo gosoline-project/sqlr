@@ -88,19 +88,8 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 	rv := reflect.ValueOf(entity).Elem()
 
 	insertCols := r.schema.InsertColumns()
-	vals := make([]any, 0, len(insertCols))
-
-	for _, col := range r.schema.Columns {
-		if col.AutoCreateTime || col.AutoUpdateTime {
-			rv.FieldByIndex(col.FieldIndex).Set(reflect.ValueOf(now))
-		}
-
-		if col.IsPrimaryKey && col.AutoIncrement {
-			continue
-		}
-
-		vals = append(vals, rv.FieldByIndex(col.FieldIndex).Interface())
-	}
+	setCreateTimestamps(rv, r.schema, now)
+	vals := buildInsertValues(rv, r.schema)
 
 	sqler := sqlc.IntoG[E](r.schema.TableName).
 		Columns(insertCols...).
@@ -218,26 +207,8 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 	now := time.Now()
 	rv := reflect.ValueOf(entity).Elem()
 
-	// Set auto-update timestamp fields.
-	for _, col := range r.schema.Columns {
-		if col.AutoUpdateTime {
-			rv.FieldByIndex(col.FieldIndex).Set(reflect.ValueOf(now))
-		}
-	}
-
-	// Build the SET map from all non-primary-key columns.
-	setMap := make(map[string]any, len(r.schema.Columns))
-	var pkValue any
-
-	for _, col := range r.schema.Columns {
-		v := rv.FieldByIndex(col.FieldIndex).Interface()
-		if col.IsPrimaryKey {
-			pkValue = v
-
-			continue
-		}
-		setMap[col.Name] = v
-	}
+	setUpdateTimestamps(rv, r.schema, now)
+	setMap, pkValue := buildUpdateSetMap(rv, r.schema)
 
 	// Build the UPDATE SQL and args via sqlc builder.
 	sqler := sqlc.UpdateG[E](r.schema.TableName).
@@ -249,13 +220,8 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 		return nil, fmt.Errorf("failed to update entity: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return nil, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound)
+	if err := errNoRowsAffected(result, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound)); err != nil {
+		return nil, err
 	}
 
 	return entity, nil
@@ -294,13 +260,8 @@ func (r *repositoryCommon[K, E]) deleteEntity(q sqlc.Querier, ctx context.Contex
 		return fmt.Errorf("failed to delete entity: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("entity id=%v: %w", id, ErrNotFound)
+	if err := errNoRowsAffected(result, fmt.Errorf("entity id=%v: %w", id, ErrNotFound)); err != nil {
+		return err
 	}
 
 	return nil

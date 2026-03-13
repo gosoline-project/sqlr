@@ -718,23 +718,8 @@ func setEntityPrimaryKey(schema *EntitySchema, entityValue reflect.Value, pk any
 
 func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) error {
 	now := time.Now()
-
-	for _, col := range schema.Columns {
-		if col.AutoUpdateTime {
-			entityValue.FieldByIndex(col.FieldIndex).Set(reflect.ValueOf(now))
-		}
-	}
-
-	setMap := make(map[string]any, len(schema.Columns))
-	pkValue := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
-
-	for _, col := range schema.Columns {
-		if col.IsPrimaryKey {
-			continue
-		}
-
-		setMap[col.Name] = entityValue.FieldByIndex(col.FieldIndex).Interface()
-	}
+	setUpdateTimestamps(entityValue, schema, now)
+	setMap, pkValue := buildUpdateSetMap(entityValue, schema)
 
 	sqler := sqlc.Update(schema.TableName).
 		SetMap(setMap).
@@ -745,13 +730,8 @@ func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Conte
 		return fmt.Errorf("failed to update entity %s: %w", schema.TableName, err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected for %s: %w", schema.TableName, err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)
+	if err := errNoRowsAffected(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)); err != nil {
+		return err
 	}
 
 	return nil
@@ -859,19 +839,8 @@ func insertRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySche
 
 	// Set auto-timestamp fields and collect INSERT values.
 	insertCols := schema.InsertColumns()
-	vals := make([]any, 0, len(insertCols))
-
-	for _, col := range schema.Columns {
-		if col.AutoCreateTime || col.AutoUpdateTime {
-			entityValue.FieldByIndex(col.FieldIndex).Set(reflect.ValueOf(now))
-		}
-
-		if col.IsPrimaryKey && col.AutoIncrement {
-			continue
-		}
-
-		vals = append(vals, entityValue.FieldByIndex(col.FieldIndex).Interface())
-	}
+	setCreateTimestamps(entityValue, schema, now)
+	vals := buildInsertValues(entityValue, schema)
 
 	sqler := sqlc.Into(schema.TableName).
 		Columns(insertCols...).
