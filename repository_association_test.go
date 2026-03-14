@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gosoline-project/sqlc"
@@ -314,8 +315,10 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_InsertsAssocia
 	s.Equal(int64(1), entity.Posts[1].AuthorID)
 }
 
-func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_SkipsExistingAssociations() {
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_PersistsExistingAssociations() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	authorNow := time.Now()
+	postNow := time.Now().Add(-time.Hour)
 
 	s.mock.ExpectBegin()
 
@@ -324,17 +327,31 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_SkipsExistingA
 		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	// Phase 3: only the post without an ID gets inserted (post with ID=99 is skipped).
+	// Phase 3: existing post gets its FK persisted, new post gets inserted.
+	s.mock.ExpectExec(regexp.QuoteMeta("UPDATE `assoc_posts` SET `author_id` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(int64(1), isTimestamp{}, int64(99)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "New Post").
 		WillReturnResult(sqlmock.NewResult(20, 1))
 
 	s.mock.ExpectCommit()
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), authorNow, authorNow, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(99), postNow, postNow, int64(1), "Existing Post").
+			AddRow(int64(20), authorNow, authorNow, int64(1), "New Post"))
 
 	entity := assocAuthor{
 		Name: "Alice",
 		Posts: []assocPost{
-			{Entity: sqlr.Entity[int64]{Id: 99}, AuthorID: 1, Title: "Existing Post"},
+			{Entity: sqlr.Entity[int64]{Id: 99, CreatedAt: postNow, UpdatedAt: postNow}, Title: "Existing Post"},
 			{Title: "New Post"},
 		},
 	}
@@ -343,8 +360,20 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_SkipsExistingA
 
 	// Existing post keeps its ID unchanged.
 	s.Equal(int64(99), entity.Posts[0].GetId())
+	s.Equal(int64(1), entity.Posts[0].AuthorID)
 	// New post gets its generated ID.
 	s.Equal(int64(20), entity.Posts[1].GetId())
+	s.Equal(int64(1), entity.Posts[1].AuthorID)
+
+	stored, err := repo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
+		qb.Preload("Posts")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(stored.Posts, 2)
+	s.Equal(int64(99), stored.Posts[0].GetId())
+	s.Equal(int64(1), stored.Posts[0].AuthorID)
+	s.Equal("Existing Post", stored.Posts[0].Title)
 }
 
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_OnlyCreatesSelectedRelation() {
@@ -430,8 +459,10 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOnePointer_InsertsA
 	s.Equal(int64(5), entity.Profile.AuthorID)
 }
 
-func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_SkipsExistingAssociation() {
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_PersistsExistingAssociation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	authorNow := time.Now()
+	profileNow := time.Now().Add(-time.Hour)
 
 	s.mock.ExpectBegin()
 
@@ -440,13 +471,26 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_SkipsExistingAs
 		WithArgs(isTimestamp{}, isTimestamp{}, "Dave").
 		WillReturnResult(sqlmock.NewResult(7, 1))
 
-	// Profile has a non-zero PK → no insert expected.
+	// Profile has a non-zero PK and gets its FK persisted.
+	s.mock.ExpectExec(regexp.QuoteMeta("UPDATE `assoc_profiles` SET `author_id` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(int64(7), isTimestamp{}, int64(100)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectCommit()
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` = ? LIMIT ?")).
+		WithArgs(int64(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(7), authorNow, authorNow, "Dave"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` IN (?)")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
+			AddRow(int64(100), profileNow, profileNow, int64(7), "existing"))
 
 	entity := assocAuthor{
 		Name:    "Dave",
-		Profile: assocProfile{Entity: sqlr.Entity[int64]{Id: 100}, AuthorID: 7, Bio: "existing"},
+		Profile: assocProfile{Entity: sqlr.Entity[int64]{Id: 100, CreatedAt: profileNow, UpdatedAt: profileNow}, Bio: "existing"},
 	}
 
 	s.Require().NoError(repo.Create(context.Background(), &entity))
@@ -456,6 +500,15 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_SkipsExistingAs
 	s.Equal(int64(100), entity.Profile.GetId())
 	// FK on profile is still set (we set it even for existing associations).
 	s.Equal(int64(7), entity.Profile.AuthorID)
+
+	stored, err := repo.Read(context.Background(), 7, func(qb *sqlr.QueryBuilderRead) {
+		qb.Preload("Profile")
+	})
+
+	s.Require().NoError(err)
+	s.Equal(int64(100), stored.Profile.GetId())
+	s.Equal(int64(7), stored.Profile.AuthorID)
+	s.Equal("existing", stored.Profile.Bio)
 }
 
 // --------------------------------------------------------------------------

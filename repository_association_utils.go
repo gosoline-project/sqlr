@@ -78,6 +78,47 @@ func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Conte
 	return nil
 }
 
+func updateStoredEntityForeignKey(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, fkColName string) error {
+	fkCol, ok := schema.ColumnByName(fkColName)
+	if !ok {
+		return fmt.Errorf("FK column %q not found in schema for %s", fkColName, schema.TableName)
+	}
+
+	setMap := map[string]any{
+		fkColName: entityValue.FieldByIndex(fkCol.FieldIndex).Interface(),
+	}
+
+	now := time.Now()
+	for _, col := range schema.Columns {
+		if !col.AutoUpdateTime {
+			continue
+		}
+
+		field := entityValue.FieldByIndex(col.FieldIndex)
+		if err := setFieldValue(field, now, schema.TableName, col.Name); err != nil {
+			return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
+		}
+
+		setMap[col.Name] = field.Interface()
+	}
+
+	pkValue := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
+	sqler := sqlc.Update(schema.TableName).
+		SetMap(setMap).
+		Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue))
+
+	_, result, err := cache.Exec(ctx, sqler, q)
+	if err != nil {
+		return fmt.Errorf("failed to update entity %s foreign key %s: %w", schema.TableName, fkColName, err)
+	}
+
+	if err := errNoRowsAffected(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func loadChildrenByForeignKey(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, foreignKey string, parentPK any) ([]reflect.Value, error) {
 	qb := sqlc.From(schema.TableName).Where(sqlc.Col(schema.TableName, foreignKey).Eq(parentPK))
 

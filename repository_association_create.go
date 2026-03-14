@@ -14,13 +14,13 @@ import (
 // createEntityWithAssociations but operates on a bare reflect.Value and
 // *EntitySchema so it can be used for any related entity type without needing
 // a typed repositoryCommon.
-func createRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, path string) (any, error) {
+func createRelatedEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, path string) (any, error) {
 	entityValue = unwrapEntityValue(entityValue)
 	if !entityValue.IsValid() {
 		return nil, fmt.Errorf("invalid entity value for schema %s", schema.TableName)
 	}
 
-	if err := createRelatedBelongsTo(q, ctx, schema, entityValue, policy, path); err != nil {
+	if err := createRelatedBelongsTo(cache, q, ctx, schema, entityValue, policy, path); err != nil {
 		return nil, err
 	}
 
@@ -33,14 +33,14 @@ func createRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySche
 		return nil, err
 	}
 
-	if err := createRelatedForwardAssociations(q, ctx, schema, entityValue, policy, path); err != nil {
+	if err := createRelatedForwardAssociations(cache, q, ctx, schema, entityValue, policy, path); err != nil {
 		return nil, err
 	}
 
 	return pk, nil
 }
 
-func createRelatedBelongsTo(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, parentPath string) error {
+func createRelatedBelongsTo(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, parentPath string) error {
 	for _, rel := range schema.Relationships {
 		if rel.Type != BelongsTo {
 			continue
@@ -65,7 +65,7 @@ func createRelatedBelongsTo(q sqlc.Querier, ctx context.Context, schema *EntityS
 		pkField := field.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 
 		if pkField.IsZero() {
-			if _, err := createRelatedEntity(q, ctx, nestedSchema, field, policy, relationPath); err != nil {
+			if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, field, policy, relationPath); err != nil {
 				return fmt.Errorf("failed to insert BelongsTo relation %q: %w", rel.Name, err)
 			}
 		}
@@ -84,7 +84,7 @@ func createRelatedBelongsTo(q sqlc.Querier, ctx context.Context, schema *EntityS
 	return nil
 }
 
-func createRelatedForwardAssociations(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, parentPath string) error {
+func createRelatedForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, parentPath string) error {
 	for _, rel := range schema.Relationships {
 		relationPath := joinAssociationPath(parentPath, rel.Name)
 		if policy != nil && !policy.shouldSyncPath(relationPath) {
@@ -98,15 +98,15 @@ func createRelatedForwardAssociations(q sqlc.Querier, ctx context.Context, schem
 
 		switch rel.Type {
 		case HasOne:
-			if err := createRelatedHasOne(q, ctx, schema, entityValue, rel, policy, relationPath); err != nil {
+			if err := createRelatedHasOne(cache, q, ctx, schema, entityValue, rel, policy, relationPath); err != nil {
 				return err
 			}
 		case HasMany:
-			if err := createRelatedHasMany(q, ctx, schema, entityValue, rel, policy, relationPath); err != nil {
+			if err := createRelatedHasMany(cache, q, ctx, schema, entityValue, rel, policy, relationPath); err != nil {
 				return err
 			}
 		case ManyToMany:
-			if err := createRelatedManyToMany(q, ctx, schema, entityValue, rel, policy, relationPath); err != nil {
+			if err := createRelatedManyToMany(cache, q, ctx, schema, entityValue, rel, policy, relationPath); err != nil {
 				return err
 			}
 		case BelongsTo:
@@ -116,7 +116,7 @@ func createRelatedForwardAssociations(q sqlc.Querier, ctx context.Context, schem
 	return nil
 }
 
-func createRelatedHasOne(q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
+func createRelatedHasOne(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
@@ -136,17 +136,21 @@ func createRelatedHasOne(q sqlc.Querier, ctx context.Context, parentSchema *Enti
 
 	pkField := relField.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 	if !pkField.IsZero() {
+		if err := updateStoredEntityForeignKey(cache, q, ctx, nestedSchema, relField, rel.ForeignKey); err != nil {
+			return fmt.Errorf("failed to update HasOne relation %q: %w", rel.Name, err)
+		}
+
 		return nil
 	}
 
-	if _, err := createRelatedEntity(q, ctx, nestedSchema, relField, policy, relationPath); err != nil {
+	if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, relField, policy, relationPath); err != nil {
 		return fmt.Errorf("failed to insert HasOne relation %q: %w", rel.Name, err)
 	}
 
 	return nil
 }
 
-func createRelatedHasMany(q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
+func createRelatedHasMany(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
@@ -171,10 +175,14 @@ func createRelatedHasMany(q sqlc.Querier, ctx context.Context, parentSchema *Ent
 
 		pkField := elem.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 		if !pkField.IsZero() {
+			if err := updateStoredEntityForeignKey(cache, q, ctx, nestedSchema, elem, rel.ForeignKey); err != nil {
+				return fmt.Errorf("failed to update HasMany relation %q[%d]: %w", rel.Name, i, err)
+			}
+
 			continue
 		}
 
-		if _, err := createRelatedEntity(q, ctx, nestedSchema, elem, policy, relationPath); err != nil {
+		if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, elem, policy, relationPath); err != nil {
 			return fmt.Errorf("failed to insert HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 	}
@@ -182,7 +190,7 @@ func createRelatedHasMany(q sqlc.Querier, ctx context.Context, parentSchema *Ent
 	return nil
 }
 
-func createRelatedManyToMany(q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
+func createRelatedManyToMany(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
@@ -205,7 +213,7 @@ func createRelatedManyToMany(q sqlc.Querier, ctx context.Context, parentSchema *
 		pkField := elem.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 
 		if pkField.IsZero() {
-			if _, err := createRelatedEntity(q, ctx, nestedSchema, elem, policy, relationPath); err != nil {
+			if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, elem, policy, relationPath); err != nil {
 				return fmt.Errorf("failed to insert ManyToMany relation %q[%d]: %w", rel.Name, i, err)
 			}
 		}

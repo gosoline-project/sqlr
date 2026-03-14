@@ -63,7 +63,7 @@ func (r *repositoryCommon[K, E]) saveAssociations(q sqlc.Querier, ctx context.Co
 		return err
 	}
 
-	return createRelatedForwardAssociations(q, ctx, r.schema, rv, policy, "")
+	return createRelatedForwardAssociations(r.statementCache, q, ctx, r.schema, rv, policy, "")
 }
 
 // saveBelongsToAssociations inserts any BelongsTo related entities that have a zero
@@ -75,5 +75,5 @@ func (r *repositoryCommon[K, E]) saveBelongsToAssociations(q sqlc.Querier, ctx c
 		return err
 	}
 
-	return createRelatedBelongsTo(q, ctx, r.schema, rv, policy, "")
+	return createRelatedBelongsTo(r.statementCache, q, ctx, r.schema, rv, policy, "")
 }
