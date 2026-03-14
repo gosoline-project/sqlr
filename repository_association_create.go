@@ -29,8 +29,9 @@ func createRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySche
 		return nil, err
 	}
 
-	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
-	pkField.Set(reflect.ValueOf(pk).Convert(pkField.Type()))
+	if err := setEntityPrimaryKey(schema, entityValue, pk); err != nil {
+		return nil, err
+	}
 
 	if err := createRelatedForwardAssociations(q, ctx, schema, entityValue); err != nil {
 		return nil, err
@@ -69,7 +70,10 @@ func createRelatedBelongsTo(q sqlc.Querier, ctx context.Context, schema *EntityS
 			return fmt.Errorf("BelongsTo relation %q: FK column %q not found on schema", rel.Name, rel.ForeignKey)
 		}
 
-		entityValue.FieldByIndex(fkCol.FieldIndex).Set(pkField)
+		fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
+		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey); err != nil {
+			return fmt.Errorf("BelongsTo relation %q: %w", rel.Name, err)
+		}
 	}
 
 	return nil
@@ -211,7 +215,9 @@ func createRelatedManyToMany(q sqlc.Querier, ctx context.Context, parentSchema *
 func insertRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) (any, error) {
 	now := time.Now()
 	insertCols := schema.InsertColumns()
-	setCreateTimestamps(entityValue, schema, now)
+	if err := setCreateTimestamps(entityValue, schema, now); err != nil {
+		return nil, fmt.Errorf("failed to set create timestamps for %s: %w", schema.TableName, err)
+	}
 	vals := buildInsertValues(entityValue, schema)
 
 	sqler := sqlc.Into(schema.TableName).

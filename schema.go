@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // RelationType describes the cardinality of a relationship between entities.
@@ -235,7 +236,13 @@ func parseSchema[E any]() (*EntitySchema, error) {
 	if err := parseFields(t, nil, schema); err != nil {
 		return nil, fmt.Errorf("failed to parse schema for %s: %w", t.Name(), err)
 	}
+	if err := validateSchemaColumns(schema); err != nil {
+		return nil, fmt.Errorf("failed to validate columns for %s: %w", t.Name(), err)
+	}
 	setPrimaryKeyFromColumns(schema)
+	if err := cacheSchemaDerivedValues(schema); err != nil {
+		return nil, fmt.Errorf("failed to collect auto-preloads for %s: %w", t.Name(), err)
+	}
 	if err := validateRelationships(schema); err != nil {
 		return nil, fmt.Errorf("failed to validate relationships for %s: %w", t.Name(), err)
 	}
@@ -390,6 +397,37 @@ func parseColumnInfo(field reflect.StructField, colName string, fieldIndex []int
 	return col
 }
 
+func validateSchemaColumns(schema *EntitySchema) error {
+	seenColumns := make(map[string]struct{}, len(schema.Columns))
+	primaryKeyCount := 0
+	timeType := reflect.TypeOf(time.Time{})
+
+	for _, col := range schema.Columns {
+		if _, exists := seenColumns[col.Name]; exists {
+			return fmt.Errorf("duplicate column name %q on entity", col.Name)
+		}
+
+		seenColumns[col.Name] = struct{}{}
+
+		if col.IsPrimaryKey {
+			primaryKeyCount++
+		}
+
+		if col.AutoCreateTime || col.AutoUpdateTime {
+			field := schema.entityType.FieldByIndex(col.FieldIndex)
+			if !timeType.ConvertibleTo(field.Type) {
+				return fmt.Errorf("column %q on entity %s uses auto timestamp tags but is not assignable from time.Time", col.Name, schema.entityType.Name())
+			}
+		}
+	}
+
+	if primaryKeyCount > 1 {
+		return fmt.Errorf("entity %s defines multiple primary keys", schema.entityType.Name())
+	}
+
+	return nil
+}
+
 func setPrimaryKeyFromColumns(schema *EntitySchema) {
 	schema.PrimaryKey = nil
 	schema.columnByName = make(map[string]*ColumnInfo, len(schema.Columns))
@@ -399,8 +437,6 @@ func setPrimaryKeyFromColumns(schema *EntitySchema) {
 			schema.PrimaryKey = &schema.Columns[i]
 		}
 	}
-
-	cacheSchemaDerivedValues(schema)
 }
 
 func validateRelationships(schema *EntitySchema) error {
@@ -421,7 +457,7 @@ func validateRelationships(schema *EntitySchema) error {
 	return nil
 }
 
-func cacheSchemaDerivedValues(schema *EntitySchema) {
+func cacheSchemaDerivedValues(schema *EntitySchema) error {
 	insertCols := make([]string, 0, len(schema.Columns))
 	allCols := make([]string, 0, len(schema.Columns))
 	allColsAny := make([]any, 0, len(schema.Columns))
@@ -437,16 +473,21 @@ func cacheSchemaDerivedValues(schema *EntitySchema) {
 		insertCols = append(insertCols, c.Name)
 	}
 
-	autoPreloads := collectAutoPreloads(schema)
+	autoPreloads, err := collectAutoPreloads(schema)
+	if err != nil {
+		return err
+	}
 
 	schema.insertColumns = insertCols
 	schema.allColumns = allCols
 	schema.allColumnsAny = allColsAny
 	schema.qualifiedColumns = qualifiedCols
 	schema.autoPreloads = autoPreloads
+
+	return nil
 }
 
-func collectAutoPreloads(schema *EntitySchema) []preloadEntry {
+func collectAutoPreloads(schema *EntitySchema) ([]preloadEntry, error) {
 	autoPreloads := make([]preloadEntry, 0)
 	seenPaths := make(map[string]struct{})
 	visitedTypes := make(map[reflect.Type]struct{}, 1)
@@ -454,16 +495,18 @@ func collectAutoPreloads(schema *EntitySchema) []preloadEntry {
 		visitedTypes[schema.entityType] = struct{}{}
 	}
 
-	collectAutoPreloadsRecursive(schema, "", visitedTypes, seenPaths, &autoPreloads)
+	if err := collectAutoPreloadsRecursive(schema, "", visitedTypes, seenPaths, &autoPreloads); err != nil {
+		return nil, err
+	}
 
 	sort.Slice(autoPreloads, func(i, j int) bool {
 		return autoPreloads[i].relation < autoPreloads[j].relation
 	})
 
-	return autoPreloads
+	return autoPreloads, nil
 }
 
-func collectAutoPreloadsRecursive(schema *EntitySchema, prefix string, visitedTypes map[reflect.Type]struct{}, seenPaths map[string]struct{}, autoPreloads *[]preloadEntry) {
+func collectAutoPreloadsRecursive(schema *EntitySchema, prefix string, visitedTypes map[reflect.Type]struct{}, seenPaths map[string]struct{}, autoPreloads *[]preloadEntry) error {
 	var err error
 	var relSchema *EntitySchema
 	var relationPath string
@@ -491,13 +534,19 @@ func collectAutoPreloadsRecursive(schema *EntitySchema, prefix string, visitedTy
 		}
 
 		if relSchema, err = parseRelatedSchemaForAutoPreload(rel.RelatedType); err != nil {
-			continue
+			return fmt.Errorf("failed to parse auto-preload schema for relation %q: %w", relationPath, err)
 		}
 
 		visitedTypes[rel.RelatedType] = struct{}{}
-		collectAutoPreloadsRecursive(relSchema, relationPath, visitedTypes, seenPaths, autoPreloads)
+		if err := collectAutoPreloadsRecursive(relSchema, relationPath, visitedTypes, seenPaths, autoPreloads); err != nil {
+			delete(visitedTypes, rel.RelatedType)
+
+			return err
+		}
 		delete(visitedTypes, rel.RelatedType)
 	}
+
+	return nil
 }
 
 func parseRelatedSchemaForAutoPreload(relatedType reflect.Type) (*EntitySchema, error) {
@@ -510,6 +559,9 @@ func parseRelatedSchemaForAutoPreload(relatedType reflect.Type) (*EntitySchema, 
 	}
 	if err = parseFields(relatedType, nil, relatedSchema); err != nil {
 		return nil, fmt.Errorf("failed to parse related schema for %s: %w", relatedType.Name(), err)
+	}
+	if err = validateSchemaColumns(relatedSchema); err != nil {
+		return nil, fmt.Errorf("failed to validate columns for %s: %w", relatedType.Name(), err)
 	}
 
 	return relatedSchema, nil
@@ -769,7 +821,17 @@ func (r *Relationship) resolveRelationSchema() (*EntitySchema, error) {
 
 			return
 		}
+		if err := validateSchemaColumns(schema); err != nil {
+			r.resolveErr = fmt.Errorf("failed to validate columns for %s: %w", t.Name(), err)
+
+			return
+		}
 		setPrimaryKeyFromColumns(schema)
+		if err := cacheSchemaDerivedValues(schema); err != nil {
+			r.resolveErr = fmt.Errorf("failed to collect auto-preloads for %s: %w", t.Name(), err)
+
+			return
+		}
 
 		if err := validateRelationships(schema); err != nil {
 			r.resolveErr = fmt.Errorf("failed to validate relationships for %s: %w", t.Name(), err)

@@ -979,3 +979,22 @@ func (s *RepositoryTxAssociationTestSuite) TestCreate_HasMany_NoAssociations_NoE
 	})
 	s.Require().NoError(err)
 }
+
+func (s *RepositoryTxAssociationTestSuite) TestCreate_EmptyRelationSlice_NoAssociationTransactionWork() {
+	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, assocAuthor](s.client, sqlr.DefaultSettings())
+	s.Require().NoError(err)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Lena").
+		WillReturnResult(sqlmock.NewResult(8, 1))
+	s.mock.ExpectCommit()
+
+	err = s.client.WithTx(context.Background(), func(tx sqlc.Tx) error {
+		ttx := sqlr.NewTx(tx)
+		entity := assocAuthor{Name: "Lena", Posts: []assocPost{}}
+
+		return txRepo.Create(ttx, &entity)
+	})
+	s.Require().NoError(err)
+}

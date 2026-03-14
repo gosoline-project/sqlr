@@ -18,12 +18,25 @@ func (r *repositoryCommon[K, E]) hasAssociationsToSave(entity *E) bool {
 
 	for _, rel := range r.schema.Relationships {
 		field := rv.FieldByIndex(rel.FieldIndex)
-		if !field.IsZero() {
+		if relationHasValues(field) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func relationHasValues(field reflect.Value) bool {
+	if !field.IsValid() {
+		return false
+	}
+
+	switch field.Kind() {
+	case reflect.Slice, reflect.Array:
+		return field.Len() > 0
+	default:
+		return !field.IsZero()
+	}
 }
 
 // saveAssociations persists all populated association fields on the entity after the

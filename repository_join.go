@@ -181,7 +181,6 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 	var err error
 	var columns []string
 	var idx int
-	var ok bool
 
 	if columns, err = rows.Columns(); err != nil {
 		return nil, fmt.Errorf("failed to get columns: %w", err)
@@ -191,8 +190,8 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 	columnScanTargets, scanErrors := precomputeJoinColumnScanTargets(columns, r.schema, relationStates)
 
 	results := make([]E, 0)
-	entityIndex := make(map[K]int)
-	relatedSeen := make(map[K]map[string]map[any]struct{})
+	entityIndex := make(map[any]int)
+	relatedSeen := make(map[any]map[string]map[any]struct{})
 	scanDests := make([]any, len(columns))
 
 	for rows.Next() {
@@ -212,15 +211,19 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 		}
 
 		pk := entity.GetId()
-		if idx, ok = entityIndex[pk]; !ok {
+		pkKey, ok := comparableKey(pk)
+		if !ok {
+			return nil, fmt.Errorf("base entity produced non-comparable primary key type %T", pk)
+		}
+		if idx, ok = entityIndex[pkKey]; !ok {
 			results = append(results, entity)
 			idx = len(results) - 1
-			entityIndex[pk] = idx
-			relatedSeen[pk] = make(map[string]map[any]struct{})
+			entityIndex[pkKey] = idx
+			relatedSeen[pkKey] = make(map[string]map[any]struct{})
 		}
 
 		target := reflect.ValueOf(&results[idx]).Elem()
-		if err = assignJoinedRelations(target, relationStates, relatedSeen[pk]); err != nil {
+		if err = assignJoinedRelations(target, relationStates, relatedSeen[pkKey]); err != nil {
 			return nil, err
 		}
 	}
@@ -250,7 +253,10 @@ func assignJoinedRelations(target reflect.Value, relationStates []joinRelationSt
 			continue
 		}
 
-		relPk := relPkVal.Interface()
+		relPk, ok := comparableKey(relPkVal.Interface())
+		if !ok {
+			return fmt.Errorf("joined relation %q produced non-comparable primary key type %T", state.name, relPkVal.Interface())
+		}
 		relationSeen := seen[state.name]
 		if relationSeen == nil {
 			relationSeen = make(map[any]struct{})
@@ -418,12 +424,19 @@ func scanDestForJoinColumn(rv reflect.Value, relationStates []joinRelationState,
 func (r *repositoryCommon[K, E]) validateJoinRelations(joins []joinEntry) error {
 	var err error
 	var relSchema *EntitySchema
+	seenRelations := make(map[string]struct{}, len(joins))
 
 	if len(joins) == 0 {
 		return nil
 	}
 
 	for _, j := range joins {
+		if _, seen := seenRelations[j.relation]; seen {
+			return fmt.Errorf("join relation %q specified multiple times", j.relation)
+		}
+
+		seenRelations[j.relation] = struct{}{}
+
 		parts := strings.Split(j.relation, ".")
 
 		// Nested/dotted join paths (e.g. "Posts.Comments") are not supported.

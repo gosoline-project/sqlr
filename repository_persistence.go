@@ -8,20 +8,30 @@ import (
 	"github.com/gosoline-project/sqlc"
 )
 
-func setCreateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time) {
+func setCreateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time) error {
 	for _, col := range schema.Columns {
 		if col.AutoCreateTime || col.AutoUpdateTime {
-			entityValue.FieldByIndex(col.FieldIndex).Set(reflect.ValueOf(now))
+			field := entityValue.FieldByIndex(col.FieldIndex)
+			if err := setFieldValue(field, now, schema.TableName, col.Name); err != nil {
+				return err
+			}
 		}
 	}
+
+	return nil
 }
 
-func setUpdateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time) {
+func setUpdateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time) error {
 	for _, col := range schema.Columns {
 		if col.AutoUpdateTime {
-			entityValue.FieldByIndex(col.FieldIndex).Set(reflect.ValueOf(now))
+			field := entityValue.FieldByIndex(col.FieldIndex)
+			if err := setFieldValue(field, now, schema.TableName, col.Name); err != nil {
+				return err
+			}
 		}
 	}
+
+	return nil
 }
 
 func buildInsertValues(entityValue reflect.Value, schema *EntitySchema) []any {

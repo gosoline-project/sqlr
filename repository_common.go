@@ -88,7 +88,9 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 	rv := reflect.ValueOf(entity).Elem()
 
 	insertCols := r.schema.InsertColumns()
-	setCreateTimestamps(rv, r.schema, now)
+	if err := setCreateTimestamps(rv, r.schema, now); err != nil {
+		return fmt.Errorf("failed to set create timestamps: %w", err)
+	}
 	vals := buildInsertValues(rv, r.schema)
 
 	sqler := sqlc.IntoG[E](r.schema.TableName).
@@ -207,7 +209,9 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 	now := time.Now()
 	rv := reflect.ValueOf(entity).Elem()
 
-	setUpdateTimestamps(rv, r.schema, now)
+	if err := setUpdateTimestamps(rv, r.schema, now); err != nil {
+		return nil, fmt.Errorf("failed to set update timestamps: %w", err)
+	}
 	setMap, pkValue := buildUpdateSetMap(rv, r.schema)
 
 	// Build the UPDATE SQL and args via sqlc builder.

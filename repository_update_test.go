@@ -127,6 +127,31 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_NotFound() {
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
+func (s *RepositoryUpdateTestSuite) TestUpdate_RowsAffectedError() {
+	now := time.Now()
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        99,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Missing",
+		Email: "missing@test.com",
+	}
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewErrorResult(fmt.Errorf("rows affected unavailable")))
+
+	result, err := s.repo.Update(context.Background(), &entity)
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.Contains(err.Error(), "failed to get rows affected")
+}
+
 // ==========================================================================
 // Key Type Variations
 // ==========================================================================

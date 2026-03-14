@@ -179,6 +179,13 @@ func TestParseSchema_NoPrimaryKey_ReturnsError(t *testing.T) {
 // ============================================================
 
 type schemaAutoTimestamps struct {
+	ID        int64     `db:"id,primaryKey"`
+	Name      string    `db:"name"`
+	CreatedAt time.Time `db:"created_at,autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+}
+
+type schemaInvalidAutoTimestamps struct {
 	ID        int64  `db:"id,primaryKey"`
 	Name      string `db:"name"`
 	CreatedAt string `db:"created_at,autoCreateTime"`
@@ -223,6 +230,36 @@ func TestParseSchema_AutoCreateTimeAndUpdateTime(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, updatedAt.AutoUpdateTime)
 	assert.False(t, updatedAt.AutoCreateTime)
+}
+
+func TestParseSchema_AutoTimestampWrongType_ReturnsError(t *testing.T) {
+	_, err := parseSchema[schemaInvalidAutoTimestamps]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "auto timestamp tags")
+}
+
+func TestParseSchema_DuplicateColumnNames_ReturnsError(t *testing.T) {
+	type duplicateColumns struct {
+		ID    int64  `db:"id,primaryKey"`
+		Name1 string `db:"name"`
+		Name2 string `db:"name"`
+	}
+
+	_, err := parseSchema[duplicateColumns]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "duplicate column name \"name\"")
+}
+
+func TestParseSchema_MultiplePrimaryKeys_ReturnsError(t *testing.T) {
+	type multiplePrimaryKeys struct {
+		ID    int64  `db:"id,primaryKey"`
+		AltID int64  `db:"alt_id,primaryKey"`
+		Name  string `db:"name"`
+	}
+
+	_, err := parseSchema[multiplePrimaryKeys]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "defines multiple primary keys")
 }
 
 // TestParseSchema_DbDashWithoutRelationship_FieldSkipped verifies that a field

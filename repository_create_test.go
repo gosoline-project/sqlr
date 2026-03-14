@@ -16,12 +16,14 @@ import (
 // RepositoryCreateTestSuite tests the Repository Create operations using sqlmock.
 type RepositoryCreateTestSuite struct {
 	suite.Suite
-	client        sqlc.Client
-	mock          sqlmock.Sqlmock
-	repo          sqlr.Repository[int64, testUser]
-	stringKeyRepo sqlr.Repository[string, testStringKeyUser]
-	boolKeyRepo   sqlr.Repository[bool, testBoolKeyUser]
-	floatKeyRepo  sqlr.Repository[float64, testFloatKeyUser]
+	client             sqlc.Client
+	mock               sqlmock.Sqlmock
+	repo               sqlr.Repository[int64, testUser]
+	stringKeyRepo      sqlr.Repository[string, testStringKeyUser]
+	boolKeyRepo        sqlr.Repository[bool, testBoolKeyUser]
+	floatKeyRepo       sqlr.Repository[float64, testFloatKeyUser]
+	pointerKeyRepo     sqlr.Repository[*int64, testPointerKeyUser]
+	nullableAuthorRepo sqlr.Repository[int64, testPostWithPointerAuthorID]
 }
 
 func TestRepositoryCreateTestSuite(t *testing.T) {
@@ -37,6 +39,8 @@ func (s *RepositoryCreateTestSuite) SetupTest() {
 	s.stringKeyRepo = mustNewRepo[string, testStringKeyUser](s.T(), s.client)
 	s.boolKeyRepo = mustNewRepo[bool, testBoolKeyUser](s.T(), s.client)
 	s.floatKeyRepo = mustNewRepo[float64, testFloatKeyUser](s.T(), s.client)
+	s.pointerKeyRepo = mustNewRepo[*int64, testPointerKeyUser](s.T(), s.client)
+	s.nullableAuthorRepo = mustNewRepo[int64, testPostWithPointerAuthorID](s.T(), s.client)
 }
 
 func (s *RepositoryCreateTestSuite) TearDownTest() {
@@ -70,6 +74,50 @@ func (s *RepositoryCreateTestSuite) TestCreate_Success() {
 	s.Equal(int64(1), entity.GetId())
 }
 
+func (s *RepositoryCreateTestSuite) TestCreate_PointerPrimaryKey_AutoIncrementSetsPointer() {
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_pointer_key_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(42, 1))
+
+	entity := testPointerKeyUser{Name: "Alice"}
+	err := s.pointerKeyRepo.Create(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(entity.GetId())
+	s.Equal(int64(42), *entity.GetId())
+}
+
+func (s *RepositoryCreateTestSuite) TestCreate_BelongsTo_SetsNullableForeignKey() {
+	createdAt := time.Now().Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Author").
+		WillReturnResult(sqlmock.NewResult(7, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_post_with_pointer_author_ids` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(7), "Post").
+		WillReturnResult(sqlmock.NewResult(11, 1))
+	s.mock.ExpectCommit()
+
+	entity := testPostWithPointerAuthorID{
+		Entity: sqlr.Entity[int64]{
+			CreatedAt: createdAt,
+			UpdatedAt: createdAt,
+		},
+		Title:  "Post",
+		Author: testAuthor{Name: "Author"},
+	}
+
+	err := s.nullableAuthorRepo.Create(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(entity.AuthorID)
+	s.Equal(int64(7), *entity.AuthorID)
+}
+
 // ==========================================================================
 // Error Cases
 // ==========================================================================
@@ -89,6 +137,19 @@ func (s *RepositoryCreateTestSuite) TestCreate_Error() {
 
 	s.Require().Error(err)
 	s.Contains(err.Error(), "failed to create entity")
+}
+
+func (s *RepositoryCreateTestSuite) TestCreate_LastInsertIDError() {
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Bob", "bob@test.com").
+		WillReturnResult(sqlmock.NewErrorResult(fmt.Errorf("last insert id unavailable")))
+
+	entity := testUser{Name: "Bob", Email: "bob@test.com"}
+	err := s.repo.Create(context.Background(), &entity)
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), "failed to get last insert id")
 }
 
 // ==========================================================================

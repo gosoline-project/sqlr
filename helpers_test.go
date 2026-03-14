@@ -106,6 +106,66 @@ type testPostWithNullableAuthor struct {
 	Author   testAuthor `db:"-,belongsTo:author_id"`
 }
 
+type testPointerKeyUser struct {
+	Id        *int64    `db:"id,primaryKey"`
+	CreatedAt time.Time `db:"created_at,autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Name      string    `db:"name"`
+}
+
+func (u *testPointerKeyUser) SetId(id *int64) {
+	u.Id = id
+}
+
+func (u testPointerKeyUser) GetId() *int64 {
+	return u.Id
+}
+
+func (u testPointerKeyUser) GetUpdatedAt() time.Time {
+	return u.UpdatedAt
+}
+
+func (u testPointerKeyUser) GetCreatedAt() time.Time {
+	return u.CreatedAt
+}
+
+type testPostWithPointerAuthorID struct {
+	sqlr.Entity[int64]
+	AuthorID *int64     `db:"author_id"`
+	Title    string     `db:"title"`
+	Author   testAuthor `db:"-,belongsTo:author_id"`
+}
+
+type testAuthorWithPointerKeyProfile struct {
+	Id        *int64             `db:"id,primaryKey"`
+	CreatedAt time.Time          `db:"created_at,autoCreateTime"`
+	UpdatedAt time.Time          `db:"updated_at,autoUpdateTime"`
+	Name      string             `db:"name"`
+	Profiles  []testPointerChild `db:"-,foreignKey:author_id"`
+}
+
+func (u *testAuthorWithPointerKeyProfile) SetId(id *int64) {
+	u.Id = id
+}
+
+func (u testAuthorWithPointerKeyProfile) GetId() *int64 {
+	return u.Id
+}
+
+func (u testAuthorWithPointerKeyProfile) GetUpdatedAt() time.Time {
+	return u.UpdatedAt
+}
+
+func (u testAuthorWithPointerKeyProfile) GetCreatedAt() time.Time {
+	return u.CreatedAt
+}
+
+type testPointerChild struct {
+	sqlr.Entity[int64]
+	AuthorID *int64 `db:"author_id"`
+	Title    string `db:"title"`
+}
+
 type testPostWithAuthorAutoPreload struct {
 	sqlr.Entity[int64]
 	AuthorID int64      `db:"author_id"`

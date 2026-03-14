@@ -48,7 +48,9 @@ func setEntityPrimaryKey(schema *EntitySchema, entityValue reflect.Value, pk any
 
 func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) error {
 	now := time.Now()
-	setUpdateTimestamps(entityValue, schema, now)
+	if err := setUpdateTimestamps(entityValue, schema, now); err != nil {
+		return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
+	}
 	setMap, pkValue := buildUpdateSetMap(entityValue, schema)
 
 	sqler := sqlc.Update(schema.TableName).

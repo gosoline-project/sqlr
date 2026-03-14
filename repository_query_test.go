@@ -441,6 +441,40 @@ func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
 	s.Equal("draft", results[0].Posts[0].Status)
 }
 
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_DuplicateRelationReturnsError() {
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts").LeftJoin("Posts")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `join relation "Posts" specified multiple times`)
+}
+
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_PointerPrimaryKeyDeduplicatesRows() {
+	pointerRepo := mustNewRepo[*int64, testAuthorWithPointerKeyProfile](s.T(), s.client)
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_with_pointer_key_profiles`.`id`, `test_author_with_pointer_key_profiles`.`created_at`, `test_author_with_pointer_key_profiles`.`updated_at`, `test_author_with_pointer_key_profiles`.`name`, " +
+			"`Profiles`.`id` AS `Profiles__id`, `Profiles`.`created_at` AS `Profiles__created_at`, `Profiles`.`updated_at` AS `Profiles__updated_at`, " +
+			"`Profiles`.`author_id` AS `Profiles__author_id`, `Profiles`.`title` AS `Profiles__title`" +
+			" FROM `test_author_with_pointer_key_profiles` LEFT JOIN `test_pointer_children` AS Profiles ON `test_author_with_pointer_key_profiles`.`id` = `Profiles`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profiles__id", "Profiles__created_at", "Profiles__updated_at", "Profiles__author_id", "Profiles__title"}).
+			AddRow(int64(1), now, now, "Alice", int64(10), now, now, int64(1), "One").
+			AddRow(int64(1), now, now, "Alice", int64(11), now, now, int64(1), "Two"))
+
+	results, err := pointerRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Profiles")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Require().NotNil(results[0].Id)
+	s.Equal(int64(1), *results[0].Id)
+	s.Len(results[0].Profiles, 2)
+}
+
 // TestQuery_CrossJoin verifies the current CrossJoin behavior: it reuses the
 // relation-aware JOIN implementation and therefore emits an inner JOIN with the
 // relation key predicate instead of a Cartesian product.
