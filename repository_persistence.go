@@ -49,9 +49,9 @@ func buildInsertValues(entityValue reflect.Value, schema *EntitySchema) []any {
 	return vals
 }
 
-func buildUpdateSetMap(entityValue reflect.Value, schema *EntitySchema) (map[string]any, any) {
-	setMap := make(map[string]any, len(schema.Columns))
-	pkValue := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
+func buildUpdateSetMap(entityValue reflect.Value, schema *EntitySchema) (setMap map[string]any, pkValue any) {
+	setMap = make(map[string]any, len(schema.Columns))
+	pkValue = entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
 
 	for _, col := range schema.Columns {
 		if col.IsPrimaryKey {

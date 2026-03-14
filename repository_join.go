@@ -185,7 +185,6 @@ func buildBaseOnExpression(schema *EntitySchema, rel *Relationship, relSchema *E
 func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins []joinEntry, joinInfoByName map[string]joinHydrationInfo) ([]E, error) {
 	var err error
 	var columns []string
-	var idx int
 
 	if columns, err = rows.Columns(); err != nil {
 		return nil, fmt.Errorf("failed to get columns: %w", err)
@@ -200,55 +199,18 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 	scanDests := make([]any, len(columns))
 
 	for rows.Next() {
-		for i := range relationStates {
-			relationStates[i].value.SetZero()
+		entity, relationPresent, err := scanJoinRow[K, E](rows, columns, relationStates, columnScanTargets, scanDests)
+		if err != nil {
+			return nil, err
 		}
 
-		entity := *new(E)
-		rv := reflect.ValueOf(&entity).Elem()
-
-		for i := range columns {
-			scanDests[i] = scanDestForJoinColumn(rv, relationStates, columnScanTargets[i])
-		}
-
-		if err = rows.Scan(scanDests...); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		relationPresent := make([]bool, len(relationStates))
-		for i := range columns {
-			targetInfo := columnScanTargets[i]
-			if targetInfo.relationIndex < 0 || targetInfo.relationFieldIndex == nil {
-				continue
-			}
-
-			scanned := scannedValue(scanDests[i])
-			if scanned == nil {
-				continue
-			}
-
-			relationPresent[targetInfo.relationIndex] = true
-			relState := relationStates[targetInfo.relationIndex]
-			relField := relState.value.FieldByIndex(targetInfo.relationFieldIndex)
-			if err = setFieldValue(relField, scanned, relState.joinInfo.schema.TableName, targetInfo.relationColumnName); err != nil {
-				return nil, fmt.Errorf("failed to hydrate joined relation %q column %q: %w", relState.name, targetInfo.relationColumnName, err)
-			}
-		}
-
-		pk := entity.GetId()
-		pkKey, ok := comparableKey(pk)
-		if !ok {
-			return nil, fmt.Errorf("base entity produced non-comparable primary key type %T", pk)
-		}
-		if idx, ok = entityIndex[pkKey]; !ok {
-			results = append(results, entity)
-			idx = len(results) - 1
-			entityIndex[pkKey] = idx
-			relatedSeen[pkKey] = make(map[string]map[any]struct{})
+		idx, pkKey, err := upsertHydratedEntity[K, E](&results, entityIndex, relatedSeen, entity)
+		if err != nil {
+			return nil, err
 		}
 
 		target := reflect.ValueOf(&results[idx]).Elem()
-		if err = assignJoinedRelations(target, relationStates, relatedSeen[pkKey], relationPresent); err != nil {
+		if err := assignJoinedRelations(target, relationStates, relatedSeen[pkKey], relationPresent); err != nil {
 			return nil, err
 		}
 	}
@@ -264,16 +226,88 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 	return results, nil
 }
 
+func scanJoinRow[K KeyTypes, E Entitier[K]](rows *sqlc.Rows, columns []string, relationStates []joinRelationState, columnScanTargets []joinColumnScanTarget, scanDests []any) (entity E, relationPresent []bool, err error) {
+	resetJoinRelationStates(relationStates)
+
+	entity = *new(E)
+	rv := reflect.ValueOf(&entity).Elem()
+	populateJoinScanDests(scanDests, columns, rv, relationStates, columnScanTargets)
+
+	if err = rows.Scan(scanDests...); err != nil {
+		return entity, nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	relationPresent, err = hydrateScannedJoinRelations(columns, relationStates, columnScanTargets, scanDests)
+	if err != nil {
+		return entity, nil, err
+	}
+
+	return entity, relationPresent, nil
+}
+
+func resetJoinRelationStates(relationStates []joinRelationState) {
+	for i := range relationStates {
+		relationStates[i].value.SetZero()
+	}
+}
+
+func populateJoinScanDests(scanDests []any, columns []string, rv reflect.Value, relationStates []joinRelationState, columnScanTargets []joinColumnScanTarget) {
+	for i := range columns {
+		scanDests[i] = scanDestForJoinColumn(rv, relationStates, columnScanTargets[i])
+	}
+}
+
+func hydrateScannedJoinRelations(columns []string, relationStates []joinRelationState, columnScanTargets []joinColumnScanTarget, scanDests []any) ([]bool, error) {
+	relationPresent := make([]bool, len(relationStates))
+
+	for i := range columns {
+		targetInfo := columnScanTargets[i]
+		if targetInfo.relationIndex < 0 || targetInfo.relationFieldIndex == nil {
+			continue
+		}
+
+		scanned := scannedValue(scanDests[i])
+		if scanned == nil {
+			continue
+		}
+
+		relationPresent[targetInfo.relationIndex] = true
+		relState := relationStates[targetInfo.relationIndex]
+		relField := relState.value.FieldByIndex(targetInfo.relationFieldIndex)
+		if err := setFieldValue(relField, scanned, relState.joinInfo.schema.TableName, targetInfo.relationColumnName); err != nil {
+			return nil, fmt.Errorf("failed to hydrate joined relation %q column %q: %w", relState.name, targetInfo.relationColumnName, err)
+		}
+	}
+
+	return relationPresent, nil
+}
+
+func upsertHydratedEntity[K KeyTypes, E Entitier[K]](results *[]E, entityIndex map[any]int, relatedSeen map[any]map[string]map[any]struct{}, entity E) (idx int, pkKey any, err error) {
+	pk := entity.GetId()
+	var ok bool
+	pkKey, ok = comparableKey(pk)
+	if !ok {
+		return 0, nil, fmt.Errorf("base entity produced non-comparable primary key type %T", pk)
+	}
+
+	if existingIdx, exists := entityIndex[pkKey]; exists {
+		return existingIdx, pkKey, nil
+	}
+
+	*results = append(*results, entity)
+	idx = len(*results) - 1
+	entityIndex[pkKey] = idx
+	relatedSeen[pkKey] = make(map[string]map[any]struct{})
+
+	return idx, pkKey, nil
+}
+
 // assignJoinedRelations assigns scanned join relation values to the target entity,
 // tracking already-seen related entities to avoid duplicates.
 func assignJoinedRelations(target reflect.Value, relationStates []joinRelationState, seen map[string]map[any]struct{}, relationPresent []bool) error {
 	for i := range relationStates {
 		state := relationStates[i]
-		if !relationPresent[i] {
-			continue
-		}
-
-		if state.joinInfo.schema.PrimaryKey == nil {
+		if !joinRelationShouldBeAssigned(state, relationPresent[i]) {
 			continue
 		}
 
@@ -286,31 +320,58 @@ func assignJoinedRelations(target reflect.Value, relationStates []joinRelationSt
 		if !present {
 			continue
 		}
-		relationSeen := seen[state.name]
-		if relationSeen == nil {
-			relationSeen = make(map[any]struct{})
-			seen[state.name] = relationSeen
-		}
 
-		if _, exists := relationSeen[relPk]; exists {
+		relationSeen := seenJoinRelation(state.name, seen)
+		if isSeenJoinRelation(relationSeen, relPk) {
 			continue
 		}
 
-		relationSeen[relPk] = struct{}{}
+		markSeenJoinRelation(relationSeen, relPk)
+		if err := assignJoinRelation(target, state); err != nil {
+			return err
+		}
+	}
 
-		relField := target.FieldByIndex(state.joinInfo.rel.FieldIndex)
-		if relField.Kind() == reflect.Slice {
-			if err := assignRelated(relField, state.value); err != nil {
-				return fmt.Errorf("failed to assign joined relation %q: %w", state.name, err)
-			}
+	return nil
+}
 
-			continue
+func joinRelationShouldBeAssigned(state joinRelationState, relationPresent bool) bool {
+	return relationPresent && state.joinInfo.schema.PrimaryKey != nil
+}
+
+func seenJoinRelation(name string, seen map[string]map[any]struct{}) map[any]struct{} {
+	relationSeen := seen[name]
+	if relationSeen == nil {
+		relationSeen = make(map[any]struct{})
+		seen[name] = relationSeen
+	}
+
+	return relationSeen
+}
+
+func isSeenJoinRelation(relationSeen map[any]struct{}, relPk any) bool {
+	_, exists := relationSeen[relPk]
+
+	return exists
+}
+
+func markSeenJoinRelation(relationSeen map[any]struct{}, relPk any) {
+	relationSeen[relPk] = struct{}{}
+}
+
+func assignJoinRelation(target reflect.Value, state joinRelationState) error {
+	relField := target.FieldByIndex(state.joinInfo.rel.FieldIndex)
+	if relField.Kind() == reflect.Slice {
+		if err := assignRelated(relField, state.value); err != nil {
+			return fmt.Errorf("failed to assign joined relation %q: %w", state.name, err)
 		}
 
-		if relField.IsZero() {
-			if err := assignRelated(relField, state.value); err != nil {
-				return fmt.Errorf("failed to assign joined relation %q: %w", state.name, err)
-			}
+		return nil
+	}
+
+	if relField.IsZero() {
+		if err := assignRelated(relField, state.value); err != nil {
+			return fmt.Errorf("failed to assign joined relation %q: %w", state.name, err)
 		}
 	}
 

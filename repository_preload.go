@@ -94,6 +94,7 @@ func buildPreloadTree(preloads []preloadEntry) []*preloadNode {
 
 			if i == len(segments)-1 {
 				node.where = preload.where
+
 				continue
 			}
 

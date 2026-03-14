@@ -283,24 +283,60 @@ func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx contex
 	}
 
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
-	sliceField := parentValue.FieldByIndex(rel.FieldIndex)
-	desiredKeys := make(map[any]struct{}, sliceField.Len())
-	desiredPKs := make([]any, 0, sliceField.Len())
+	desiredKeys, desiredPKs, err := collectDesiredManyToManyTargets(cache, q, ctx, nestedSchema, parentValue.FieldByIndex(rel.FieldIndex), rel, state)
+	if err != nil {
+		return err
+	}
+
+	links, err := loadM2MLinks(cache, q, ctx, parentSchema, nestedSchema, rel, parentPK)
+	if err != nil {
+		return fmt.Errorf("failed to load existing ManyToMany relation %q: %w", rel.Name, err)
+	}
+
+	existingKeys, obsoletePKs := partitionManyToManyLinks(links, desiredKeys)
+
+	if len(obsoletePKs) > 0 {
+		if err := deleteM2MLinks(cache, q, ctx, rel, parentSchema, nestedSchema, parentPK, obsoletePKs); err != nil {
+			return fmt.Errorf("failed to delete obsolete ManyToMany links for relation %q: %w", rel.Name, err)
+		}
+	}
+
+	missingPKs := collectMissingManyToManyPKs(desiredPKs, existingKeys)
+
+	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, nestedSchema)
+	if err := insertJoinTableRows(q, ctx, rel.JoinTable, parentColName, relatedColName, parentPK, missingPKs); err != nil {
+		return fmt.Errorf("failed to insert ManyToMany links for relation %q: %w", rel.Name, err)
+	}
+
+	return nil
+}
+
+func collectDesiredManyToManyTargets(
+	cache *statementCache,
+	q sqlc.Querier,
+	ctx context.Context,
+	nestedSchema *EntitySchema,
+	sliceField reflect.Value,
+	rel *Relationship,
+	state *associationSyncState,
+) (desiredKeys map[any]struct{}, desiredPKs []any, err error) {
+	desiredKeys = make(map[any]struct{}, sliceField.Len())
+	desiredPKs = make([]any, 0, sliceField.Len())
 
 	for i := range sliceField.Len() {
 		elem := unwrapEntityValue(sliceField.Index(i))
 		if !elem.IsValid() {
-			return fmt.Errorf("ManyToMany relation %q[%d] is nil", rel.Name, i)
+			return nil, nil, fmt.Errorf("ManyToMany relation %q[%d] is nil", rel.Name, i)
 		}
 
 		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state); err != nil {
-			return fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
+			return nil, nil, fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
 		pk := unwrapEntityValue(elem).FieldByIndex(nestedSchema.PrimaryKey.FieldIndex).Interface()
 		key, ok := comparableKey(pk)
 		if !ok {
-			return fmt.Errorf("ManyToMany relation %q[%d] produced non-comparable primary key type %T", rel.Name, i, pk)
+			return nil, nil, fmt.Errorf("ManyToMany relation %q[%d] produced non-comparable primary key type %T", rel.Name, i, pk)
 		}
 
 		if _, exists := desiredKeys[key]; exists {
@@ -311,13 +347,13 @@ func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx contex
 		desiredPKs = append(desiredPKs, pk)
 	}
 
-	links, err := loadM2MLinks(cache, q, ctx, parentSchema, nestedSchema, rel, parentPK)
-	if err != nil {
-		return fmt.Errorf("failed to load existing ManyToMany relation %q: %w", rel.Name, err)
-	}
+	return desiredKeys, desiredPKs, nil
+}
 
-	existingKeys := make(map[any]struct{}, len(links))
-	obsoletePKs := make([]any, 0)
+func partitionManyToManyLinks(links []m2mLink, desiredKeys map[any]struct{}) (existingKeys map[any]struct{}, obsoletePKs []any) {
+	existingKeys = make(map[any]struct{}, len(links))
+	obsoletePKs = make([]any, 0)
+
 	for _, link := range links {
 		existingKeys[link.relatedID] = struct{}{}
 		if _, keep := desiredKeys[link.relatedID]; !keep {
@@ -325,13 +361,12 @@ func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx contex
 		}
 	}
 
-	if len(obsoletePKs) > 0 {
-		if err := deleteM2MLinks(cache, q, ctx, rel, parentSchema, nestedSchema, parentPK, obsoletePKs); err != nil {
-			return fmt.Errorf("failed to delete obsolete ManyToMany links for relation %q: %w", rel.Name, err)
-		}
-	}
+	return existingKeys, obsoletePKs
+}
 
+func collectMissingManyToManyPKs(desiredPKs []any, existingKeys map[any]struct{}) []any {
 	missingPKs := make([]any, 0)
+
 	for _, desiredPK := range desiredPKs {
 		key, _ := comparableKey(desiredPK)
 		if _, exists := existingKeys[key]; exists {
@@ -341,10 +376,5 @@ func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx contex
 		missingPKs = append(missingPKs, desiredPK)
 	}
 
-	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, nestedSchema)
-	if err := insertJoinTableRows(q, ctx, rel.JoinTable, parentColName, relatedColName, parentPK, missingPKs); err != nil {
-		return fmt.Errorf("failed to insert ManyToMany links for relation %q: %w", rel.Name, err)
-	}
-
-	return nil
+	return missingPKs
 }
