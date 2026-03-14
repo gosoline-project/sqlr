@@ -573,11 +573,10 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithCondition() {
 }
 
 // TestQuery_PreloadMultipleRelations verifies that two sibling preloads (Posts
-// and Comments) are executed concurrently and both results are mapped correctly.
+// and Comments) are both executed and mapped correctly.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {
 	now := time.Now()
 
-	// Concurrent preloads at the same depth may execute in any order.
 	s.mock.MatchExpectationsInOrder(false)
 
 	// Main query.
@@ -586,8 +585,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
-	// Preloads at the same depth execute concurrently; order is non-deterministic.
-	// Posts.
+	// Preload Posts.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
 		WithArgs(int64(1)).
@@ -615,6 +613,37 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {
 		},
 		Comments: []expectedComment{
 			{Body: ptr("A comment")},
+		},
+	})
+}
+
+// TestQuery_PreloadDuplicateRelation verifies that the same explicit preload is
+// normalized to a single execution so the relation is loaded once deterministically.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadDuplicateRelation() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Posts").
+			Preload("Posts")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Title: ptr("First Post")},
 		},
 	})
 }
@@ -1011,6 +1040,106 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedManyToManySegment() 
 	s.Equal("Go", results[0].Posts[0].Tags[0].Name)
 }
 
+// TestQuery_PreloadNestedSharedPrefixSiblings verifies that sibling nested
+// preload paths under the same prefix relation reuse the loaded prefix safely.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedSharedPrefixSiblings() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	s.mock.MatchExpectationsInOrder(false)
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_comments` WHERE `test_comments`.`post_id` IN (?)")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
+			AddRow(100, now, now, 1, 10, "Nested Comment"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `post_tags` WHERE `post_tags`.`test_post_id` IN (?)")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"test_post_id", "test_tag_id"}).
+			AddRow(10, 200))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_tags` WHERE `test_tags`.`id` IN (?)")).
+		WithArgs(int64(200)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(200, now, now, "Go"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Posts.Comments").
+			Preload("Posts.Tags")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Require().Len(results[0].Posts, 1)
+	s.Require().Len(results[0].Posts[0].Comments, 1)
+	s.Require().Len(results[0].Posts[0].Tags, 1)
+	s.Equal("Nested Comment", results[0].Posts[0].Comments[0].Body)
+	s.Equal("Go", results[0].Posts[0].Tags[0].Name)
+}
+
+// TestQuery_PreloadNestedSharedPrefixSiblingsReverseOrder verifies that shared
+// prefix sibling nested preloads remain safe regardless of declaration order.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadNestedSharedPrefixSiblingsReverseOrder() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	s.mock.MatchExpectationsInOrder(false)
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `post_tags` WHERE `post_tags`.`test_post_id` IN (?)")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"test_post_id", "test_tag_id"}).
+			AddRow(10, 200))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_tags` WHERE `test_tags`.`id` IN (?)")).
+		WithArgs(int64(200)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(200, now, now, "Go"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_comments` WHERE `test_comments`.`post_id` IN (?)")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
+			AddRow(100, now, now, 1, 10, "Nested Comment"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Posts.Tags").
+			Preload("Posts.Comments")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Require().Len(results[0].Posts, 1)
+	s.Require().Len(results[0].Posts[0].Comments, 1)
+	s.Require().Len(results[0].Posts[0].Tags, 1)
+	s.Equal("Nested Comment", results[0].Posts[0].Comments[0].Body)
+	s.Equal("Go", results[0].Posts[0].Tags[0].Name)
+}
+
 // ==========================================================================
 // Auto-Preloads (preload tag)
 // ==========================================================================
@@ -1228,7 +1357,6 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadExplicitWithConditionT
 func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadMixedWithExplicit() {
 	now := time.Now()
 
-	// Concurrent preloads at the same depth may execute in any order.
 	s.mock.MatchExpectationsInOrder(false)
 
 	// Main query.
@@ -1237,7 +1365,6 @@ func (s *RepositoryPreloadTestSuite) TestQuery_AutoPreloadMixedWithExplicit() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(1, now, now, "Alice"))
 
-	// Preloads at the same depth execute concurrently; order is non-deterministic.
 	// Explicit preload for Comments (not auto-preloaded).
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `test_comments` WHERE `test_comments`.`author_id` IN (?)")).

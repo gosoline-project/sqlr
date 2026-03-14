@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/gosoline-project/sqlc"
 	"golang.org/x/sync/errgroup"
@@ -17,102 +16,106 @@ import (
 // on the related table with a WHERE foreignKey IN (...) clause, and assigns the
 // results back to the parent entities.
 //
-// Preloads are grouped by depth level and executed concurrently within each
-// level using errgroup. This is safe because preloads at the same depth write to
-// distinct relation fields on the parent entities and query independent tables.
-// Each depth level must complete before the next begins, since deeper preloads
-// (e.g. "Posts.Comments") depend on their parent data (e.g. "Posts") being
-// already populated. When operating within a transaction, preloads are executed
-// sequentially because a database transaction uses a single connection that
-// cannot multiplex concurrent queries.
+// Preloads are normalized and then executed sequentially. This keeps execution
+// deterministic at the declaration level while still allowing safe parallelism
+// for independent sibling branches. Overlapping relation paths such as duplicate
+// "Posts" preloads or sibling nested paths like "Posts.Comments" and
+// "Posts.Tags" are collapsed into a tree so each prefix relation is loaded once
+// before its child branches continue.
 func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Context, preloads []preloadEntry, results []E) error {
-	sortedPreloads := make([]preloadEntry, len(preloads))
-	copy(sortedPreloads, preloads)
+	normalizedPreloads := normalizePreloads(preloads)
 
-	sort.SliceStable(sortedPreloads, func(i, j int) bool {
-		return preloadDepth(sortedPreloads[i].relation) < preloadDepth(sortedPreloads[j].relation)
-	})
-
-	var executed sync.Map
-
-	// Within a transaction all queries must go through the same connection, so
-	// we cannot run them concurrently.
-	if _, ok := q.(sqlc.Tx); ok {
-		for _, p := range sortedPreloads {
-			if err := r.executePreload(q, ctx, p, results, &executed); err != nil {
-				return err
-			}
-		}
-
+	if len(normalizedPreloads) == 0 {
 		return nil
 	}
 
-	// Group preloads by depth and execute each depth level concurrently.
-	depthGroups := groupPreloadsByDepth(sortedPreloads)
-	for _, group := range depthGroups {
-		if len(group) == 1 {
-			if err := r.executePreload(q, ctx, group[0], results, &executed); err != nil {
-				return err
-			}
-
-			continue
-		}
-
-		g, gCtx := errgroup.WithContext(ctx)
-		for _, p := range group {
-			g.Go(func() error {
-				return r.executePreload(q, gCtx, p, results, &executed)
-			})
-		}
-
-		if err := g.Wait(); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// groupPreloadsByDepth groups a depth-sorted slice of preloadEntry values into
-// sub-slices where each sub-slice contains all entries at the same depth level.
-// The input must already be sorted by ascending depth.
-func groupPreloadsByDepth(sorted []preloadEntry) [][]preloadEntry {
-	if len(sorted) == 0 {
-		return nil
-	}
-
-	groups := make([][]preloadEntry, 0)
-	currentDepth := preloadDepth(sorted[0].relation)
-	start := 0
-
-	for i := 1; i < len(sorted); i++ {
-		depth := preloadDepth(sorted[i].relation)
-		if depth != currentDepth {
-			groups = append(groups, sorted[start:i])
-			start = i
-			currentDepth = depth
-		}
-	}
-
-	groups = append(groups, sorted[start:])
-
-	return groups
-}
-
-func preloadDepth(relation string) int {
-	return strings.Count(relation, ".") + 1
-}
-
-// executePreload executes a single preload query and assigns results to parent entities.
-func (r *repositoryCommon[K, E]) executePreload(q sqlc.Querier, ctx context.Context, p preloadEntry, results []E, executed *sync.Map) error {
 	parents := make([]reflect.Value, 0, len(results))
 	for i := range results {
 		parents = append(parents, reflect.ValueOf(&results[i]).Elem())
 	}
 
-	segments := strings.Split(p.relation, ".")
+	return r.executePreloadNodes(q, ctx, buildPreloadTree(normalizedPreloads), parents, r.schema, "")
+}
 
-	return r.executeNestedPreload(q, ctx, parents, r.schema, segments, p.where, p.relation, executed, "")
+// normalizePreloads removes exact duplicate relation paths and sorts the result
+// by ascending depth while preserving the caller's order within the same depth.
+// Keeping the first entry preserves explicit preload conditions when duplicates
+// are introduced through repeated calls or auto-preload merging.
+func normalizePreloads(preloads []preloadEntry) []preloadEntry {
+	if len(preloads) == 0 {
+		return nil
+	}
+
+	normalized := make([]preloadEntry, 0, len(preloads))
+	seen := make(map[string]struct{}, len(preloads))
+
+	for _, preload := range preloads {
+		if _, exists := seen[preload.relation]; exists {
+			continue
+		}
+
+		seen[preload.relation] = struct{}{}
+		normalized = append(normalized, preload)
+	}
+
+	sort.SliceStable(normalized, func(i, j int) bool {
+		return preloadDepth(normalized[i].relation) < preloadDepth(normalized[j].relation)
+	})
+
+	return normalized
+}
+
+type preloadNode struct {
+	relation string
+	where    []*sqlc.SqlerWhere
+	children []*preloadNode
+}
+
+func buildPreloadTree(preloads []preloadEntry) []*preloadNode {
+	if len(preloads) == 0 {
+		return nil
+	}
+
+	rootNodes := make([]*preloadNode, 0)
+	rootIndex := make(map[string]*preloadNode, len(preloads))
+
+	for _, preload := range preloads {
+		segments := strings.Split(preload.relation, ".")
+		children := &rootNodes
+		index := rootIndex
+
+		for i, segment := range segments {
+			node, ok := index[segment]
+			if !ok {
+				node = &preloadNode{relation: segment}
+				index[segment] = node
+				*children = append(*children, node)
+			}
+
+			if i == len(segments)-1 {
+				node.where = preload.where
+				continue
+			}
+
+			children = &node.children
+			index = preloadNodeIndex(node.children)
+		}
+	}
+
+	return rootNodes
+}
+
+func preloadNodeIndex(nodes []*preloadNode) map[string]*preloadNode {
+	index := make(map[string]*preloadNode, len(nodes))
+	for _, node := range nodes {
+		index[node.relation] = node
+	}
+
+	return index
+}
+
+func preloadDepth(relation string) int {
+	return strings.Count(relation, ".") + 1
 }
 
 // applyPreloadConditions applies additional WHERE conditions to a sqlc SelectQueryBuilder.
@@ -135,45 +138,72 @@ func applyPreloadConditions(qb *sqlc.SelectQueryBuilder, where []*sqlc.SqlerWher
 	return qb, nil
 }
 
-func (r *repositoryCommon[K, E]) executeNestedPreload(
+func (r *repositoryCommon[K, E]) executePreloadNodes(
 	q sqlc.Querier,
 	ctx context.Context,
+	nodes []*preloadNode,
 	parents []reflect.Value,
 	parentSchema *EntitySchema,
-	segments []string,
-	where []*sqlc.SqlerWhere,
-	relationPath string,
-	executed *sync.Map,
 	pathPrefix string,
 ) error {
-	var err error
-	var relSchema *EntitySchema
-
-	if len(segments) == 0 || len(parents) == 0 {
+	if len(nodes) == 0 || len(parents) == 0 {
 		return nil
 	}
 
-	segment := segments[0]
-	segmentPath := segment
-	if pathPrefix != "" {
-		segmentPath = pathPrefix + "." + segment
+	if _, ok := q.(sqlc.Tx); ok {
+		for _, node := range nodes {
+			if err := r.executePreloadNode(q, ctx, node, parents, parentSchema, pathPrefix); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
-	rel, ok := parentSchema.Relationships[segment]
+	if len(nodes) == 1 {
+		return r.executePreloadNode(q, ctx, nodes[0], parents, parentSchema, pathPrefix)
+	}
+
+	g, gCtx := errgroup.WithContext(ctx)
+	for _, node := range nodes {
+		node := node
+		g.Go(func() error {
+			return r.executePreloadNode(q, gCtx, node, parents, parentSchema, pathPrefix)
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *repositoryCommon[K, E]) executePreloadNode(
+	q sqlc.Querier,
+	ctx context.Context,
+	node *preloadNode,
+	parents []reflect.Value,
+	parentSchema *EntitySchema,
+	pathPrefix string,
+) error {
+	if node == nil || len(parents) == 0 {
+		return nil
+	}
+
+	relationPath := node.relation
+	if pathPrefix != "" {
+		relationPath = pathPrefix + "." + node.relation
+	}
+
+	rel, ok := parentSchema.Relationships[node.relation]
 	if !ok {
 		return fmt.Errorf("preload relation %q not found", relationPath)
 	}
 
-	if relSchema, err = rel.resolveRelationSchema(); err != nil {
+	relSchema, err := rel.resolveRelationSchema()
+	if err != nil {
 		return fmt.Errorf("failed to resolve schema for preload relation %q: %w", relationPath, err)
-	}
-
-	if len(segments) > 1 {
-		if _, alreadyLoaded := executed.Load(segmentPath); alreadyLoaded {
-			nextParents := collectAssignedRelated(parents, rel)
-
-			return r.executeNestedPreload(q, ctx, nextParents, relSchema, segments[1:], where, relationPath, executed, segmentPath)
-		}
 	}
 
 	// Reset the relation field before assignment so mixed explicit/nested preloads
@@ -183,30 +213,23 @@ func (r *repositoryCommon[K, E]) executeNestedPreload(
 		relField.Set(reflect.Zero(relField.Type()))
 	}
 
-	activeWhere := make([]*sqlc.SqlerWhere, 0)
-	if len(segments) == 1 {
-		activeWhere = where
-	}
-
 	if rel.Type == ManyToMany {
-		if err := r.executeM2MPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, activeWhere); err != nil {
+		if err := r.executeM2MPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, node.where); err != nil {
 			return err
 		}
 	} else {
-		if err := r.executeDirectPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, activeWhere); err != nil {
+		if err := r.executeDirectPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, node.where); err != nil {
 			return err
 		}
 	}
 
-	executed.Store(segmentPath, struct{}{})
-
-	if len(segments) == 1 {
+	if len(node.children) == 0 {
 		return nil
 	}
 
 	nextParents := collectAssignedRelated(parents, rel)
 
-	return r.executeNestedPreload(q, ctx, nextParents, relSchema, segments[1:], where, relationPath, executed, segmentPath)
+	return r.executePreloadNodes(q, ctx, node.children, nextParents, relSchema, relationPath)
 }
 
 func collectAssignedRelated(parents []reflect.Value, rel *Relationship) []reflect.Value {

@@ -949,7 +949,6 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithEmptyOpts() {
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithAutoPreloadAndExplicitPreload() {
 	now := time.Now()
 
-	// Concurrent preloads at the same depth may execute in any order.
 	s.mock.MatchExpectationsInOrder(false)
 
 	// testAuthorAutoPreload has Posts auto-preloaded. Adding an explicit Preload("Comments")
@@ -1124,12 +1123,11 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithUnknownPreloadRelati
 }
 
 // TestRead_WithMultiplePreloads verifies that chaining multiple Preload calls
-// on the same QueryBuilderRead loads all requested relations concurrently and
+// on the same QueryBuilderRead loads all requested relations and
 // populates each corresponding field on the entity.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithMultiplePreloads() {
 	now := time.Now()
 
-	// Concurrent preloads at the same depth may execute in any order.
 	s.mock.MatchExpectationsInOrder(false)
 
 	// Main query.
