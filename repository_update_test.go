@@ -17,13 +17,14 @@ import (
 // RepositoryUpdateTestSuite tests the Repository Update operations using sqlmock.
 type RepositoryUpdateTestSuite struct {
 	suite.Suite
-	client        sqlc.Client
-	mock          sqlmock.Sqlmock
-	repo          sqlr.Repository[int64, testUser]
-	customPkRepo  sqlr.Repository[int64, testCustomPkUser]
-	stringKeyRepo sqlr.Repository[string, testStringKeyUser]
-	boolKeyRepo   sqlr.Repository[bool, testBoolKeyUser]
-	floatKeyRepo  sqlr.Repository[float64, testFloatKeyUser]
+	client          sqlc.Client
+	mock            sqlmock.Sqlmock
+	repo            sqlr.Repository[int64, testUser]
+	customPkRepo    sqlr.Repository[int64, testCustomPkUser]
+	stringKeyRepo   sqlr.Repository[string, testStringKeyUser]
+	boolKeyRepo     sqlr.Repository[bool, testBoolKeyUser]
+	floatKeyRepo    sqlr.Repository[float64, testFloatKeyUser]
+	pointerTimeRepo sqlr.Repository[int64, testPointerTimestampUser]
 }
 
 func TestRepositoryUpdateTestSuite(t *testing.T) {
@@ -40,6 +41,7 @@ func (s *RepositoryUpdateTestSuite) SetupTest() {
 	s.stringKeyRepo = mustNewRepo[string, testStringKeyUser](s.T(), s.client)
 	s.boolKeyRepo = mustNewRepo[bool, testBoolKeyUser](s.T(), s.client)
 	s.floatKeyRepo = mustNewRepo[float64, testFloatKeyUser](s.T(), s.client)
+	s.pointerTimeRepo = mustNewRepo[int64, testPointerTimestampUser](s.T(), s.client)
 }
 
 func (s *RepositoryUpdateTestSuite) TearDownTest() {
@@ -249,6 +251,33 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_FloatPrimaryKey() {
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
 	s.Equal(float64(5), result.GetId())
+}
+
+func (s *RepositoryUpdateTestSuite) TestUpdate_PointerTimestamps_AreSet() {
+	createdAt := time.Now().Add(-time.Hour)
+	updatedAt := time.Now().Add(-30 * time.Minute)
+
+	entity := testPointerTimestampUser{
+		Id:        5,
+		CreatedAt: &createdAt,
+		UpdatedAt: &updatedAt,
+		Name:      "Alice Updated",
+	}
+
+	updateSQL := regexp.QuoteMeta("UPDATE `test_pointer_timestamp_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")
+
+	s.mock.ExpectExec(updateSQL).
+		WithArgs(isTimestamp{}, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	result, err := s.pointerTimeRepo.Update(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().NotNil(result.CreatedAt)
+	s.Require().NotNil(result.UpdatedAt)
+	s.False(result.CreatedAt.IsZero())
+	s.False(result.UpdatedAt.IsZero())
 }
 
 // ==========================================================================

@@ -415,7 +415,7 @@ func validateSchemaColumns(schema *EntitySchema) error {
 
 		if col.AutoCreateTime || col.AutoUpdateTime {
 			field := schema.entityType.FieldByIndex(col.FieldIndex)
-			if !timeType.ConvertibleTo(field.Type) {
+			if !isAutoTimestampFieldTypeSupported(field.Type, timeType) {
 				return fmt.Errorf("column %q on entity %s uses auto timestamp tags but is not assignable from time.Time", col.Name, schema.entityType.Name())
 			}
 		}
@@ -426,6 +426,18 @@ func validateSchemaColumns(schema *EntitySchema) error {
 	}
 
 	return nil
+}
+
+func isAutoTimestampFieldTypeSupported(fieldType reflect.Type, timeType reflect.Type) bool {
+	if timeType.ConvertibleTo(fieldType) {
+		return true
+	}
+
+	if fieldType.Kind() != reflect.Ptr {
+		return false
+	}
+
+	return timeType.ConvertibleTo(fieldType.Elem())
 }
 
 func setPrimaryKeyFromColumns(schema *EntitySchema) {

@@ -185,6 +185,13 @@ type schemaAutoTimestamps struct {
 	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
 }
 
+type schemaPointerAutoTimestamps struct {
+	ID        int64      `db:"id,primaryKey"`
+	Name      string     `db:"name"`
+	CreatedAt *time.Time `db:"created_at,autoCreateTime"`
+	UpdatedAt *time.Time `db:"updated_at,autoUpdateTime"`
+}
+
 type schemaInvalidAutoTimestamps struct {
 	ID        int64  `db:"id,primaryKey"`
 	Name      string `db:"name"`
@@ -219,6 +226,21 @@ func TestParseSchema_ColumnByNamePointsToColumnsEntries(t *testing.T) {
 // the opposite flag cleared.
 func TestParseSchema_AutoCreateTimeAndUpdateTime(t *testing.T) {
 	schema, err := parseSchema[schemaAutoTimestamps]()
+	require.NoError(t, err)
+
+	createdAt, ok := schema.ColumnByName("created_at")
+	require.True(t, ok)
+	assert.True(t, createdAt.AutoCreateTime)
+	assert.False(t, createdAt.AutoUpdateTime)
+
+	updatedAt, ok := schema.ColumnByName("updated_at")
+	require.True(t, ok)
+	assert.True(t, updatedAt.AutoUpdateTime)
+	assert.False(t, updatedAt.AutoCreateTime)
+}
+
+func TestParseSchema_AutoTimestampPointerFields_AreAccepted(t *testing.T) {
+	schema, err := parseSchema[schemaPointerAutoTimestamps]()
 	require.NoError(t, err)
 
 	createdAt, ok := schema.ColumnByName("created_at")

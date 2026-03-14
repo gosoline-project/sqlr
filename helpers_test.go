@@ -165,6 +165,37 @@ func (u testPointerKeyUser) GetCreatedAt() time.Time {
 	return u.CreatedAt
 }
 
+type testPointerTimestampUser struct {
+	Id        int64      `db:"id,primaryKey"`
+	CreatedAt *time.Time `db:"created_at,autoCreateTime"`
+	UpdatedAt *time.Time `db:"updated_at,autoUpdateTime"`
+	Name      string     `db:"name"`
+}
+
+func (u *testPointerTimestampUser) SetId(id int64) {
+	u.Id = id
+}
+
+func (u testPointerTimestampUser) GetId() int64 {
+	return u.Id
+}
+
+func (u testPointerTimestampUser) GetUpdatedAt() time.Time {
+	if u.UpdatedAt == nil {
+		return time.Time{}
+	}
+
+	return *u.UpdatedAt
+}
+
+func (u testPointerTimestampUser) GetCreatedAt() time.Time {
+	if u.CreatedAt == nil {
+		return time.Time{}
+	}
+
+	return *u.CreatedAt
+}
+
 type testPostWithPointerAuthorID struct {
 	sqlr.Entity[int64]
 	AuthorID *int64     `db:"author_id"`

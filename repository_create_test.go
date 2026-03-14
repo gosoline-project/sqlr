@@ -23,6 +23,7 @@ type RepositoryCreateTestSuite struct {
 	boolKeyRepo        sqlr.Repository[bool, testBoolKeyUser]
 	floatKeyRepo       sqlr.Repository[float64, testFloatKeyUser]
 	pointerKeyRepo     sqlr.Repository[*int64, testPointerKeyUser]
+	pointerTimeRepo    sqlr.Repository[int64, testPointerTimestampUser]
 	nullableAuthorRepo sqlr.Repository[int64, testPostWithPointerAuthorID]
 }
 
@@ -40,6 +41,7 @@ func (s *RepositoryCreateTestSuite) SetupTest() {
 	s.boolKeyRepo = mustNewRepo[bool, testBoolKeyUser](s.T(), s.client)
 	s.floatKeyRepo = mustNewRepo[float64, testFloatKeyUser](s.T(), s.client)
 	s.pointerKeyRepo = mustNewRepo[*int64, testPointerKeyUser](s.T(), s.client)
+	s.pointerTimeRepo = mustNewRepo[int64, testPointerTimestampUser](s.T(), s.client)
 	s.nullableAuthorRepo = mustNewRepo[int64, testPostWithPointerAuthorID](s.T(), s.client)
 }
 
@@ -86,6 +88,24 @@ func (s *RepositoryCreateTestSuite) TestCreate_PointerPrimaryKey_AutoIncrementSe
 	s.Require().NoError(err)
 	s.Require().NotNil(entity.GetId())
 	s.Equal(int64(42), *entity.GetId())
+}
+
+func (s *RepositoryCreateTestSuite) TestCreate_PointerTimestamps_AreSet() {
+	insertSQL := regexp.QuoteMeta("INSERT INTO `test_pointer_timestamp_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")
+
+	s.mock.ExpectExec(insertSQL).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(12, 1))
+
+	entity := testPointerTimestampUser{Name: "Alice"}
+	err := s.pointerTimeRepo.Create(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Equal(int64(12), entity.GetId())
+	s.Require().NotNil(entity.CreatedAt)
+	s.Require().NotNil(entity.UpdatedAt)
+	s.False(entity.CreatedAt.IsZero())
+	s.False(entity.UpdatedAt.IsZero())
 }
 
 func (s *RepositoryCreateTestSuite) TestCreate_BelongsTo_SetsNullableForeignKey() {
