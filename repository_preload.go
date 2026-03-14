@@ -722,18 +722,14 @@ func collectUniqueFKValues(parents []reflect.Value, fkFieldIndex []int, tableNam
 
 	for _, parent := range parents {
 		fkField := parent.FieldByIndex(fkFieldIndex)
-		if fkField.IsZero() {
-			continue
+		fkVal := fkField.Interface()
+		fkKey, present, err := optionalComparableKey(fkVal)
+		if err != nil {
+			return nil, fmt.Errorf("parent table %q foreign key %q produced %w", tableName, fkColumnName, err)
 		}
 
-		fkVal := fkField.Interface()
-		fkKey, ok := comparableKey(fkVal)
-		if !ok {
-			if isNilValue(fkVal) {
-				continue
-			}
-
-			return nil, fmt.Errorf("parent table %q foreign key %q produced non-comparable value type %T", tableName, fkColumnName, fkVal)
+		if !present {
+			continue
 		}
 
 		if _, found := seen[fkKey]; found {
@@ -768,18 +764,14 @@ func indexEntitiesByPK(entities []reflect.Value, schema *EntitySchema) (map[any]
 func assignBelongsToRelations(parents []reflect.Value, fkFieldIndex []int, rel *Relationship, relatedByPK map[any]reflect.Value, parentSchema *EntitySchema) error {
 	for _, parent := range parents {
 		fkField := parent.FieldByIndex(fkFieldIndex)
-		if fkField.IsZero() {
-			continue
+		fkVal := fkField.Interface()
+		fkKey, present, err := optionalComparableKey(fkVal)
+		if err != nil {
+			return fmt.Errorf("parent table %q foreign key %q produced %w", parentSchema.TableName, rel.ForeignKey, err)
 		}
 
-		fkVal := fkField.Interface()
-		fkKey, ok := comparableKey(fkVal)
-		if !ok {
-			if isNilValue(fkVal) {
-				continue
-			}
-
-			return fmt.Errorf("parent table %q foreign key %q produced non-comparable value type %T", parentSchema.TableName, rel.ForeignKey, fkVal)
+		if !present {
+			continue
 		}
 
 		relField := parent.FieldByIndex(rel.FieldIndex)

@@ -640,9 +640,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinMultipleRelations() {
 	})
 }
 
-// TestQuery_LeftJoinNoRelated verifies that when all joined columns contain
-// zero values (i.e. the LEFT JOIN found no match), the relation slice on the
-// parent entity is left empty rather than containing a zero-value element.
+// TestQuery_LeftJoinNoRelated verifies that when all joined columns are NULL
+// (i.e. the LEFT JOIN found no match), the relation slice on the parent entity
+// is left empty rather than containing a zero-value element.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
 	zeroTime := time.Time{}
 
@@ -652,7 +652,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinNoRelated() {
 			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
 			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
-			AddRow(1, zeroTime, zeroTime, "Alice", int64(0), zeroTime, zeroTime, int64(0), "", ""))
+			AddRow(1, zeroTime, zeroTime, "Alice", nil, nil, nil, nil, nil, nil))
 
 	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts")

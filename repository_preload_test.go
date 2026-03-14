@@ -26,6 +26,9 @@ type RepositoryPreloadTestSuite struct {
 	postWithAuthorRepo       sqlr.Repository[int64, testPostWithAuthor]
 	postWithAuthorPtrRepo    sqlr.Repository[int64, testPostWithAuthorPointer]
 	postWithNullableAuthor   sqlr.Repository[int64, testPostWithNullableAuthor]
+	postWithBoolAuthorRepo   sqlr.Repository[int64, testPostWithBoolAuthor]
+	postWithStringAuthorRepo sqlr.Repository[int64, testPostWithStringAuthor]
+	postWithFloatAuthorRepo  sqlr.Repository[int64, testPostWithFloatAuthor]
 	postWithAuthorAutoRepo   sqlr.Repository[int64, testPostWithAuthorAutoPreload]
 	brokenAuthorRepo         sqlr.Repository[int64, testBrokenAuthor]
 	articleRepo              sqlr.Repository[int64, testArticle]
@@ -54,6 +57,9 @@ func (s *RepositoryPreloadTestSuite) SetupTest() {
 	s.postWithAuthorRepo = mustNewRepo[int64, testPostWithAuthor](s.T(), s.client)
 	s.postWithAuthorPtrRepo = mustNewRepo[int64, testPostWithAuthorPointer](s.T(), s.client)
 	s.postWithNullableAuthor = mustNewRepo[int64, testPostWithNullableAuthor](s.T(), s.client)
+	s.postWithBoolAuthorRepo = mustNewRepo[int64, testPostWithBoolAuthor](s.T(), s.client)
+	s.postWithStringAuthorRepo = mustNewRepo[int64, testPostWithStringAuthor](s.T(), s.client)
+	s.postWithFloatAuthorRepo = mustNewRepo[int64, testPostWithFloatAuthor](s.T(), s.client)
 	s.postWithAuthorAutoRepo = mustNewRepo[int64, testPostWithAuthorAutoPreload](s.T(), s.client)
 	s.brokenAuthorRepo = mustNewRepo[int64, testBrokenAuthor](s.T(), s.client)
 	s.articleRepo = mustNewRepo[int64, testArticle](s.T(), s.client)
@@ -374,7 +380,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsTo() {
 
 // TestQuery_PreloadBelongsToMultipleParents verifies that BelongsTo preload
 // deduplicates foreign keys across multiple child records, issues a single
-// batched query, and handles a zero-value foreign key (no author assigned).
+// batched query, and includes zero-valued scalar foreign keys.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToMultipleParents() {
 	now := time.Now()
 
@@ -387,11 +393,12 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToMultipleParents()
 			AddRow(13, now, now, int64(0), "Post 4"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?, ?)")).
-		WithArgs(int64(1), int64(2)).
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?, ?, ?)")).
+		WithArgs(int64(1), int64(2), int64(0)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(2, now, now, "Bob").
-			AddRow(1, now, now, "Alice"))
+			AddRow(1, now, now, "Alice").
+			AddRow(0, now, now, "Zero Author"))
 
 	results, err := s.postWithAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Preload("Author")
@@ -402,7 +409,85 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToMultipleParents()
 	s.Equal("Alice", results[0].Author.Name)
 	s.Equal("Alice", results[1].Author.Name)
 	s.Equal("Bob", results[2].Author.Name)
-	s.Equal(testAuthor{}, results[3].Author)
+	s.Equal("Zero Author", results[3].Author.Name)
+}
+
+// TestQuery_PreloadBelongsToWithBoolZeroForeignKey verifies that a bool false
+// foreign key is treated as a valid relation key during belongs-to preload.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithBoolZeroForeignKey() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_post_with_bool_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(10, now, now, false, "False Author Post"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_bool_authors` WHERE `test_bool_authors`.`id` IN (?)")).
+		WithArgs(false).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(false, now, now, "False Author"))
+
+	results, err := s.postWithBoolAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.False(results[0].Author.GetId())
+	s.Equal("False Author", results[0].Author.Name)
+}
+
+// TestQuery_PreloadBelongsToWithStringZeroForeignKey verifies that an empty
+// string foreign key is treated as a valid relation key during belongs-to preload.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithStringZeroForeignKey() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_post_with_string_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(10, now, now, "", "Empty Author Post"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_string_authors` WHERE `test_string_authors`.`id` IN (?)")).
+		WithArgs("").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow("", now, now, "Empty Author"))
+
+	results, err := s.postWithStringAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal("", results[0].Author.GetId())
+	s.Equal("Empty Author", results[0].Author.Name)
+}
+
+// TestQuery_PreloadBelongsToWithNumericZeroForeignKey verifies that a numeric
+// zero foreign key participates in belongs-to preload instead of being skipped.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToWithNumericZeroForeignKey() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_post_with_float_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(10, now, now, float64(0), "Zero Float Author Post"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_float_authors` WHERE `test_float_authors`.`id` IN (?)")).
+		WithArgs(float64(0)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(float64(0), now, now, "Zero Float Author"))
+
+	results, err := s.postWithFloatAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal(float64(0), results[0].Author.GetId())
+	s.Equal("Zero Float Author", results[0].Author.Name)
 }
 
 // TestQuery_PreloadBelongsToWithMultipleNilForeignKeys verifies that BelongsTo

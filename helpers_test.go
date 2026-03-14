@@ -106,6 +106,42 @@ type testPostWithNullableAuthor struct {
 	Author   testAuthor `db:"-,belongsTo:author_id"`
 }
 
+type testBoolAuthor struct {
+	sqlr.Entity[bool]
+	Name string `db:"name"`
+}
+
+type testPostWithBoolAuthor struct {
+	sqlr.Entity[int64]
+	AuthorID bool           `db:"author_id"`
+	Title    string         `db:"title"`
+	Author   testBoolAuthor `db:"-,belongsTo:author_id"`
+}
+
+type testStringAuthor struct {
+	sqlr.Entity[string]
+	Name string `db:"name"`
+}
+
+type testPostWithStringAuthor struct {
+	sqlr.Entity[int64]
+	AuthorID string           `db:"author_id"`
+	Title    string           `db:"title"`
+	Author   testStringAuthor `db:"-,belongsTo:author_id"`
+}
+
+type testFloatAuthor struct {
+	sqlr.Entity[float64]
+	Name string `db:"name"`
+}
+
+type testPostWithFloatAuthor struct {
+	sqlr.Entity[int64]
+	AuthorID float64         `db:"author_id"`
+	Title    string          `db:"title"`
+	Author   testFloatAuthor `db:"-,belongsTo:author_id"`
+}
+
 type testPointerKeyUser struct {
 	Id        *int64    `db:"id,primaryKey"`
 	CreatedAt time.Time `db:"created_at,autoCreateTime"`

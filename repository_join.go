@@ -26,6 +26,7 @@ type joinColumnScanTarget struct {
 	baseFieldIndex     []int
 	relationIndex      int
 	relationFieldIndex []int
+	relationColumnName string
 	discard            *any
 }
 
@@ -210,6 +211,26 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
+		relationPresent := make([]bool, len(relationStates))
+		for i := range columns {
+			targetInfo := columnScanTargets[i]
+			if targetInfo.relationIndex < 0 || targetInfo.relationFieldIndex == nil {
+				continue
+			}
+
+			scanned := scannedValue(scanDests[i])
+			if scanned == nil {
+				continue
+			}
+
+			relationPresent[targetInfo.relationIndex] = true
+			relState := relationStates[targetInfo.relationIndex]
+			relField := relState.value.FieldByIndex(targetInfo.relationFieldIndex)
+			if err = setFieldValue(relField, scanned, relState.joinInfo.schema.TableName, targetInfo.relationColumnName); err != nil {
+				return nil, fmt.Errorf("failed to hydrate joined relation %q column %q: %w", relState.name, targetInfo.relationColumnName, err)
+			}
+		}
+
 		pk := entity.GetId()
 		pkKey, ok := comparableKey(pk)
 		if !ok {
@@ -223,7 +244,7 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 		}
 
 		target := reflect.ValueOf(&results[idx]).Elem()
-		if err = assignJoinedRelations(target, relationStates, relatedSeen[pkKey]); err != nil {
+		if err = assignJoinedRelations(target, relationStates, relatedSeen[pkKey], relationPresent); err != nil {
 			return nil, err
 		}
 	}
@@ -241,21 +262,25 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 
 // assignJoinedRelations assigns scanned join relation values to the target entity,
 // tracking already-seen related entities to avoid duplicates.
-func assignJoinedRelations(target reflect.Value, relationStates []joinRelationState, seen map[string]map[any]struct{}) error {
+func assignJoinedRelations(target reflect.Value, relationStates []joinRelationState, seen map[string]map[any]struct{}, relationPresent []bool) error {
 	for i := range relationStates {
 		state := relationStates[i]
+		if !relationPresent[i] {
+			continue
+		}
+
 		if state.joinInfo.schema.PrimaryKey == nil {
 			continue
 		}
 
 		relPkVal := state.value.FieldByIndex(state.joinInfo.schema.PrimaryKey.FieldIndex)
-		if relPkVal.IsZero() {
-			continue
+		relPk, present, err := optionalComparableKey(relPkVal.Interface())
+		if err != nil {
+			return fmt.Errorf("joined relation %q produced %w", state.name, err)
 		}
 
-		relPk, ok := comparableKey(relPkVal.Interface())
-		if !ok {
-			return fmt.Errorf("joined relation %q produced non-comparable primary key type %T", state.name, relPkVal.Interface())
+		if !present {
+			continue
 		}
 		relationSeen := seen[state.name]
 		if relationSeen == nil {
@@ -383,6 +408,7 @@ func precomputeJoinColumnScanTarget(colName string, schema *EntitySchema, relati
 		if col, ok := relationStates[relationIndex].joinInfo.schema.ColumnByName(fieldColName); ok {
 			target.relationIndex = relationIndex
 			target.relationFieldIndex = col.FieldIndex
+			target.relationColumnName = col.Name
 
 			return target, nil
 		}
@@ -405,7 +431,9 @@ func scanDestForJoinColumn(rv reflect.Value, relationStates []joinRelationState,
 	}
 
 	if target.relationIndex >= 0 && target.relationFieldIndex != nil {
-		return relationStates[target.relationIndex].value.FieldByIndex(target.relationFieldIndex).Addr().Interface()
+		var scanned any
+
+		return &scanned
 	}
 
 	return target.discard

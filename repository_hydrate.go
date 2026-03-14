@@ -212,3 +212,19 @@ func comparableKey(v any) (any, bool) {
 
 	return nil, false
 }
+
+// optionalComparableKey returns a comparable key for present values while
+// treating only nil pointer/interface-like values as absent. Zero-valued scalar
+// keys such as false, "", and 0 are considered present.
+func optionalComparableKey(v any) (any, bool, error) {
+	if isNilValue(v) {
+		return nil, false, nil
+	}
+
+	key, ok := comparableKey(v)
+	if !ok {
+		return nil, false, fmt.Errorf("non-comparable value type %T", v)
+	}
+
+	return key, true, nil
+}

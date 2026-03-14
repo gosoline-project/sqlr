@@ -452,16 +452,18 @@ func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_NotFound() 
 // via the QueryBuilderRead options.
 type RepositoryReadWithRelationsTestSuite struct {
 	suite.Suite
-	client                sqlc.Client
-	mock                  sqlmock.Sqlmock
-	authorRepo            sqlr.Repository[int64, testAuthor]
-	authorWithProfileRepo sqlr.Repository[int64, testAuthorWithProfile]
-	authorProfilePtrRepo  sqlr.Repository[int64, testAuthorWithProfilePointer]
-	postRepo              sqlr.Repository[int64, testPost]
-	postPointerRepo       sqlr.Repository[int64, testPostWithAuthorPointer]
-	articleRepo           sqlr.Repository[int64, testArticle]
-	articlePointerRepo    sqlr.Repository[int64, testArticleWithPointerTags]
-	authorAutoPreloadRepo sqlr.Repository[int64, testAuthorAutoPreload]
+	client                 sqlc.Client
+	mock                   sqlmock.Sqlmock
+	authorRepo             sqlr.Repository[int64, testAuthor]
+	authorWithProfileRepo  sqlr.Repository[int64, testAuthorWithProfile]
+	authorProfilePtrRepo   sqlr.Repository[int64, testAuthorWithProfilePointer]
+	authorBoolKeyRepo      sqlr.Repository[bool, testBoolAuthor]
+	postRepo               sqlr.Repository[int64, testPost]
+	postPointerRepo        sqlr.Repository[int64, testPostWithAuthorPointer]
+	postWithBoolAuthorRepo sqlr.Repository[int64, testPostWithBoolAuthor]
+	articleRepo            sqlr.Repository[int64, testArticle]
+	articlePointerRepo     sqlr.Repository[int64, testArticleWithPointerTags]
+	authorAutoPreloadRepo  sqlr.Repository[int64, testAuthorAutoPreload]
 }
 
 func TestRepositoryReadWithRelationsTestSuite(t *testing.T) {
@@ -476,8 +478,10 @@ func (s *RepositoryReadWithRelationsTestSuite) SetupTest() {
 	s.authorRepo = mustNewRepo[int64, testAuthor](s.T(), s.client)
 	s.authorWithProfileRepo = mustNewRepo[int64, testAuthorWithProfile](s.T(), s.client)
 	s.authorProfilePtrRepo = mustNewRepo[int64, testAuthorWithProfilePointer](s.T(), s.client)
+	s.authorBoolKeyRepo = mustNewRepo[bool, testBoolAuthor](s.T(), s.client)
 	s.postRepo = mustNewRepo[int64, testPost](s.T(), s.client)
 	s.postPointerRepo = mustNewRepo[int64, testPostWithAuthorPointer](s.T(), s.client)
+	s.postWithBoolAuthorRepo = mustNewRepo[int64, testPostWithBoolAuthor](s.T(), s.client)
 	s.articleRepo = mustNewRepo[int64, testArticle](s.T(), s.client)
 	s.articlePointerRepo = mustNewRepo[int64, testArticleWithPointerTags](s.T(), s.client)
 	s.authorAutoPreloadRepo = mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
@@ -817,6 +821,30 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinBelongsTo() 
 	s.Equal(int64(10), result.GetId())
 	s.Equal("First Post", result.Title)
 	s.Equal("Alice", result.Author.Name)
+}
+
+// TestRead_WithLeftJoinBelongsToZeroValueKey verifies that join hydration keeps
+// a related belongs-to row whose primary key is the zero value of a supported type.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinBelongsToZeroValueKey() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_post_with_bool_authors`.`id`, `test_post_with_bool_authors`.`created_at`, `test_post_with_bool_authors`.`updated_at`, `test_post_with_bool_authors`.`author_id`, `test_post_with_bool_authors`.`title`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_post_with_bool_authors` LEFT JOIN `test_bool_authors` AS Author ON `test_post_with_bool_authors`.`author_id` = `Author`.`id`" +
+			" WHERE `test_post_with_bool_authors`.`id` = ?")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
+			AddRow(10, now, now, false, "False Author Post", false, now, now, "False Author"))
+
+	result, err := s.postWithBoolAuthorRepo.Read(context.Background(), 10, func(qb *sqlr.QueryBuilderRead) {
+		qb.LeftJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.False(result.Author.GetId())
+	s.Equal("False Author", result.Author.Name)
 }
 
 // TestRead_WithLeftJoinHasOne verifies that LeftJoin works for HasOne relations,
