@@ -30,13 +30,13 @@ func (s *associationSyncState) leave(key string) {
 	delete(s.active, key)
 }
 
-func syncExistingEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) error {
-	_, err := syncEntityGraph(cache, q, ctx, schema, entityValue, state)
+func syncExistingEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy) error {
+	_, err := syncEntityGraph(cache, q, ctx, schema, entityValue, state, policy, "")
 
 	return err
 }
 
-func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) (any, error) {
+func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, path string) (any, error) {
 	entityValue = unwrapEntityValue(entityValue)
 	if !entityValue.IsValid() {
 		return nil, fmt.Errorf("invalid entity value for schema %s", schema.TableName)
@@ -55,7 +55,7 @@ func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context,
 		defer state.leave(key)
 	}
 
-	if err := syncBelongsToAssociations(cache, q, ctx, schema, entityValue, state); err != nil {
+	if err := syncBelongsToAssociations(cache, q, ctx, schema, entityValue, state, policy, path); err != nil {
 		return nil, err
 	}
 
@@ -64,7 +64,7 @@ func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context,
 		return nil, err
 	}
 
-	if err := syncForwardAssociations(cache, q, ctx, schema, entityValue, state); err != nil {
+	if err := syncForwardAssociations(cache, q, ctx, schema, entityValue, state, policy, path); err != nil {
 		return nil, err
 	}
 
@@ -93,9 +93,14 @@ func persistEntityGraphNode(cache *statementCache, q sqlc.Querier, ctx context.C
 	return entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface(), nil
 }
 
-func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) error {
+func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, parentPath string) error {
 	for _, rel := range schema.Relationships {
 		if rel.Type != BelongsTo {
+			continue
+		}
+
+		relationPath := joinAssociationPath(parentPath, rel.Name)
+		if policy != nil && !policy.shouldSyncPath(relationPath) {
 			continue
 		}
 
@@ -110,7 +115,7 @@ func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx contex
 			return fmt.Errorf("failed to resolve schema for BelongsTo relation %q: %w", rel.Name, err)
 		}
 
-		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, field, state); err != nil {
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, field, state, policy, relationPath); err != nil {
 			return fmt.Errorf("failed to synchronize BelongsTo relation %q: %w", rel.Name, err)
 		}
 
@@ -130,9 +135,9 @@ func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx contex
 	return nil
 }
 
-func syncForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState) error {
+func syncForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, parentPath string) error {
 	for _, rel := range schema.Relationships {
-		if err := syncForwardAssociation(cache, q, ctx, schema, entityValue, rel, state); err != nil {
+		if err := syncForwardAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, parentPath); err != nil {
 			return err
 		}
 	}
@@ -140,7 +145,12 @@ func syncForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.
 	return nil
 }
 
-func syncForwardAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+func syncForwardAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, parentPath string) error {
+	relationPath := joinAssociationPath(parentPath, rel.Name)
+	if policy != nil && !policy.shouldSyncPath(relationPath) {
+		return nil
+	}
+
 	field := entityValue.FieldByIndex(rel.FieldIndex)
 
 	switch rel.Type {
@@ -149,19 +159,19 @@ func syncForwardAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 			return nil
 		}
 
-		return syncHasOneAssociation(cache, q, ctx, schema, entityValue, rel, state)
+		return syncHasOneAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath)
 	case HasMany:
 		if field.IsNil() {
 			return nil
 		}
 
-		return syncHasManyAssociation(cache, q, ctx, schema, entityValue, rel, state)
+		return syncHasManyAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath)
 	case ManyToMany:
 		if field.IsNil() {
 			return nil
 		}
 
-		return syncManyToManyAssociation(cache, q, ctx, schema, entityValue, rel, state)
+		return syncManyToManyAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath)
 	case BelongsTo:
 		return nil
 	default:
@@ -169,7 +179,7 @@ func syncForwardAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 	}
 }
 
-func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, relationPath string) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
@@ -186,7 +196,7 @@ func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Co
 		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
 	}
 
-	if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, relField, state); err != nil {
+	if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, relField, state, policy, relationPath); err != nil {
 		return fmt.Errorf("failed to synchronize HasOne relation %q: %w", rel.Name, err)
 	}
 
@@ -220,7 +230,7 @@ func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Co
 	return nil
 }
 
-func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, relationPath string) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
@@ -244,7 +254,7 @@ func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
-		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state); err != nil {
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state, policy, relationPath); err != nil {
 			return fmt.Errorf("failed to synchronize HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
@@ -276,14 +286,14 @@ func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 	return nil
 }
 
-func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState) error {
+func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, relationPath string) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
 	}
 
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
-	desiredKeys, desiredPKs, err := collectDesiredManyToManyTargets(cache, q, ctx, nestedSchema, parentValue.FieldByIndex(rel.FieldIndex), rel, state)
+	desiredKeys, desiredPKs, err := collectDesiredManyToManyTargets(cache, q, ctx, nestedSchema, parentValue.FieldByIndex(rel.FieldIndex), rel, state, policy, relationPath)
 	if err != nil {
 		return err
 	}
@@ -319,6 +329,8 @@ func collectDesiredManyToManyTargets(
 	sliceField reflect.Value,
 	rel *Relationship,
 	state *associationSyncState,
+	policy *associationSyncPolicy,
+	relationPath string,
 ) (desiredKeys map[any]struct{}, desiredPKs []any, err error) {
 	desiredKeys = make(map[any]struct{}, sliceField.Len())
 	desiredPKs = make([]any, 0, sliceField.Len())
@@ -329,7 +341,7 @@ func collectDesiredManyToManyTargets(
 			return nil, nil, fmt.Errorf("ManyToMany relation %q[%d] is nil", rel.Name, i)
 		}
 
-		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state); err != nil {
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state, policy, relationPath); err != nil {
 			return nil, nil, fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 

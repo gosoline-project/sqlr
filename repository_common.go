@@ -63,9 +63,9 @@ func applyOptions[T any](builder T, opts []func(T)) T {
 // All operations must be executed within a transaction so that a failure at any step
 // rolls back the entire tree. The caller is responsible for providing a transaction
 // querier (q) and a non-nil ttx when association saves are required.
-func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E) error {
+func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy) error {
 	// Phase 1: persist BelongsTo relations and set their FKs on the parent.
-	if err := r.saveBelongsToAssociations(q, ctx, entity); err != nil {
+	if err := r.saveBelongsToAssociations(q, ctx, entity, policy); err != nil {
 		return err
 	}
 
@@ -75,7 +75,7 @@ func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ct
 	}
 
 	// Phase 3 + 4: persist HasOne, HasMany, and ManyToMany relations.
-	return r.saveAssociations(q, ctx, entity)
+	return r.saveAssociations(q, ctx, entity, policy)
 }
 
 // createEntity persists a new entity to the database. It extracts insert column
@@ -239,11 +239,11 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 // QueryBuilderUpdate. BelongsTo relations are synchronized first so the parent's
 // foreign keys are current before the root row is updated. HasOne, HasMany, and
 // ManyToMany relations are synchronized afterwards.
-func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E) (*E, error) {
+func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy) (*E, error) {
 	state := newAssociationSyncState()
 	rv := reflect.ValueOf(entity).Elem()
 
-	if err := syncExistingEntityGraph(r.statementCache, q, ctx, r.schema, rv, state); err != nil {
+	if err := syncExistingEntityGraph(r.statementCache, q, ctx, r.schema, rv, state, policy); err != nil {
 		return nil, err
 	}
 

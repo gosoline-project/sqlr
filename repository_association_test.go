@@ -199,6 +199,18 @@ func (s *RepositoryAssociationCreateTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+func syncCreatePosts(qb *sqlr.QueryBuilderCreate) {
+	qb.SyncAssociation("Posts")
+}
+
+func syncCreatePostsComments(qb *sqlr.QueryBuilderCreate) {
+	qb.SyncAssociation("Posts.Comments")
+}
+
+func omitCreatePosts(qb *sqlr.QueryBuilderCreate) {
+	qb.OmitAssociation("Posts")
+}
+
 // --------------------------------------------------------------------------
 // No associations — no transaction overhead
 // --------------------------------------------------------------------------
@@ -228,6 +240,25 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_EmptyAssociationSlice_
 	entity := assocAuthor{Name: "Bob"}
 	s.Require().NoError(repo.Create(context.Background(), &entity))
 	s.Equal(int64(10), entity.GetId())
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAssociation_SkipsOmittedRelationWithoutTransaction() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Bob").
+		WillReturnResult(sqlmock.NewResult(10, 1))
+
+	entity := assocAuthor{
+		Name:  "Bob",
+		Posts: []assocPost{{Title: "Skipped"}},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, omitCreatePosts))
+	s.Equal(int64(10), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(0), entity.Posts[0].GetId())
+	s.Equal(int64(0), entity.Posts[0].AuthorID)
 }
 
 // --------------------------------------------------------------------------
@@ -305,6 +336,33 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_SkipsExistingA
 	s.Equal(int64(99), entity.Posts[0].GetId())
 	// New post gets its generated ID.
 	s.Equal(int64(20), entity.Posts[1].GetId())
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_OnlyCreatesSelectedRelation() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Post A").
+		WillReturnResult(sqlmock.NewResult(10, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthor{
+		Name:    "Alice",
+		Posts:   []assocPost{{Title: "Post A"}},
+		Profile: assocProfile{Bio: "Skipped"},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, syncCreatePosts))
+	s.Equal(int64(1), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(10), entity.Posts[0].GetId())
+	s.Equal(int64(1), entity.Posts[0].AuthorID)
+	s.Equal(int64(0), entity.Profile.GetId())
+	s.Equal(int64(0), entity.Profile.AuthorID)
 }
 
 // --------------------------------------------------------------------------
@@ -789,6 +847,41 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_Recursive_Inse
 	s.Empty(entity.Posts[1].Comments)
 }
 
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_NestedPathSynchronizesAncestors() {
+	repo := mustNewRepo[int64, deepAuthor](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Root").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Post 1").
+		WillReturnResult(sqlmock.NewResult(10, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `deep_comments` (`created_at`, `updated_at`, `post_id`, `body`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(10), "Comment A").
+		WillReturnResult(sqlmock.NewResult(100, 1))
+	s.mock.ExpectCommit()
+
+	entity := deepAuthor{
+		Name: "Root",
+		Posts: []deepPost{{
+			Title: "Post 1",
+			Comments: []deepComment{{
+				Body: "Comment A",
+			}},
+		}},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, syncCreatePostsComments))
+	s.Equal(int64(1), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(10), entity.Posts[0].GetId())
+	s.Equal(int64(1), entity.Posts[0].AuthorID)
+	s.Require().Len(entity.Posts[0].Comments, 1)
+	s.Equal(int64(100), entity.Posts[0].Comments[0].GetId())
+	s.Equal(int64(10), entity.Posts[0].Comments[0].PostID)
+}
+
 // --------------------------------------------------------------------------
 // Recursive: 3-level BelongsTo chain (deepLeafComment → deepLeafPost → deepLeafAuthor)
 // --------------------------------------------------------------------------
@@ -833,6 +926,18 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_Recursive_In
 	s.Equal(int64(50), entity.Post.GetId())
 	s.Equal(int64(5), entity.Post.AuthorID)
 	s.Equal(int64(5), entity.Post.Author.GetId())
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_InvalidPathReturnsError() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	entity := assocAuthor{Name: "Alice"}
+
+	err := repo.Create(context.Background(), &entity, func(qb *sqlr.QueryBuilderCreate) {
+		qb.SyncAssociation("Unknown")
+	})
+
+	s.Require().Error(err)
+	s.ErrorContains(err, "invalid sync association path \"Unknown\"")
 }
 
 // --------------------------------------------------------------------------

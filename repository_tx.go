@@ -9,12 +9,18 @@ import (
 var _ RepositoryTx[int64, Entitier[int64]] = (*repositoryTx[int64, Entitier[int64]])(nil)
 
 type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
-	Create(ttx TTx, entity *E) error
+	// Create inserts the entity row and synchronizes populated associations.
+	// Optional functions receive a QueryBuilderCreate to restrict or omit
+	// association synchronization for this call.
+	Create(ttx TTx, entity *E, opts ...func(qb *QueryBuilderCreate)) error
 	// Read loads one entity by primary key. Optional functions receive a
 	// QueryBuilderRead to configure joins and preloads for eager-loading
 	// related entities. Schema auto-preloads are always applied.
 	Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRead)) (*E, error)
 	Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)) ([]E, error)
+	// Update updates the base entity row. Optional functions receive a
+	// QueryBuilderUpdate to enable or restrict association synchronization for
+	// this call.
 	Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	Delete(ttx TTx, id K) error
 	// Close releases resources held by the repository, including prepared statements
@@ -53,12 +59,19 @@ type repositoryTx[K KeyTypes, E Entitier[K]] struct {
 	repositoryCommon[K, E]
 }
 
-func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E) error {
-	if !t.hasAssociationsToSave(entity) {
+func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBuilderCreate)) error {
+	qb := applyOptions(NewQueryBuilderCreate(), opts)
+
+	policy, err := newCreateAssociationSyncPolicy(t.schema, qb)
+	if err != nil {
+		return err
+	}
+
+	if !t.hasAssociationsToSave(entity, policy) {
 		return t.createEntity(ttx, ttx, entity)
 	}
 
-	return t.createEntityWithAssociations(ttx, ttx, entity)
+	return t.createEntityWithAssociations(ttx, ttx, entity, policy)
 }
 
 func (t *repositoryTx[K, E]) Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRead)) (*E, error) {
@@ -76,11 +89,16 @@ func (t *repositoryTx[K, E]) Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)
 func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error) {
 	qb := applyOptions(NewQueryBuilderUpdate(), opts)
 
+	policy, err := newUpdateAssociationSyncPolicy(t.schema, qb)
+	if err != nil {
+		return nil, err
+	}
+
 	if !qb.shouldSyncAssociations() {
 		return t.updateEntity(ttx, ttx, entity)
 	}
 
-	return t.updateEntityWithAssociations(ttx, ttx, entity)
+	return t.updateEntityWithAssociations(ttx, ttx, entity, policy)
 }
 
 func (t *repositoryTx[K, E]) Delete(ttx TTx, id K) error {
