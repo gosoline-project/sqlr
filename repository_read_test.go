@@ -709,14 +709,14 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadManyToMany() 
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin() {
 	now := time.Now()
 
-	// Join query: SELECT with aliased columns + JOIN + WHERE pk = ? LIMIT 1.
+	// Join query: SELECT with aliased columns + JOIN + WHERE pk = ?.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
-			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
-			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
-			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
-			" WHERE `test_authors`.`id` = ? LIMIT ?")).
-		WithArgs(int64(1), 1).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" WHERE `test_authors`.`id` = ?")).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
@@ -745,8 +745,8 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinCondition() 
 			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
 			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
 			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
-			" AND `test_posts`.`status` = ? WHERE `test_authors`.`id` = ? LIMIT ?")).
-		WithArgs("published", int64(1), 1).
+			" AND `test_posts`.`status` = ? WHERE `test_authors`.`id` = ?")).
+		WithArgs("published", int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
@@ -770,12 +770,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithInnerJoin() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
-			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
-			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
-			" FROM `test_authors` JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
-			" WHERE `test_authors`.`id` = ? LIMIT ?")).
-		WithArgs(int64(1), 1).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" WHERE `test_authors`.`id` = ?")).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
@@ -800,11 +800,11 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinBelongsTo() 
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, "+
-			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`"+
-			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`"+
-			" WHERE `test_posts`.`id` = ? LIMIT ?")).
-		WithArgs(int64(10), 1).
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`" +
+			" WHERE `test_posts`.`id` = ?")).
+		WithArgs(int64(10)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
 			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
 
@@ -826,12 +826,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOne() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, "+
-			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, "+
-			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`"+
-			" FROM `test_author_with_profiles` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`"+
-			" WHERE `test_author_with_profiles`.`id` = ? LIMIT ?")).
-		WithArgs(int64(1), 1).
+		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profiles` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`" +
+			" WHERE `test_author_with_profiles`.`id` = ?")).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "A bio"))
 
@@ -852,12 +852,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOnePointe
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_author_with_profile_pointers`.`id`, `test_author_with_profile_pointers`.`created_at`, `test_author_with_profile_pointers`.`updated_at`, `test_author_with_profile_pointers`.`name`, "+
-			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, "+
-			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`"+
-			" FROM `test_author_with_profile_pointers` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profile_pointers`.`id` = `Profile`.`author_id`"+
-			" WHERE `test_author_with_profile_pointers`.`id` = ? LIMIT ?")).
-		WithArgs(int64(1), 1).
+		"SELECT `test_author_with_profile_pointers`.`id`, `test_author_with_profile_pointers`.`created_at`, `test_author_with_profile_pointers`.`updated_at`, `test_author_with_profile_pointers`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profile_pointers` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profile_pointers`.`id` = `Profile`.`author_id`" +
+			" WHERE `test_author_with_profile_pointers`.`id` = ?")).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "A bio"))
 
@@ -880,12 +880,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOnePointe
 // rows, Read returns ErrNotFound with the entity id in the error message.
 func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoin_NotFound() {
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
-			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
-			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
-			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
-			" WHERE `test_authors`.`id` = ? LIMIT ?")).
-		WithArgs(int64(999), 1).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" WHERE `test_authors`.`id` = ?")).
+		WithArgs(int64(999)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}))
 
 	result, err := s.authorRepo.Read(context.Background(), 999, func(qb *sqlr.QueryBuilderRead) {
@@ -997,12 +997,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithJoinAndPreload() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
-			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
-			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
-			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
-			" WHERE `test_authors`.`id` = ? LIMIT ?")).
-		WithArgs(int64(1), 1).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" WHERE `test_authors`.`id` = ?")).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
 
@@ -1036,12 +1036,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithJoinAndAutoPreload()
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_author_auto_preloads`.`id`, `test_author_auto_preloads`.`created_at`, `test_author_auto_preloads`.`updated_at`, `test_author_auto_preloads`.`name`, "+
-			"`Comments`.`id` AS `Comments__id`, `Comments`.`created_at` AS `Comments__created_at`, `Comments`.`updated_at` AS `Comments__updated_at`, "+
-			"`Comments`.`author_id` AS `Comments__author_id`, `Comments`.`post_id` AS `Comments__post_id`, `Comments`.`body` AS `Comments__body`"+
-			" FROM `test_author_auto_preloads` LEFT JOIN `test_comments` AS Comments ON `test_author_auto_preloads`.`id` = `Comments`.`author_id`"+
-			" WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
-		WithArgs(int64(1), 1).
+		"SELECT `test_author_auto_preloads`.`id`, `test_author_auto_preloads`.`created_at`, `test_author_auto_preloads`.`updated_at`, `test_author_auto_preloads`.`name`, " +
+			"`Comments`.`id` AS `Comments__id`, `Comments`.`created_at` AS `Comments__created_at`, `Comments`.`updated_at` AS `Comments__updated_at`, " +
+			"`Comments`.`author_id` AS `Comments__author_id`, `Comments`.`post_id` AS `Comments__post_id`, `Comments`.`body` AS `Comments__body`" +
+			" FROM `test_author_auto_preloads` LEFT JOIN `test_comments` AS Comments ON `test_author_auto_preloads`.`id` = `Comments`.`author_id`" +
+			" WHERE `test_author_auto_preloads`.`id` = ?")).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Comments__id", "Comments__created_at", "Comments__updated_at", "Comments__author_id", "Comments__post_id", "Comments__body"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), int64(10), "A comment"))
 
@@ -1072,12 +1072,12 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinMultiplePost
 
 	// Author with multiple posts: JOIN returns multiple rows, deduplication should produce one author.
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, "+
-			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, "+
-			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"+
-			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"+
-			" WHERE `test_authors`.`id` = ? LIMIT ?")).
-		WithArgs(int64(1), 1).
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" WHERE `test_authors`.`id` = ?")).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
 			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
 			AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Second Post", "draft"))

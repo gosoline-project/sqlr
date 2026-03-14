@@ -112,7 +112,7 @@ func TestQueryBuilderRead_Chaining(t *testing.T) {
 	assert.Len(t, qbr.preloads, 1)
 }
 
-func TestQueryBuilderRead_ToQueryBuilderSelect(t *testing.T) {
+func TestQueryBuilderRead_ToQueryBuilderSelect_WithJoinOmitsLimit(t *testing.T) {
 	cond := Condition("status = ?", "published")
 	qbr := NewQueryBuilderRead()
 	qbr.LeftJoin("Posts", cond).Preload("Comments")
@@ -126,15 +126,24 @@ func TestQueryBuilderRead_ToQueryBuilderSelect(t *testing.T) {
 	require.Len(t, qb.preloads, 1)
 	assert.Equal(t, "Comments", qb.preloads[0].relation)
 
-	// Verify WHERE and LIMIT are set.
-	require.NotNil(t, qb.limit)
-	assert.Equal(t, 1, *qb.limit)
+	// Verify WHERE is set and row-level LIMIT is omitted for joined reads.
+	assert.Nil(t, qb.limit)
 
 	// Verify the WHERE clause contains the PK condition.
 	sql, params, err := qb.ToSql()
 	require.NoError(t, err)
 	assert.Contains(t, sql, "WHERE")
 	assert.Contains(t, params, int64(42))
+}
+
+func TestQueryBuilderRead_ToQueryBuilderSelect_PreloadOnlyAddsLimit(t *testing.T) {
+	qbr := NewQueryBuilderRead()
+	qbr.Preload("Comments")
+
+	qb := qbr.toQueryBuilderSelect("test_authors", "id", int64(42))
+
+	require.NotNil(t, qb.limit)
+	assert.Equal(t, 1, *qb.limit)
 }
 
 func TestQueryBuilderRead_ToQueryBuilderSelect_PreservesOriginal(t *testing.T) {

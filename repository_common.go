@@ -173,8 +173,10 @@ func (r *repositoryCommon[K, E]) readEntity(q sqlc.Querier, ctx context.Context,
 // and preload configuration. When the QueryBuilderRead has no explicit joins or
 // preloads, this delegates to readEntity for the simple fast path. When joins or
 // preloads are requested, it converts the read builder into a QueryBuilderSelect
-// with a WHERE pk = ? LIMIT 1 constraint and delegates to queryEntities, reusing
-// the full join/preload infrastructure.
+// with a WHERE pk = ? constraint and delegates to queryEntities, reusing the
+// full join/preload infrastructure. Preload-only reads still apply LIMIT 1,
+// while joined reads enforce single-entity semantics after hydration so has-many
+// joins do not truncate related rows at the SQL level.
 func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.Context, id K, qbr *QueryBuilderRead) (*E, error) {
 	if !qbr.hasRelations() {
 		return r.readEntity(q, ctx, id)

@@ -89,8 +89,11 @@ func (r *QueryBuilderRead) hasRelations() bool {
 }
 
 // toQueryBuilderSelect converts the read builder into a full QueryBuilderSelect
-// by copying joins and preloads and adding a WHERE pk = ? LIMIT 1 constraint.
-// This allows reuse of the existing queryEntities infrastructure.
+// by copying joins and preloads and adding a WHERE pk = ? constraint. For
+// preload-only reads it also applies LIMIT 1, matching the simple Read fast
+// path. Joined reads intentionally avoid a row-level limit because joins against
+// has-many relations can expand a single root entity into multiple SQL rows,
+// which must be hydrated before single-entity semantics are enforced.
 // The table name is used to qualify the primary key column, which is required
 // when joins are present to avoid ambiguous column references.
 func (r *QueryBuilderRead) toQueryBuilderSelect(tableName string, pkColumn string, pkValue any) *QueryBuilderSelect {
@@ -98,7 +101,10 @@ func (r *QueryBuilderRead) toQueryBuilderSelect(tableName string, pkColumn strin
 	qb.joins = r.joins
 	qb.preloads = r.preloads
 	qb.Where(sqlc.Col(tableName, pkColumn).Eq(pkValue))
-	qb.Limit(1)
+
+	if len(r.joins) == 0 {
+		qb.Limit(1)
+	}
 
 	return qb
 }
