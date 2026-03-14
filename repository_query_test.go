@@ -323,6 +323,35 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithCondition() {
 	})
 }
 
+// TestQuery_LeftJoinWithNilCondition verifies that explicit nil join conditions
+// are ignored instead of panicking.
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithNilCondition() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
+			" FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+			" AND `test_posts`.`status` = ?")).
+		WithArgs("published").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Posts", nil, sqlr.Condition("test_posts.status = ?", "published"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
 // TestQuery_LeftJoinWithMultipleConditions verifies that multiple ON conditions
 // are each appended as separate AND clauses in the JOIN clause.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinWithMultipleConditions() {

@@ -657,6 +657,36 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithCondition() {
 	})
 }
 
+// TestQuery_PreloadWithNilCondition verifies that explicit nil preload
+// conditions are ignored instead of panicking.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithNilCondition() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
+		WithArgs(int64(1), "published").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "Published Post", "published"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Posts", nil, sqlr.Condition("status = ?", "published"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Title: ptr("Published Post")},
+		},
+	})
+}
+
 // TestQuery_PreloadMultipleRelations verifies that two sibling preloads (Posts
 // and Comments) are both executed and mapped correctly.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMultipleRelations() {

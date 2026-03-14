@@ -142,6 +142,10 @@ func (r *repositoryCommon[K, E]) applyJoinClause(sqlcQB *sqlc.SelectQueryBuilder
 
 	onConditions := sqlc.NewSqlerWhere().Where(baseOnExpr)
 	for _, w := range j.where {
+		if w == nil {
+			continue
+		}
+
 		if w.IsEmpty() {
 			continue
 		}

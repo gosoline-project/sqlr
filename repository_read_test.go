@@ -563,6 +563,37 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadCondition() {
 	})
 }
 
+// TestRead_WithPreloadNilCondition verifies that nil preload conditions on read
+// builders are ignored instead of panicking.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadNilCondition() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
+		WithArgs(int64(1), "published").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, 1, "First Post", "published"))
+
+	result, err := s.authorRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
+		qb.Preload("Posts", nil, sqlr.Condition("status = ?", "published"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	assertAuthor(&s.Suite, *result, expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Title: ptr("First Post"), Status: ptr("published")},
+		},
+	})
+}
+
 // TestRead_WithNestedPreload verifies that a dot-notation path ("Posts.Comments")
 // triggers a cascading set of preload queries that populate multiple levels of
 // the entity graph.

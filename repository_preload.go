@@ -123,6 +123,10 @@ func preloadDepth(relation string) int {
 // with all non-empty conditions applied via .Where() calls.
 func applyPreloadConditions(qb *sqlc.SelectQueryBuilder, where []*sqlc.SqlerWhere) (*sqlc.SelectQueryBuilder, error) {
 	for _, w := range where {
+		if w == nil {
+			continue
+		}
+
 		if w.IsEmpty() {
 			continue
 		}
