@@ -261,6 +261,15 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAssociation_SkipsO
 	s.Equal(int64(0), entity.Posts[0].AuthorID)
 }
 
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_NilEntity_WithAssociationOptionsReturnsError() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+
+	err := repo.Create(context.Background(), nil, syncCreatePosts)
+
+	s.Require().Error(err)
+	s.Require().ErrorIs(err, sqlr.ErrNilEntity)
+}
+
 // --------------------------------------------------------------------------
 // HasMany: author with posts
 // --------------------------------------------------------------------------
@@ -1102,4 +1111,14 @@ func (s *RepositoryTxAssociationTestSuite) TestCreate_EmptyRelationSlice_NoAssoc
 		return txRepo.Create(ttx, &entity)
 	})
 	s.Require().NoError(err)
+}
+
+func (s *RepositoryTxAssociationTestSuite) TestCreate_NilEntity_WithAssociationOptionsReturnsError() {
+	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, assocAuthor](s.client, sqlr.DefaultSettings())
+	s.Require().NoError(err)
+
+	err = txRepo.Create(sqlr.TTx{}, nil, syncCreatePosts)
+
+	s.Require().Error(err)
+	s.Require().ErrorIs(err, sqlr.ErrNilEntity)
 }

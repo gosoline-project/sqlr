@@ -60,6 +60,10 @@ type repositoryTx[K KeyTypes, E Entitier[K]] struct {
 }
 
 func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBuilderCreate)) error {
+	if _, err := requireEntityValue(entity); err != nil {
+		return err
+	}
+
 	qb := applyOptions(NewQueryBuilderCreate(), opts)
 
 	policy, err := newCreateAssociationSyncPolicy(t.schema, qb)
@@ -87,6 +91,10 @@ func (t *repositoryTx[K, E]) Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)
 }
 
 func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error) {
+	if _, err := requireEntityValue(entity); err != nil {
+		return nil, err
+	}
+
 	qb := applyOptions(NewQueryBuilderUpdate(), opts)
 
 	policy, err := newUpdateAssociationSyncPolicy(t.schema, qb)

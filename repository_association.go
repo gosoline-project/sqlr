@@ -19,7 +19,10 @@ func (r *repositoryCommon[K, E]) hasAssociationsToSave(entity *E, policy *associ
 		return false
 	}
 
-	rv := reflect.ValueOf(entity).Elem()
+	rv, err := requireEntityValue(entity)
+	if err != nil {
+		return false
+	}
 
 	for _, rel := range r.schema.Relationships {
 		relationPath := rel.Name
@@ -55,7 +58,10 @@ func relationHasValues(field reflect.Value) bool {
 // function handles HasOne, HasMany, and ManyToMany phases by delegating to the
 // schema-based createRelatedForwardAssociations helper.
 func (r *repositoryCommon[K, E]) saveAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy) error {
-	rv := reflect.ValueOf(entity).Elem()
+	rv, err := requireEntityValue(entity)
+	if err != nil {
+		return err
+	}
 
 	return createRelatedForwardAssociations(q, ctx, r.schema, rv, policy, "")
 }
@@ -64,7 +70,10 @@ func (r *repositoryCommon[K, E]) saveAssociations(q sqlc.Querier, ctx context.Co
 // primary key, then sets the corresponding FK column on the parent entity. This must be
 // called BEFORE the parent entity is inserted so that the FK value is populated in time.
 func (r *repositoryCommon[K, E]) saveBelongsToAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy) error {
-	rv := reflect.ValueOf(entity).Elem()
+	rv, err := requireEntityValue(entity)
+	if err != nil {
+		return err
+	}
 
 	return createRelatedBelongsTo(q, ctx, r.schema, rv, policy, "")
 }

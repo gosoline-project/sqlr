@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/gosoline-project/sqlc"
@@ -15,6 +14,10 @@ import (
 // ErrNotFound indicates that the requested entity does not exist.
 // Use errors.Is(err, ErrNotFound) to check for this condition.
 var ErrNotFound = errors.New("entity not found")
+
+// ErrNilEntity indicates that a repository method received a nil entity pointer.
+// Use errors.Is(err, ErrNilEntity) to check for this condition.
+var ErrNilEntity = errors.New("entity must not be nil")
 
 // newRepositoryCommon creates a new repositoryCommon by parsing the schema for entity
 // type E using reflection. The schema is used at query time to generate SQL and
@@ -84,8 +87,12 @@ func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ct
 // Relationship fields are not persisted; use createEntityWithAssociations to also
 // persist populated association fields.
 func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E) error {
+	rv, err := requireEntityValue(entity)
+	if err != nil {
+		return err
+	}
+
 	now := time.Now()
-	rv := reflect.ValueOf(entity).Elem()
 
 	insertCols := r.schema.InsertColumns()
 	if err := setCreateTimestamps(rv, r.schema, now); err != nil {
@@ -204,12 +211,16 @@ func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.
 // a column-value map from the entity using reflection and executes an UPDATE via sqlc.
 // Relationship fields are not synchronized; Update is intentionally not cascade-aware.
 func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E) (*E, error) {
+	rv, err := requireEntityValue(entity)
+	if err != nil {
+		return nil, err
+	}
+
 	if r.schema.PrimaryKey == nil {
 		return nil, fmt.Errorf("primary key not defined for %s", r.schema.TableName)
 	}
 
 	now := time.Now()
-	rv := reflect.ValueOf(entity).Elem()
 
 	if err := setUpdateTimestamps(rv, r.schema, now); err != nil {
 		return nil, fmt.Errorf("failed to set update timestamps: %w", err)
@@ -240,8 +251,12 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 // foreign keys are current before the root row is updated. HasOne, HasMany, and
 // ManyToMany relations are synchronized afterwards.
 func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy) (*E, error) {
+	rv, err := requireEntityValue(entity)
+	if err != nil {
+		return nil, err
+	}
+
 	state := newAssociationSyncState()
-	rv := reflect.ValueOf(entity).Elem()
 
 	if err := syncExistingEntityGraph(r.statementCache, q, ctx, r.schema, rv, state, policy); err != nil {
 		return nil, err

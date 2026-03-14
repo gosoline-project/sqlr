@@ -74,6 +74,16 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_Default_DoesNotSynchro
 	s.Equal(int64(0), result.Posts[0].GetId())
 }
 
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_NilEntity_WithAssociationOptionsReturnsError() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+
+	result, err := repo.Update(context.Background(), nil, syncAllAssociations)
+
+	s.Require().Error(err)
+	s.Require().ErrorIs(err, sqlr.ErrNilEntity)
+	s.Nil(result)
+}
+
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_NilSlice_UntouchedNoTransaction() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()

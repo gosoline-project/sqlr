@@ -104,6 +104,14 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_Error() {
 	s.Contains(err.Error(), "failed to update entity")
 }
 
+func (s *RepositoryUpdateTestSuite) TestUpdate_NilEntityReturnsError() {
+	result, err := s.repo.Update(context.Background(), nil)
+
+	s.Require().Error(err)
+	s.Require().ErrorIs(err, sqlr.ErrNilEntity)
+	s.Nil(result)
+}
+
 func (s *RepositoryUpdateTestSuite) TestUpdate_NotFound() {
 	now := time.Now()
 

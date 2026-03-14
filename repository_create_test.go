@@ -159,6 +159,13 @@ func (s *RepositoryCreateTestSuite) TestCreate_Error() {
 	s.Contains(err.Error(), "failed to create entity")
 }
 
+func (s *RepositoryCreateTestSuite) TestCreate_NilEntityReturnsError() {
+	err := s.repo.Create(context.Background(), nil)
+
+	s.Require().Error(err)
+	s.Require().ErrorIs(err, sqlr.ErrNilEntity)
+}
+
 func (s *RepositoryCreateTestSuite) TestCreate_LastInsertIDError() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)")).

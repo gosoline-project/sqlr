@@ -21,6 +21,15 @@ func unwrapEntityValue(entityValue reflect.Value) reflect.Value {
 	return entityValue
 }
 
+func requireEntityValue[E any](entity *E) (reflect.Value, error) {
+	entityValue := unwrapEntityValue(reflect.ValueOf(entity))
+	if !entityValue.IsValid() {
+		return reflect.Value{}, ErrNilEntity
+	}
+
+	return entityValue, nil
+}
+
 func associationSyncKey(schema *EntitySchema, entityValue reflect.Value) (string, bool) {
 	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
 	if !pkField.IsZero() {
