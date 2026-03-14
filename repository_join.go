@@ -303,12 +303,6 @@ func addJoinToBuilder(
 	case sqlc.JoinInner:
 
 		return sqlcQB.Join(tableName).As(alias).On(onCondition, params...), nil
-	case sqlc.JoinRight:
-
-		return sqlcQB.RightJoin(tableName).As(alias).On(onCondition, params...), nil
-	case sqlc.JoinCross:
-
-		return sqlcQB.Join(tableName).As(alias).On(onCondition, params...), nil
 	default:
 
 		return nil, fmt.Errorf("unsupported join type: %s", joinType)

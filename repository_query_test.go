@@ -413,34 +413,6 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoin() {
 	})
 }
 
-// TestQuery_RightJoin verifies that RightJoin generates a RIGHT JOIN clause and
-// maps the joined columns correctly.
-func (s *RepositoryQueryTestSuite) TestQuery_RightJoin() {
-	now := time.Now()
-
-	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
-			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
-			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
-			" FROM `test_authors` RIGHT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
-			" AND `test_posts`.`status` = ?")).
-		WithArgs("draft").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
-			AddRow(1, now, now, "Bob", 20, now, now, int64(1), "Draft Post", "draft"))
-
-	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
-		qb.RightJoin("Posts", sqlr.Condition("test_posts.status = ?", "draft"))
-	})
-
-	s.Require().NoError(err)
-	s.Require().Len(results, 1)
-	s.Equal("Bob", results[0].Name)
-	s.Require().Len(results[0].Posts, 1)
-	s.Equal(int64(20), results[0].Posts[0].Id)
-	s.Equal("Draft Post", results[0].Posts[0].Title)
-	s.Equal("draft", results[0].Posts[0].Status)
-}
-
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_DuplicateRelationReturnsError() {
 	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts").LeftJoin("Posts")
@@ -473,41 +445,6 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_PointerPrimaryKeyDeduplica
 	s.Require().NotNil(results[0].Id)
 	s.Equal(int64(1), *results[0].Id)
 	s.Len(results[0].Profiles, 2)
-}
-
-// TestQuery_CrossJoin verifies the current CrossJoin behavior: it reuses the
-// relation-aware JOIN implementation and therefore emits an inner JOIN with the
-// relation key predicate instead of a Cartesian product.
-func (s *RepositoryQueryTestSuite) TestQuery_CrossJoin() {
-	now := time.Now()
-
-	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
-			"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
-			"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`" +
-			" FROM `test_authors` JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
-			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "Post A", "published").
-			AddRow(2, now, now, "Bob", 20, now, now, int64(2), "Post B", "draft"))
-
-	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
-		qb.CrossJoin("Posts")
-	})
-
-	s.Require().NoError(err)
-	s.Require().Len(results, 2)
-	assertAuthor(&s.Suite, results[0], expectedAuthor{
-		Name: ptr("Alice"),
-		Posts: []expectedPost{
-			{Id: ptr(int64(10)), Title: ptr("Post A")},
-		},
-	})
-	assertAuthor(&s.Suite, results[1], expectedAuthor{
-		Name: ptr("Bob"),
-		Posts: []expectedPost{
-			{Id: ptr(int64(20)), Title: ptr("Post B")},
-		},
-	})
 }
 
 // TestQuery_JoinWithWhere verifies that a WHERE clause on the parent query is
@@ -898,49 +835,6 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoinBelongsTo() {
 	s.Require().Len(results, 1)
 	s.Equal(int64(10), results[0].GetId())
 	s.Equal(int64(1), results[0].Author.GetId())
-}
-
-// TestQuery_RightJoinBelongsTo verifies that RightJoin works correctly for a
-// BelongsTo relation, generating a RIGHT JOIN clause.
-func (s *RepositoryQueryTestSuite) TestQuery_RightJoinBelongsTo() {
-	now := time.Now()
-
-	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
-			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
-			" FROM `test_posts` RIGHT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
-			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
-
-	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
-		qb.RightJoin("Author")
-	})
-
-	s.Require().NoError(err)
-	s.Require().Len(results, 1)
-	s.Equal("Alice", results[0].Author.Name)
-}
-
-// TestQuery_CrossJoinBelongsTo verifies the current CrossJoin behavior for a
-// BelongsTo relation, which also uses an inner JOIN with the relation key
-// predicate.
-func (s *RepositoryQueryTestSuite) TestQuery_CrossJoinBelongsTo() {
-	now := time.Now()
-
-	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
-			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
-			" FROM `test_posts` JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
-			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
-
-	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
-		qb.CrossJoin("Author")
-	})
-
-	s.Require().NoError(err)
-	s.Require().Len(results, 1)
-	s.Equal("Alice", results[0].Author.Name)
 }
 
 // TestQuery_LeftJoinBelongsToPointer verifies that join hydration populates a

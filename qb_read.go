@@ -54,28 +54,6 @@ func (r *QueryBuilderRead) InnerJoin(relation string, conditions ...*sqlc.SqlerW
 	return r.addJoin(sqlc.JoinInner, relation, conditions)
 }
 
-// RightJoin adds a RIGHT JOIN on the named relation. All rows from the joined
-// relation are included, with NULL values for the primary entity's columns when
-// no match exists. Optional conditions further restrict the join. See LeftJoin
-// for supported relation types.
-//
-// Returns the same QueryBuilderRead instance for method chaining.
-func (r *QueryBuilderRead) RightJoin(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderRead {
-	return r.addJoin(sqlc.JoinRight, relation, conditions)
-}
-
-// CrossJoin adds a conditionless relation join on the named relation.
-//
-// Deprecated: CrossJoin does not produce a SQL Cartesian product. Repository
-// joins are relation-aware, so this method behaves like InnerJoin(relation)
-// using the relation key predicate. It is retained for compatibility; prefer
-// InnerJoin for new code. See LeftJoin for supported relation types.
-//
-// Returns the same QueryBuilderRead instance for method chaining.
-func (r *QueryBuilderRead) CrossJoin(relation string) *QueryBuilderRead {
-	return r.addJoin(sqlc.JoinInner, relation, nil)
-}
-
 // addJoin appends a join entry and returns the builder for chaining.
 func (r *QueryBuilderRead) addJoin(joinType sqlc.JoinType, relation string, conditions []*sqlc.SqlerWhere) *QueryBuilderRead {
 	appendJoin(&r.joins, joinType, relation, conditions)

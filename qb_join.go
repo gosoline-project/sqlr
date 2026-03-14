@@ -12,8 +12,8 @@ func Condition(condition any, params ...any) *sqlc.SqlerWhere {
 }
 
 // joinEntry holds the configuration for a single JOIN clause, including the
-// join type (LEFT, INNER, RIGHT, CROSS), the target relation name, and any
-// additional WHERE conditions to apply within the join.
+// join type, the target relation name, and any additional WHERE conditions to
+// apply within the join.
 type joinEntry struct {
 	joinType sqlc.JoinType
 	relation string
@@ -48,23 +48,4 @@ func (s *QueryBuilderSelect) LeftJoin(relation string, conditions ...*sqlc.Sqler
 // types and limitations.
 func (s *QueryBuilderSelect) InnerJoin(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
 	return s.addJoin(sqlc.JoinInner, relation, conditions)
-}
-
-// RightJoin adds a RIGHT JOIN on the named relation to the query. All rows from
-// the joined relation are included, with NULL values for the primary entity's
-// columns when no match exists. Optional conditions further restrict the join.
-// See LeftJoin for supported relation types and limitations.
-func (s *QueryBuilderSelect) RightJoin(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
-	return s.addJoin(sqlc.JoinRight, relation, conditions)
-}
-
-// CrossJoin adds a conditionless relation join on the named relation.
-//
-// Deprecated: CrossJoin does not produce a SQL Cartesian product. Repository
-// joins are relation-aware, so this method behaves like InnerJoin(relation)
-// using the relation key predicate. It is retained for compatibility; prefer
-// InnerJoin for new code. See LeftJoin for supported relation types and
-// limitations.
-func (s *QueryBuilderSelect) CrossJoin(relation string) *QueryBuilderSelect {
-	return s.addJoin(sqlc.JoinInner, relation, nil)
 }

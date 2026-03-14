@@ -83,26 +83,6 @@ func TestQueryBuilderRead_InnerJoin(t *testing.T) {
 	assert.Equal(t, "Posts", qbr.joins[0].relation)
 }
 
-func TestQueryBuilderRead_RightJoin(t *testing.T) {
-	qbr := NewQueryBuilderRead()
-	qbr.RightJoin("Posts")
-
-	require.Len(t, qbr.joins, 1)
-	assert.Equal(t, sqlc.JoinRight, qbr.joins[0].joinType)
-	assert.Equal(t, "Posts", qbr.joins[0].relation)
-}
-
-func TestQueryBuilderRead_CrossJoin(t *testing.T) {
-	qbr := NewQueryBuilderRead()
-	result := qbr.CrossJoin("Posts")
-
-	assert.Same(t, qbr, result)
-	require.Len(t, qbr.joins, 1)
-	assert.Equal(t, sqlc.JoinInner, qbr.joins[0].joinType)
-	assert.Equal(t, "Posts", qbr.joins[0].relation)
-	assert.Nil(t, qbr.joins[0].where)
-}
-
 func TestQueryBuilderRead_Chaining(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	result := qbr.LeftJoin("Posts").Preload("Comments").InnerJoin("Profile")
