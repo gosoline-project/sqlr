@@ -119,19 +119,20 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 		return fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	key, err := castIntKey[K](lastID)
-	if err != nil {
+	if setter, ok := any(entity).(setIdAware[K]); ok {
+		key, err := castIntKey[K](lastID)
+		if err != nil {
+			return fmt.Errorf("failed to set primary key: %w", err)
+		}
+
+		setter.SetId(key)
+
+		return nil
+	}
+
+	if err := setEntityPrimaryKey(r.schema, rv, lastID); err != nil {
 		return fmt.Errorf("failed to set primary key: %w", err)
 	}
-
-	// Use type assertion to call SetId - all entities embedding Entity[K] will have this method
-	// on their pointer type, even though it's not in the Entitier interface.
-	setter, ok := any(entity).(setIdAware[K])
-	if !ok {
-		return fmt.Errorf("entity type %T does not have SetId method", entity)
-	}
-
-	setter.SetId(key)
 
 	return nil
 }

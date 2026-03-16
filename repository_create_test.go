@@ -16,15 +16,18 @@ import (
 // RepositoryCreateTestSuite tests the Repository Create operations using sqlmock.
 type RepositoryCreateTestSuite struct {
 	suite.Suite
-	client             sqlc.Client
-	mock               sqlmock.Sqlmock
-	repo               sqlr.Repository[int64, testUser]
-	stringKeyRepo      sqlr.Repository[string, testStringKeyUser]
-	boolKeyRepo        sqlr.Repository[bool, testBoolKeyUser]
-	floatKeyRepo       sqlr.Repository[float64, testFloatKeyUser]
-	pointerKeyRepo     sqlr.Repository[*int64, testPointerKeyUser]
-	pointerTimeRepo    sqlr.Repository[int64, testPointerTimestampUser]
-	nullableAuthorRepo sqlr.Repository[int64, testPostWithPointerAuthorID]
+	client              sqlc.Client
+	mock                sqlmock.Sqlmock
+	repo                sqlr.Repository[int64, testUser]
+	customPkRepo        sqlr.Repository[int64, testNoSetterCustomPkUser]
+	noSetterRepo        sqlr.Repository[int64, testNoSetterUser]
+	noSetterPointerRepo sqlr.Repository[*int64, testNoSetterPointerKeyUser]
+	stringKeyRepo       sqlr.Repository[string, testStringKeyUser]
+	boolKeyRepo         sqlr.Repository[bool, testBoolKeyUser]
+	floatKeyRepo        sqlr.Repository[float64, testFloatKeyUser]
+	pointerKeyRepo      sqlr.Repository[*int64, testPointerKeyUser]
+	pointerTimeRepo     sqlr.Repository[int64, testPointerTimestampUser]
+	nullableAuthorRepo  sqlr.Repository[int64, testPostWithPointerAuthorID]
 }
 
 func TestRepositoryCreateTestSuite(t *testing.T) {
@@ -37,6 +40,9 @@ func (s *RepositoryCreateTestSuite) SetupTest() {
 	s.mock = mock
 
 	s.repo = mustNewRepo[int64, testUser](s.T(), s.client)
+	s.customPkRepo = mustNewRepo[int64, testNoSetterCustomPkUser](s.T(), s.client)
+	s.noSetterRepo = mustNewRepo[int64, testNoSetterUser](s.T(), s.client)
+	s.noSetterPointerRepo = mustNewRepo[*int64, testNoSetterPointerKeyUser](s.T(), s.client)
 	s.stringKeyRepo = mustNewRepo[string, testStringKeyUser](s.T(), s.client)
 	s.boolKeyRepo = mustNewRepo[bool, testBoolKeyUser](s.T(), s.client)
 	s.floatKeyRepo = mustNewRepo[float64, testFloatKeyUser](s.T(), s.client)
@@ -90,6 +96,33 @@ func (s *RepositoryCreateTestSuite) TestCreate_PointerPrimaryKey_AutoIncrementSe
 	s.Equal(int64(42), *entity.GetId())
 }
 
+func (s *RepositoryCreateTestSuite) TestCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId() {
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_no_setter_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(24, 1))
+
+	entity := testNoSetterUser{Name: "Alice"}
+	err := s.noSetterRepo.Create(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Equal(int64(24), entity.GetId())
+}
+
+func (s *RepositoryCreateTestSuite) TestCreate_PointerAutoIncrementPrimaryKey_UsesReflectionWithoutSetId() {
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_no_setter_pointer_key_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(43, 1))
+
+	entity := testNoSetterPointerKeyUser{Name: "Alice"}
+	err := s.noSetterPointerRepo.Create(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(entity.GetId())
+	s.Equal(int64(43), *entity.GetId())
+}
+
 func (s *RepositoryCreateTestSuite) TestCreate_PointerTimestamps_AreSet() {
 	insertSQL := regexp.QuoteMeta("INSERT INTO `test_pointer_timestamp_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")
 
@@ -106,6 +139,19 @@ func (s *RepositoryCreateTestSuite) TestCreate_PointerTimestamps_AreSet() {
 	s.Require().NotNil(entity.UpdatedAt)
 	s.False(entity.CreatedAt.IsZero())
 	s.False(entity.UpdatedAt.IsZero())
+}
+
+func (s *RepositoryCreateTestSuite) TestCreate_CustomPrimaryKeyColumn_UsesReflectionWithoutSetId() {
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_no_setter_custom_pk_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(17, 1))
+
+	entity := testNoSetterCustomPkUser{Name: "Alice"}
+	err := s.customPkRepo.Create(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Equal(int64(17), entity.GetId())
 }
 
 func (s *RepositoryCreateTestSuite) TestCreate_BelongsTo_SetsNullableForeignKey() {

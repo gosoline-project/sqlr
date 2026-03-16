@@ -65,6 +65,44 @@ type testCustomPkUser struct {
 	Name      string    `db:"name"`
 }
 
+type testNoSetterUser struct {
+	Id        int64     `db:"id,primaryKey"`
+	CreatedAt time.Time `db:"created_at,autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Name      string    `db:"name"`
+}
+
+func (u testNoSetterUser) GetId() int64 {
+	return u.Id
+}
+
+func (u testNoSetterUser) GetUpdatedAt() time.Time {
+	return u.UpdatedAt
+}
+
+func (u testNoSetterUser) GetCreatedAt() time.Time {
+	return u.CreatedAt
+}
+
+type testNoSetterCustomPkUser struct {
+	Id        int64     `db:"user_id,primaryKey"`
+	CreatedAt time.Time `db:"created_at,autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Name      string    `db:"name"`
+}
+
+func (u testNoSetterCustomPkUser) GetId() int64 {
+	return u.Id
+}
+
+func (u testNoSetterCustomPkUser) GetUpdatedAt() time.Time {
+	return u.UpdatedAt
+}
+
+func (u testNoSetterCustomPkUser) GetCreatedAt() time.Time {
+	return u.CreatedAt
+}
+
 func (u *testCustomPkUser) SetId(id int64) {
 	u.Id = id
 }
@@ -147,6 +185,25 @@ type testPointerKeyUser struct {
 	CreatedAt time.Time `db:"created_at,autoCreateTime"`
 	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
 	Name      string    `db:"name"`
+}
+
+type testNoSetterPointerKeyUser struct {
+	Id        *int64    `db:"id,primaryKey"`
+	CreatedAt time.Time `db:"created_at,autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Name      string    `db:"name"`
+}
+
+func (u testNoSetterPointerKeyUser) GetId() *int64 {
+	return u.Id
+}
+
+func (u testNoSetterPointerKeyUser) GetUpdatedAt() time.Time {
+	return u.UpdatedAt
+}
+
+func (u testNoSetterPointerKeyUser) GetCreatedAt() time.Time {
+	return u.CreatedAt
 }
 
 func (u *testPointerKeyUser) SetId(id *int64) {
