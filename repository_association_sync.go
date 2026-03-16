@@ -145,7 +145,17 @@ func syncForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.
 	return nil
 }
 
-func syncForwardAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, parentPath string) error {
+func syncForwardAssociation(
+	cache *statementCache,
+	q sqlc.Querier,
+	ctx context.Context,
+	schema *EntitySchema,
+	entityValue reflect.Value,
+	rel *Relationship,
+	state *associationSyncState,
+	policy *associationSyncPolicy,
+	parentPath string,
+) error {
 	relationPath := joinAssociationPath(parentPath, rel.Name)
 	if policy != nil && !policy.shouldSyncPath(relationPath) {
 		return nil
@@ -179,7 +189,17 @@ func syncForwardAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 	}
 }
 
-func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, relationPath string) error {
+func syncHasOneAssociation(
+	cache *statementCache,
+	q sqlc.Querier,
+	ctx context.Context,
+	parentSchema *EntitySchema,
+	parentValue reflect.Value,
+	rel *Relationship,
+	state *associationSyncState,
+	policy *associationSyncPolicy,
+	relationPath string,
+) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
@@ -230,7 +250,17 @@ func syncHasOneAssociation(cache *statementCache, q sqlc.Querier, ctx context.Co
 	return nil
 }
 
-func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, relationPath string) error {
+func syncHasManyAssociation(
+	cache *statementCache,
+	q sqlc.Querier,
+	ctx context.Context,
+	parentSchema *EntitySchema,
+	parentValue reflect.Value,
+	rel *Relationship,
+	state *associationSyncState,
+	policy *associationSyncPolicy,
+	relationPath string,
+) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
@@ -286,7 +316,17 @@ func syncHasManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 	return nil
 }
 
-func syncManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, state *associationSyncState, policy *associationSyncPolicy, relationPath string) error {
+func syncManyToManyAssociation(
+	cache *statementCache,
+	q sqlc.Querier,
+	ctx context.Context,
+	parentSchema *EntitySchema,
+	parentValue reflect.Value,
+	rel *Relationship,
+	state *associationSyncState,
+	policy *associationSyncPolicy,
+	relationPath string,
+) error {
 	nestedSchema, err := rel.resolveRelationSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
