@@ -111,6 +111,12 @@ type EntitySchema struct {
 	autoPreloads     []preloadEntry
 }
 
+type schemaParseOptions struct {
+	parseFieldsErrorFormat       string
+	cacheDerivedValues           bool
+	missingPrimaryKeyErrorFormat string
+}
+
 // InsertColumns returns the column names for INSERT statements, excluding the
 // primary key only when it is marked as auto-increment.
 func (s *EntitySchema) InsertColumns() []string {
@@ -217,41 +223,123 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 //     pointer scalars, zero struct for value scalars, and empty or nil slices
 //     for collection relations when no related rows are assigned.
 func ParseSchema[E any]() (*EntitySchema, error) {
+	var t reflect.Type
 	var zero E
-	t := reflect.TypeOf(zero)
+
+	t = reflect.TypeOf(zero)
+	if t == nil {
+		t = reflect.TypeOf((*E)(nil)).Elem()
+	}
+
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	return ParseSchemaType(t)
+}
+
+// ParseSchemaType parses the provided entity type using reflection to build an
+// EntitySchema. Nil types are rejected, pointer chains are unwrapped to their
+// element struct type, and unnamed struct types are rejected because sqlr cannot
+// derive a stable table name for them.
+func ParseSchemaType(t reflect.Type) (*EntitySchema, error) {
+	return parseSchemaType(t, defaultSchemaParseOptions())
+}
+
+func defaultSchemaParseOptions() schemaParseOptions {
+	return schemaParseOptions{
+		parseFieldsErrorFormat:       "failed to parse schema for %s: %w",
+		cacheDerivedValues:           true,
+		missingPrimaryKeyErrorFormat: "entity type %s has no primary key (tag with db:\"...,primaryKey\")",
+	}
+}
+
+func relatedSchemaParseOptions() schemaParseOptions {
+	return schemaParseOptions{
+		parseFieldsErrorFormat:       "failed to parse related schema for %s: %w",
+		cacheDerivedValues:           true,
+		missingPrimaryKeyErrorFormat: "related entity type %s has no primary key",
+	}
+}
+
+func autoPreloadSchemaParseOptions() schemaParseOptions {
+	return schemaParseOptions{
+		parseFieldsErrorFormat:       "failed to parse related schema for %s: %w",
+		cacheDerivedValues:           false,
+		missingPrimaryKeyErrorFormat: "related entity type %s has no primary key",
+	}
+}
+
+func parseSchemaType(t reflect.Type, options schemaParseOptions) (*EntitySchema, error) {
+	var err error
+
+	if t, err = normalizeSchemaType(t); err != nil {
+		return nil, err
+	}
+
+	typeName := t.Name()
+	schema := &EntitySchema{
+		TableName:     tableNameForType(t),
+		Relationships: make(map[string]*Relationship),
+		entityType:    t,
+	}
+
+	if err = parseFields(t, nil, schema); err != nil {
+		return nil, fmt.Errorf(options.parseFieldsErrorFormat, typeName, err)
+	}
+	if err = validateSchemaColumns(schema); err != nil {
+		return nil, fmt.Errorf("failed to validate columns for %s: %w", typeName, err)
+	}
+
+	setPrimaryKeyFromColumns(schema)
+
+	if options.cacheDerivedValues {
+		if err = cacheSchemaDerivedValues(schema); err != nil {
+			return nil, fmt.Errorf("failed to collect auto-preloads for %s: %w", typeName, err)
+		}
+	}
+
+	if err = validateRelationships(schema); err != nil {
+		return nil, fmt.Errorf("failed to validate relationships for %s: %w", typeName, err)
+	}
+
+	if schema.PrimaryKey == nil {
+		return nil, fmt.Errorf(options.missingPrimaryKeyErrorFormat, typeName)
+	}
+
+	return schema, nil
+}
+
+func normalizeSchemaType(t reflect.Type) (reflect.Type, error) {
+	if t == nil {
+		return nil, fmt.Errorf("entity type is nil")
+	}
+
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 
 	if t.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("entity type %s is not a struct", t.Name())
+		return nil, fmt.Errorf("entity type %s is not a struct", schemaTypeName(t))
 	}
 
-	schema := &EntitySchema{
-		TableName:     tableNameFor[E](),
-		Relationships: make(map[string]*Relationship),
-		entityType:    t,
+	if t.Name() == "" {
+		return nil, fmt.Errorf("entity type %s is unnamed", schemaTypeName(t))
 	}
 
-	if err := parseFields(t, nil, schema); err != nil {
-		return nil, fmt.Errorf("failed to parse schema for %s: %w", t.Name(), err)
-	}
-	if err := validateSchemaColumns(schema); err != nil {
-		return nil, fmt.Errorf("failed to validate columns for %s: %w", t.Name(), err)
-	}
-	setPrimaryKeyFromColumns(schema)
-	if err := cacheSchemaDerivedValues(schema); err != nil {
-		return nil, fmt.Errorf("failed to collect auto-preloads for %s: %w", t.Name(), err)
-	}
-	if err := validateRelationships(schema); err != nil {
-		return nil, fmt.Errorf("failed to validate relationships for %s: %w", t.Name(), err)
+	return t, nil
+}
+
+func schemaTypeName(t reflect.Type) string {
+	if t == nil {
+		return "<nil>"
 	}
 
-	if schema.PrimaryKey == nil {
-		return nil, fmt.Errorf("entity type %s has no primary key (tag with db:\"...,primaryKey\")", t.Name())
+	if t.Name() != "" {
+		return t.Name()
 	}
 
-	return schema, nil
+	return t.String()
 }
 
 // parseFields recursively walks struct fields (including embedded structs) to
@@ -562,21 +650,7 @@ func collectAutoPreloadsRecursive(schema *EntitySchema, prefix string, visitedTy
 }
 
 func parseRelatedSchemaForAutoPreload(relatedType reflect.Type) (*EntitySchema, error) {
-	var err error
-
-	relatedSchema := &EntitySchema{
-		TableName:     tableNameForType(relatedType),
-		Relationships: make(map[string]*Relationship),
-		entityType:    relatedType,
-	}
-	if err = parseFields(relatedType, nil, relatedSchema); err != nil {
-		return nil, fmt.Errorf("failed to parse related schema for %s: %w", relatedType.Name(), err)
-	}
-	if err = validateSchemaColumns(relatedSchema); err != nil {
-		return nil, fmt.Errorf("failed to validate columns for %s: %w", relatedType.Name(), err)
-	}
-
-	return relatedSchema, nil
+	return parseSchemaType(relatedType, autoPreloadSchemaParseOptions())
 }
 
 // isPublicField returns true if the struct field is exported (accessible from
@@ -823,44 +897,7 @@ func validateRelationshipType(rel *Relationship, isSlice bool) error {
 // when the related type cannot be parsed into a valid entity schema.
 func (r *Relationship) ResolveRelatedSchema() (*EntitySchema, error) {
 	r.resolveOnce.Do(func() {
-		t := r.RelatedType
-
-		schema := &EntitySchema{
-			TableName:     tableNameForType(t),
-			Relationships: make(map[string]*Relationship),
-			entityType:    t,
-		}
-
-		if err := parseFields(t, nil, schema); err != nil {
-			r.resolveErr = fmt.Errorf("failed to parse related schema for %s: %w", t.Name(), err)
-
-			return
-		}
-		if err := validateSchemaColumns(schema); err != nil {
-			r.resolveErr = fmt.Errorf("failed to validate columns for %s: %w", t.Name(), err)
-
-			return
-		}
-		setPrimaryKeyFromColumns(schema)
-		if err := cacheSchemaDerivedValues(schema); err != nil {
-			r.resolveErr = fmt.Errorf("failed to collect auto-preloads for %s: %w", t.Name(), err)
-
-			return
-		}
-
-		if err := validateRelationships(schema); err != nil {
-			r.resolveErr = fmt.Errorf("failed to validate relationships for %s: %w", t.Name(), err)
-
-			return
-		}
-
-		if schema.PrimaryKey == nil {
-			r.resolveErr = fmt.Errorf("related entity type %s has no primary key", t.Name())
-
-			return
-		}
-
-		r.RelatedSchema = schema
+		r.RelatedSchema, r.resolveErr = parseSchemaType(r.RelatedType, relatedSchemaParseOptions())
 	})
 	if r.resolveErr != nil {
 		return nil, r.resolveErr

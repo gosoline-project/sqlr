@@ -105,6 +105,16 @@ type schemaPointerIntPK struct {
 	Name string `db:"name"`
 }
 
+type schemaAutoPreloadChildNoPrimaryKey struct {
+	ParentID int64  `db:"parent_id"`
+	Body     string `db:"body"`
+}
+
+type schemaAutoPreloadParentWithInvalidChild struct {
+	ID       int64                                `db:"id,primaryKey"`
+	Children []schemaAutoPreloadChildNoPrimaryKey `db:"-,foreignKey:parent_id,preload"`
+}
+
 // TestParseSchema_PrimaryKeyPointsToColumnsEntry verifies that schema.PrimaryKey
 // is the same pointer as the matching entry in schema.Columns, both for an
 // embedded primary key and for a directly declared primary key field.
@@ -143,6 +153,53 @@ func TestParseSchema_PointerToStruct_UnwrapsSuccessfully(t *testing.T) {
 	assert.Equal(t, []string{"id", "name"}, schema.AllColumns())
 }
 
+// TestParseSchemaType_StructType verifies that ParseSchemaType accepts a named
+// struct type and produces the same schema shape as the generic parser.
+func TestParseSchemaType_StructType(t *testing.T) {
+	expected, err := ParseSchema[schemaPrimaryKeyEntityWithEmbedded]()
+	require.NoError(t, err)
+
+	actual, err := ParseSchemaType(reflect.TypeOf(schemaPrimaryKeyEntityWithEmbedded{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, expected.TableName, actual.TableName)
+	assert.Equal(t, expected.Columns, actual.Columns)
+	assert.Equal(t, expected.AllColumns(), actual.AllColumns())
+	assert.Equal(t, expected.InsertColumns(), actual.InsertColumns())
+	require.NotNil(t, actual.PrimaryKey)
+	assert.Equal(t, expected.PrimaryKey.Name, actual.PrimaryKey.Name)
+}
+
+// TestParseSchemaType_PointerToStruct verifies that ParseSchemaType unwraps a
+// single pointer-to-struct input before parsing.
+func TestParseSchemaType_PointerToStruct(t *testing.T) {
+	expected, err := ParseSchema[schemaPrimaryKeyEntityWithEmbedded]()
+	require.NoError(t, err)
+
+	actual, err := ParseSchemaType(reflect.TypeOf(&schemaPrimaryKeyEntityWithEmbedded{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, expected.TableName, actual.TableName)
+	assert.Equal(t, expected.Columns, actual.Columns)
+	require.NotNil(t, actual.PrimaryKey)
+	assert.Equal(t, expected.PrimaryKey.Name, actual.PrimaryKey.Name)
+}
+
+// TestParseSchemaType_PointerChain verifies that ParseSchemaType unwraps pointer
+// chains until it reaches the underlying struct type.
+func TestParseSchemaType_PointerChain(t *testing.T) {
+	expected, err := ParseSchema[schemaPrimaryKeyEntityWithEmbedded]()
+	require.NoError(t, err)
+
+	actual, err := ParseSchemaType(reflect.TypeOf((***schemaPrimaryKeyEntityWithEmbedded)(nil)))
+	require.NoError(t, err)
+
+	assert.Equal(t, expected.TableName, actual.TableName)
+	assert.Equal(t, expected.Columns, actual.Columns)
+	require.NotNil(t, actual.PrimaryKey)
+	assert.Equal(t, expected.PrimaryKey.Name, actual.PrimaryKey.Name)
+}
+
 // TestParseSchema_StringPK_IncludedInInsertColumns verifies that a non-integer
 // primary key is not treated as auto-increment and is therefore included in the
 // insert column list.
@@ -172,6 +229,65 @@ func TestParseSchema_NoPrimaryKey_ReturnsError(t *testing.T) {
 	_, err := ParseSchema[schemaNoPrimaryKey]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "has no primary key")
+}
+
+// TestParseSchemaType_NilType_ReturnsError verifies that ParseSchemaType rejects
+// a nil reflect.Type with a dedicated error.
+func TestParseSchemaType_NilType_ReturnsError(t *testing.T) {
+	_, err := ParseSchemaType(nil)
+	require.Error(t, err)
+	require.EqualError(t, err, "entity type is nil")
+}
+
+// TestParseSchemaType_UnnamedStruct_ReturnsError verifies that ParseSchemaType
+// rejects unnamed struct types because sqlr cannot derive a stable schema name.
+func TestParseSchemaType_UnnamedStruct_ReturnsError(t *testing.T) {
+	unnamedType := reflect.TypeOf(struct {
+		ID int64 `db:"id,primaryKey"`
+	}{})
+
+	_, err := ParseSchemaType(unnamedType)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "is unnamed")
+}
+
+// TestParseSchemaType_NonStructType_ReturnsError verifies that ParseSchemaType
+// preserves the generic parser's non-struct validation message.
+func TestParseSchemaType_NonStructType_ReturnsError(t *testing.T) {
+	_, err := ParseSchemaType(reflect.TypeOf(0))
+	require.Error(t, err)
+	require.ErrorContains(t, err, "is not a struct")
+}
+
+// TestParseSchemaType_MatchesGenericParserValidation verifies that the type-based
+// parser preserves primary-key and relationship validation behaviour.
+func TestParseSchemaType_MatchesGenericParserValidation(t *testing.T) {
+	testCases := []struct {
+		name       string
+		entityType reflect.Type
+		parse      func() (*EntitySchema, error)
+	}{
+		{
+			name:       "missing primary key",
+			entityType: reflect.TypeOf(schemaNoPrimaryKey{}),
+			parse:      ParseSchema[schemaNoPrimaryKey],
+		},
+		{
+			name:       "invalid belongsTo fk",
+			entityType: reflect.TypeOf(schemaBelongsToPostMissingFK{}),
+			parse:      ParseSchema[schemaBelongsToPostMissingFK],
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, genericErr := testCase.parse()
+			require.Error(t, genericErr)
+
+			_, typeErr := ParseSchemaType(testCase.entityType)
+			require.EqualError(t, typeErr, genericErr.Error())
+		})
+	}
 }
 
 // ============================================================
@@ -600,6 +716,16 @@ func TestParseSchema_AutoPreloadsCircular(t *testing.T) {
 		{relation: "Children"},
 		{relation: "Children.Parent"},
 	}, schema.AutoPreloads())
+}
+
+// TestParseSchema_AutoPreloadsInvalidRelatedSchema verifies that auto-preload
+// schema parsing now runs through the shared type-based parser and therefore
+// preserves primary-key validation for related entities.
+func TestParseSchema_AutoPreloadsInvalidRelatedSchema(t *testing.T) {
+	_, err := ParseSchema[schemaAutoPreloadParentWithInvalidChild]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "failed to collect auto-preloads")
+	require.ErrorContains(t, err, "related entity type schemaAutoPreloadChildNoPrimaryKey has no primary key")
 }
 
 // ============================================================

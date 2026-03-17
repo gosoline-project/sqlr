@@ -27,42 +27,12 @@ type TableNamer interface {
 	TableName() string
 }
 
-// tableNameFor returns the database table name for the given type. If the type
-// implements TableNamer, that value is used. Otherwise the name is derived by
-// applying SchemaNameTransformer (default: toSnakeCase) to the struct type name
-// and then pluralizing the result.
-//
-// Examples (using default SchemaNameTransformer):
-//
-//	testUser      -> test_users
-//	testAuthor    -> test_authors
-//	testArticle   -> test_articles
-//	Uint64Article -> uint64_articles
-//	OrderItem     -> order_items
-func tableNameFor[E any]() string {
-	var zero E
-	if tn, ok := any(&zero).(TableNamer); ok {
-		return tn.TableName()
-	}
-
-	t := reflect.TypeOf(zero)
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-
-	return tableNameForType(t)
-}
-
 // tableNameForType derives the database table name for a struct type known only
 // at runtime via reflect.Type. It checks whether a pointer to the type satisfies
 // TableNamer and, if so, calls TableName() on a freshly allocated zero value.
 // Otherwise the name is derived from the type name using SchemaNameTransformer
 // followed by pluralization, so any custom naming convention also applies
 // to table names.
-//
-// This function exists because tableNameFor requires a compile-time type parameter
-// and cannot be used in reflection-driven code paths such as ResolveRelatedSchema
-// and parseRelatedSchemaForAutoPreload.
 func tableNameForType(t reflect.Type) string {
 	tableNamerType := reflect.TypeOf((*TableNamer)(nil)).Elem()
 	if reflect.PointerTo(t).Implements(tableNamerType) {
