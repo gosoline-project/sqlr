@@ -26,25 +26,6 @@ func requireEntityValue[E any](entity *E) (reflect.Value, error) {
 	return entityValue, nil
 }
 
-func associationSyncKey(schema *EntitySchema, entityValue reflect.Value) (string, bool) {
-	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
-	if !pkField.IsZero() {
-		pk := pkField.Interface()
-		key, ok := comparableKey(pk)
-		if !ok {
-			return "", false
-		}
-
-		return fmt.Sprintf("%s:%v", schema.TableName, key), true
-	}
-
-	if entityValue.CanAddr() {
-		return fmt.Sprintf("%s:new:%x", schema.TableName, entityValue.Addr().Pointer()), true
-	}
-
-	return "", false
-}
-
 func setEntityPrimaryKey(schema *EntitySchema, entityValue reflect.Value, pk any, journal *mutationJournal) error {
 	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
 

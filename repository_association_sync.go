@@ -28,6 +28,25 @@ func (s *associationSyncState) leave(key string) {
 	delete(s.active, key)
 }
 
+func associationSyncKey(schema *EntitySchema, entityValue reflect.Value) (string, bool) {
+	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
+	if !pkField.IsZero() {
+		pk := pkField.Interface()
+		key, ok := comparableKey(pk)
+		if !ok {
+			return "", false
+		}
+
+		return fmt.Sprintf("%s:%v", schema.TableName, key), true
+	}
+
+	if entityValue.CanAddr() {
+		return fmt.Sprintf("%s:new:%x", schema.TableName, entityValue.Addr().Pointer()), true
+	}
+
+	return "", false
+}
+
 func (c *associationSyncContext) syncExistingEntityGraph(ctx context.Context, schema *EntitySchema, entityValue reflect.Value) error {
 	_, err := c.syncEntityGraph(ctx, schema, entityValue, "")
 
@@ -348,33 +367,4 @@ func (c *associationSyncContext) collectDesiredManyToManyTargets(ctx context.Con
 	}
 
 	return desiredKeys, desiredPKs, nil
-}
-
-func partitionManyToManyLinks(links []m2mLink, desiredKeys map[any]struct{}) (existingKeys map[any]struct{}, obsoletePKs []any) {
-	existingKeys = make(map[any]struct{}, len(links))
-	obsoletePKs = make([]any, 0)
-
-	for _, link := range links {
-		existingKeys[link.relatedID] = struct{}{}
-		if _, keep := desiredKeys[link.relatedID]; !keep {
-			obsoletePKs = append(obsoletePKs, link.relatedID)
-		}
-	}
-
-	return existingKeys, obsoletePKs
-}
-
-func collectMissingManyToManyPKs(desiredPKs []any, existingKeys map[any]struct{}) []any {
-	missingPKs := make([]any, 0)
-
-	for _, desiredPK := range desiredPKs {
-		key, _ := comparableKey(desiredPK)
-		if _, exists := existingKeys[key]; exists {
-			continue
-		}
-
-		missingPKs = append(missingPKs, desiredPK)
-	}
-
-	return missingPKs
 }

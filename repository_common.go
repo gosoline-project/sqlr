@@ -54,33 +54,6 @@ func applyOptions[T any](builder T, opts []func(T)) T {
 	return builder
 }
 
-// createEntityWithAssociations persists an entity together with all populated
-// association fields. It handles the four relationship types in the correct order:
-//
-//  1. BelongsTo associations are inserted first (if their PK is zero) so that the
-//     parent's FK column can be set before the parent row is written.
-//  2. The parent entity row is inserted.
-//  3. HasOne and HasMany associations are inserted with their FK set to the parent PK.
-//  4. ManyToMany associations are inserted and join-table rows are created.
-//
-// All operations must be executed within a transaction so that a failure at any step
-// rolls back the entire tree. The caller is responsible for providing a transaction
-// querier (q) and a non-nil ttx when association saves are required.
-func (r *repositoryCommon[K, E]) createEntityWithAssociations(ctx context.Context, associationCtx *associationCreateContext, entity *E) error {
-	// Phase 1: persist BelongsTo relations and set their FKs on the parent.
-	if err := r.saveBelongsToAssociations(ctx, associationCtx, entity); err != nil {
-		return err
-	}
-
-	// Phase 2: persist the parent entity row.
-	if err := r.createEntity(associationCtx.q, ctx, entity, associationCtx.journal); err != nil {
-		return err
-	}
-
-	// Phase 3 + 4: persist HasOne, HasMany, and ManyToMany relations.
-	return r.saveAssociations(ctx, associationCtx, entity)
-}
-
 // createEntity persists a new entity to the database. It extracts insert column
 // values from the entity using reflection, executes an INSERT via sqlc, and sets
 // an auto-increment primary key back on the entity when applicable.
@@ -244,25 +217,6 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 	}
 
 	if err := errNoRowsAffected(result, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound)); err != nil {
-		return nil, err
-	}
-
-	return entity, nil
-}
-
-// updateEntityWithAssociations synchronizes the entity graph rooted at entity.
-// It updates the parent row and all explicitly-present associations in one
-// transaction-aware operation after the caller opted into association sync via
-// QueryBuilderUpdate. BelongsTo relations are synchronized first so the parent's
-// foreign keys are current before the root row is updated. HasOne, HasMany, and
-// ManyToMany relations are synchronized afterwards.
-func (r *repositoryCommon[K, E]) updateEntityWithAssociations(ctx context.Context, associationCtx *associationSyncContext, entity *E) (*E, error) {
-	rv, err := requireEntityValue(entity)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := associationCtx.syncExistingEntityGraph(ctx, r.schema, rv); err != nil {
 		return nil, err
 	}
 
