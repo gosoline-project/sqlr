@@ -783,6 +783,117 @@ func TestResolveRelatedSchema_FromParsedRelationship_ResolvesNestedSchema(t *tes
 	assert.Equal(t, tableNameForType(reflect.TypeOf(schemaNestedAutoComment{})), commentSchema.TableName)
 }
 
+// TestEntitySchemaResolveRelationPath_ValidRootRelation verifies that a direct
+// relation path resolves to its terminal relationship and related schema.
+func TestEntitySchemaResolveRelationPath_ValidRootRelation(t *testing.T) {
+	schema, err := ParseSchema[schemaHasOneAuthor]()
+	require.NoError(t, err)
+
+	rel, relSchema, err := schema.ResolveRelationPath("Profile")
+	require.NoError(t, err)
+	require.NotNil(t, rel)
+	require.NotNil(t, relSchema)
+
+	assert.Equal(t, "Profile", rel.Name)
+	assert.Equal(t, HasOne, rel.Type)
+	assert.Equal(t, tableNameForType(reflect.TypeOf(schemaHasOneProfile{})), relSchema.TableName)
+}
+
+// TestEntitySchemaResolveRelationPath_ValidNestedRelation verifies that a dotted
+// relation path resolves segment-by-segment and returns the leaf schema.
+func TestEntitySchemaResolveRelationPath_ValidNestedRelation(t *testing.T) {
+	schema, err := ParseSchema[schemaNestedAutoAuthor]()
+	require.NoError(t, err)
+
+	rel, relSchema, err := schema.ResolveRelationPath("Posts.Comments")
+	require.NoError(t, err)
+	require.NotNil(t, rel)
+	require.NotNil(t, relSchema)
+
+	assert.Equal(t, "Comments", rel.Name)
+	assert.Equal(t, HasMany, rel.Type)
+	assert.Equal(t, tableNameForType(reflect.TypeOf(schemaNestedAutoComment{})), relSchema.TableName)
+}
+
+// TestEntitySchemaResolveRelationPath_InvalidRootSegment verifies that a missing
+// top-level relation returns a generic schema-level error.
+func TestEntitySchemaResolveRelationPath_InvalidRootSegment(t *testing.T) {
+	schema, err := ParseSchema[schemaHasOneAuthor]()
+	require.NoError(t, err)
+
+	_, _, err = schema.ResolveRelationPath("Unknown")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `relation "Unknown" not found on model schemaHasOneAuthor`)
+	assert.ErrorContains(t, err, "valid relations: [Profile]")
+}
+
+// TestEntitySchemaResolveRelationPath_InvalidNestedSegment verifies that a
+// missing nested relation reports the accumulated dotted path.
+func TestEntitySchemaResolveRelationPath_InvalidNestedSegment(t *testing.T) {
+	schema, err := ParseSchema[schemaNestedAutoAuthor]()
+	require.NoError(t, err)
+
+	_, _, err = schema.ResolveRelationPath("Posts.Unknown")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `relation "Posts.Unknown" not found on model schemaNestedAutoPost`)
+	assert.ErrorContains(t, err, "valid relations: [Comments]")
+}
+
+// TestEntitySchemaResolveRelationPath_MalformedPath verifies that malformed
+// dotted paths are rejected centrally by the schema API.
+func TestEntitySchemaResolveRelationPath_MalformedPath(t *testing.T) {
+	schema, err := ParseSchema[schemaNestedAutoAuthor]()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name string
+		path string
+		err  string
+	}{
+		{name: "empty", path: "", err: "relation path must not be empty"},
+		{name: "leading dot", path: ".Posts", err: `relation path ".Posts" is malformed`},
+		{name: "trailing dot", path: "Posts.", err: `relation path "Posts." is malformed`},
+		{name: "double dots", path: "Posts..Comments", err: `relation path "Posts..Comments" is malformed`},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, _, resolveErr := schema.ResolveRelationPath(testCase.path)
+			require.Error(t, resolveErr)
+			assert.ErrorContains(t, resolveErr, testCase.err)
+		})
+	}
+}
+
+// TestEntitySchemaResolveRelationPath_RelatedSchemaResolutionFailure verifies
+// that ResolveRelationPath propagates related schema parse failures generically.
+func TestEntitySchemaResolveRelationPath_RelatedSchemaResolutionFailure(t *testing.T) {
+	schema, err := ParseSchema[schemaInvalidBelongsToParent]()
+	require.NoError(t, err)
+
+	_, _, err = schema.ResolveRelationPath("Related")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `failed to resolve schema for relation "Related"`)
+	assert.ErrorContains(t, err, "nonexistent_id")
+}
+
+// TestEntitySchemaResolveRelationPath_ManyToMany verifies that many-to-many
+// relations resolve successfully because path validation is schema-based rather
+// than operation-specific.
+func TestEntitySchemaResolveRelationPath_ManyToMany(t *testing.T) {
+	schema, err := ParseSchema[schemaManyToManyArticle]()
+	require.NoError(t, err)
+
+	rel, relSchema, err := schema.ResolveRelationPath("Tags")
+	require.NoError(t, err)
+	require.NotNil(t, rel)
+	require.NotNil(t, relSchema)
+
+	assert.Equal(t, "Tags", rel.Name)
+	assert.Equal(t, ManyToMany, rel.Type)
+	assert.Equal(t, tableNameForType(reflect.TypeOf(schemaManyToManyTag{})), relSchema.TableName)
+}
+
 // ============================================================
 // Validation errors (non-relationship / structural)
 // ============================================================

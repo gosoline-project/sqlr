@@ -509,8 +509,6 @@ func scanDestForJoinColumn(rv reflect.Value, relationStates []joinRelationState,
 // validated segment-by-segment, but join execution is limited to direct relations;
 // use Preload for nested relation loading.
 func (r *repositoryCommon[K, E]) validateJoinRelations(joins []joinEntry) error {
-	var err error
-	var relSchema *EntitySchema
 	seenRelations := make(map[string]struct{}, len(joins))
 
 	if len(joins) == 0 {
@@ -524,33 +522,27 @@ func (r *repositoryCommon[K, E]) validateJoinRelations(joins []joinEntry) error 
 
 		seenRelations[j.relation] = struct{}{}
 
-		parts := strings.Split(j.relation, ".")
+		segments, err := splitRelationPath(j.relation)
+		if err != nil {
+			return wrapRelationPathError("join relation", j.relation, err)
+		}
 
 		// Nested/dotted join paths (e.g. "Posts.Comments") are not supported.
 		// Use Preload("Posts.Comments") instead for nested relation loading.
-		if len(parts) > 1 {
+		if len(segments) > 1 {
 			return fmt.Errorf("nested join relation %q is not supported; use Preload(%q) instead for nested relation loading", j.relation, j.relation)
 		}
 
-		currentSchema := r.schema
-		for _, part := range parts {
-			rel, ok := currentSchema.Relationships[part]
-			if !ok {
-				return fmt.Errorf("join relation %q not found on model %s; valid relations: %v", j.relation, currentSchema.entityType.Name(), currentSchema.ValidRelationNames())
-			}
+		rel, _, err := r.schema.ResolveRelationPath(j.relation)
+		if err != nil {
+			return wrapRelationPathError("join relation", j.relation, err)
+		}
 
-			// Many-to-many associations require two joins (through a join table) but
-			// our join generation joins directly to the related table. This produces
-			// SQL referencing columns that don't exist on the target table.
-			if rel.Type == ManyToMany {
-				return fmt.Errorf("join relation %q is a many-to-many association which is not supported; many-to-many joins require a join table and are not supported (use Preload instead)", j.relation)
-			}
-
-			if relSchema, err = rel.ResolveRelatedSchema(); err != nil {
-				return fmt.Errorf("failed to resolve schema for join relation %q: %w", j.relation, err)
-			}
-
-			currentSchema = relSchema
+		// Many-to-many associations require two joins (through a join table) but
+		// our join generation joins directly to the related table. This produces
+		// SQL referencing columns that don't exist on the target table.
+		if rel.Type == ManyToMany {
+			return fmt.Errorf("join relation %q is a many-to-many association which is not supported; many-to-many joins require a join table and are not supported (use Preload instead)", j.relation)
 		}
 	}
 

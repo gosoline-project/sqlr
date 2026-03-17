@@ -80,41 +80,15 @@ func (p *associationSyncPolicy) validate(schema *EntitySchema) error {
 	}
 
 	for _, path := range p.syncPaths {
-		if err := validateAssociationPath(schema, path); err != nil {
+		if _, _, err := schema.ResolveRelationPath(path); err != nil {
 			return fmt.Errorf("invalid sync association path %q: %w", path, err)
 		}
 	}
 
 	for _, path := range p.omitPaths {
-		if err := validateAssociationPath(schema, path); err != nil {
+		if _, _, err := schema.ResolveRelationPath(path); err != nil {
 			return fmt.Errorf("invalid omit association path %q: %w", path, err)
 		}
-	}
-
-	return nil
-}
-
-func validateAssociationPath(schema *EntitySchema, path string) error {
-	segments := strings.Split(path, ".")
-	currentSchema := schema
-	currentPath := make([]string, 0, len(segments))
-
-	for _, segment := range segments {
-		rel, ok := currentSchema.Relationships[segment]
-		if !ok {
-			currentPath = append(currentPath, segment)
-
-			return fmt.Errorf("relation %q not found on model %s; valid relations: %v", strings.Join(currentPath, "."), currentSchema.entityType.Name(), currentSchema.ValidRelationNames())
-		}
-
-		currentPath = append(currentPath, segment)
-
-		relSchema, err := rel.ResolveRelatedSchema()
-		if err != nil {
-			return fmt.Errorf("failed to resolve schema for relation %q: %w", strings.Join(currentPath, "."), err)
-		}
-
-		currentSchema = relSchema
 	}
 
 	return nil
@@ -130,12 +104,8 @@ func normalizeAssociationPaths(paths []string) ([]string, error) {
 
 	for _, path := range paths {
 		trimmed := strings.TrimSpace(path)
-		if trimmed == "" {
-			return nil, fmt.Errorf("association path must not be empty")
-		}
-
-		if strings.HasPrefix(trimmed, ".") || strings.HasSuffix(trimmed, ".") || strings.Contains(trimmed, "..") {
-			return nil, fmt.Errorf("association path %q is malformed", trimmed)
+		if _, err := splitRelationPath(trimmed); err != nil {
+			return nil, err
 		}
 
 		if _, exists := seen[trimmed]; exists {

@@ -583,28 +583,13 @@ func assignM2MRelations(parents []reflect.Value, parentSchema *EntitySchema, rel
 // validation, many-to-many associations are allowed because preloads execute
 // separate queries and handle them correctly.
 func (r *repositoryCommon[K, E]) validatePreloadRelations(preloads []preloadEntry) error {
-	var err error
-	var relSchema *EntitySchema
-
 	if len(preloads) == 0 {
 		return nil
 	}
 
 	for _, p := range preloads {
-		parts := strings.Split(p.relation, ".")
-
-		currentSchema := r.schema
-		for _, part := range parts {
-			rel, ok := currentSchema.Relationships[part]
-			if !ok {
-				return fmt.Errorf("preload relation %q not found on model %s; valid relations: %v", p.relation, currentSchema.entityType.Name(), currentSchema.ValidRelationNames())
-			}
-
-			if relSchema, err = rel.ResolveRelatedSchema(); err != nil {
-				return fmt.Errorf("failed to resolve schema for preload relation %q: %w", p.relation, err)
-			}
-
-			currentSchema = relSchema
+		if _, _, err := r.schema.ResolveRelationPath(p.relation); err != nil {
+			return wrapRelationPathError("preload relation", p.relation, err)
 		}
 	}
 
