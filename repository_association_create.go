@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"time"
-
-	"github.com/gosoline-project/sqlc"
 )
 
 // createRelatedEntity persists a related entity and all of its own populated
@@ -14,40 +11,40 @@ import (
 // createEntityWithAssociations but operates on a bare reflect.Value and
 // *EntitySchema so it can be used for any related entity type without needing
 // a typed repositoryCommon.
-func createRelatedEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, path string, journal *mutationJournal) (any, error) {
+func (c *associationCreateContext) createRelatedEntity(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, path string) (any, error) {
 	entityValue = unwrapEntityValue(entityValue)
 	if !entityValue.IsValid() {
 		return nil, fmt.Errorf("invalid entity value for schema %s", schema.TableName)
 	}
 
-	if err := createRelatedBelongsTo(cache, q, ctx, schema, entityValue, policy, path, journal); err != nil {
+	if err := c.createRelatedBelongsTo(ctx, schema, entityValue, path); err != nil {
 		return nil, err
 	}
 
-	pk, err := insertRelatedEntity(q, ctx, schema, entityValue, journal)
+	pk, err := c.insertRelatedEntity(ctx, schema, entityValue)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := setEntityPrimaryKey(schema, entityValue, pk, journal); err != nil {
+	if err := setEntityPrimaryKey(schema, entityValue, pk, c.journal); err != nil {
 		return nil, err
 	}
 
-	if err := createRelatedForwardAssociations(cache, q, ctx, schema, entityValue, policy, path, journal); err != nil {
+	if err := c.createRelatedForwardAssociations(ctx, schema, entityValue, path); err != nil {
 		return nil, err
 	}
 
 	return pk, nil
 }
 
-func createRelatedBelongsTo(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, parentPath string, journal *mutationJournal) error {
+func (c *associationCreateContext) createRelatedBelongsTo(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, parentPath string) error {
 	for _, rel := range schema.Relationships {
 		if rel.Type != BelongsTo {
 			continue
 		}
 
 		relationPath := joinAssociationPath(parentPath, rel.Name)
-		if policy != nil && !policy.shouldSyncPath(relationPath) {
+		if c.policy != nil && !c.policy.shouldSyncPath(relationPath) {
 			continue
 		}
 
@@ -65,7 +62,7 @@ func createRelatedBelongsTo(cache *statementCache, q sqlc.Querier, ctx context.C
 		pkField := field.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 
 		if pkField.IsZero() {
-			if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, field, policy, relationPath, journal); err != nil {
+			if _, err := c.createRelatedEntity(ctx, nestedSchema, field, relationPath); err != nil {
 				return fmt.Errorf("failed to insert BelongsTo relation %q: %w", rel.Name, err)
 			}
 		}
@@ -76,7 +73,7 @@ func createRelatedBelongsTo(cache *statementCache, q sqlc.Querier, ctx context.C
 		}
 
 		fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
-		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey, journal); err != nil {
+		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey, c.journal); err != nil {
 			return fmt.Errorf("BelongsTo relation %q: %w", rel.Name, err)
 		}
 	}
@@ -84,10 +81,10 @@ func createRelatedBelongsTo(cache *statementCache, q sqlc.Querier, ctx context.C
 	return nil
 }
 
-func createRelatedForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, policy *associationSyncPolicy, parentPath string, journal *mutationJournal) error {
+func (c *associationCreateContext) createRelatedForwardAssociations(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, parentPath string) error {
 	for _, rel := range schema.Relationships {
 		relationPath := joinAssociationPath(parentPath, rel.Name)
-		if policy != nil && !policy.shouldSyncPath(relationPath) {
+		if c.policy != nil && !c.policy.shouldSyncPath(relationPath) {
 			continue
 		}
 
@@ -98,15 +95,15 @@ func createRelatedForwardAssociations(cache *statementCache, q sqlc.Querier, ctx
 
 		switch rel.Type {
 		case HasOne:
-			if err := createRelatedHasOne(cache, q, ctx, schema, entityValue, rel, policy, relationPath, journal); err != nil {
+			if err := c.createRelatedHasOne(ctx, schema, entityValue, rel, relationPath); err != nil {
 				return err
 			}
 		case HasMany:
-			if err := createRelatedHasMany(cache, q, ctx, schema, entityValue, rel, policy, relationPath, journal); err != nil {
+			if err := c.createRelatedHasMany(ctx, schema, entityValue, rel, relationPath); err != nil {
 				return err
 			}
 		case ManyToMany:
-			if err := createRelatedManyToMany(cache, q, ctx, schema, entityValue, rel, policy, relationPath, journal); err != nil {
+			if err := c.createRelatedManyToMany(ctx, schema, entityValue, rel, relationPath); err != nil {
 				return err
 			}
 		case BelongsTo:
@@ -116,7 +113,7 @@ func createRelatedForwardAssociations(cache *statementCache, q sqlc.Querier, ctx
 	return nil
 }
 
-func createRelatedHasOne(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string, journal *mutationJournal) error {
+func (c *associationCreateContext) createRelatedHasOne(ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, relationPath string) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
@@ -130,27 +127,27 @@ func createRelatedHasOne(cache *statementCache, q sqlc.Querier, ctx context.Cont
 
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
 
-	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK, journal); err != nil {
+	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK, c.journal); err != nil {
 		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
 	}
 
 	pkField := relField.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 	if !pkField.IsZero() {
-		if err := updateStoredEntityForeignKey(cache, q, ctx, nestedSchema, relField, rel.ForeignKey, journal); err != nil {
+		if err := c.updateStoredEntityForeignKey(ctx, nestedSchema, relField, rel.ForeignKey); err != nil {
 			return fmt.Errorf("failed to update HasOne relation %q: %w", rel.Name, err)
 		}
 
 		return nil
 	}
 
-	if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, relField, policy, relationPath, journal); err != nil {
+	if _, err := c.createRelatedEntity(ctx, nestedSchema, relField, relationPath); err != nil {
 		return fmt.Errorf("failed to insert HasOne relation %q: %w", rel.Name, err)
 	}
 
 	return nil
 }
 
-func createRelatedHasMany(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string, journal *mutationJournal) error {
+func (c *associationCreateContext) createRelatedHasMany(ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, relationPath string) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
@@ -169,20 +166,20 @@ func createRelatedHasMany(cache *statementCache, q sqlc.Querier, ctx context.Con
 			return fmt.Errorf("HasMany relation %q[%d] is nil", rel.Name, i)
 		}
 
-		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK, journal); err != nil {
+		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK, c.journal); err != nil {
 			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
 		pkField := elem.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 		if !pkField.IsZero() {
-			if err := updateStoredEntityForeignKey(cache, q, ctx, nestedSchema, elem, rel.ForeignKey, journal); err != nil {
+			if err := c.updateStoredEntityForeignKey(ctx, nestedSchema, elem, rel.ForeignKey); err != nil {
 				return fmt.Errorf("failed to update HasMany relation %q[%d]: %w", rel.Name, i, err)
 			}
 
 			continue
 		}
 
-		if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, elem, policy, relationPath, journal); err != nil {
+		if _, err := c.createRelatedEntity(ctx, nestedSchema, elem, relationPath); err != nil {
 			return fmt.Errorf("failed to insert HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 	}
@@ -190,7 +187,7 @@ func createRelatedHasMany(cache *statementCache, q sqlc.Querier, ctx context.Con
 	return nil
 }
 
-func createRelatedManyToMany(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string, journal *mutationJournal) error {
+func (c *associationCreateContext) createRelatedManyToMany(ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, relationPath string) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
@@ -213,7 +210,7 @@ func createRelatedManyToMany(cache *statementCache, q sqlc.Querier, ctx context.
 		pkField := elem.FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
 
 		if pkField.IsZero() {
-			if _, err := createRelatedEntity(cache, q, ctx, nestedSchema, elem, policy, relationPath, journal); err != nil {
+			if _, err := c.createRelatedEntity(ctx, nestedSchema, elem, relationPath); err != nil {
 				return fmt.Errorf("failed to insert ManyToMany relation %q[%d]: %w", rel.Name, i, err)
 			}
 		}
@@ -223,69 +220,8 @@ func createRelatedManyToMany(cache *statementCache, q sqlc.Querier, ctx context.
 
 	parentColName, relatedColName := resolveM2MColumnNames(rel, parentSchema, nestedSchema)
 
-	if err := insertJoinTableRows(q, ctx, rel.JoinTable, parentColName, relatedColName, parentPK, relatedPKs); err != nil {
+	if err := c.insertJoinTableRows(ctx, rel.JoinTable, parentColName, relatedColName, parentPK, relatedPKs); err != nil {
 		return fmt.Errorf("failed to insert join table rows for ManyToMany relation %q: %w", rel.Name, err)
-	}
-
-	return nil
-}
-
-func insertRelatedEntity(q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, journal *mutationJournal) (any, error) {
-	now := time.Now()
-	insertCols := schema.InsertColumns()
-	if err := setCreateTimestamps(entityValue, schema, now, journal); err != nil {
-		return nil, fmt.Errorf("failed to set create timestamps for %s: %w", schema.TableName, err)
-	}
-	vals := buildInsertValues(entityValue, schema)
-
-	sqler := sqlc.Into(schema.TableName).
-		Columns(insertCols...).
-		Values(vals...)
-
-	sql, args, err := sqler.ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("failed to build INSERT SQL for %s: %w", schema.TableName, err)
-	}
-
-	result, err := q.Exec(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute INSERT for %s: %w", schema.TableName, err)
-	}
-
-	if schema.PrimaryKey == nil || !schema.PrimaryKey.AutoIncrement {
-		return entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface(), nil
-	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert ID for %s: %w", schema.TableName, err)
-	}
-
-	return lastID, nil
-}
-
-func insertJoinTableRows(q sqlc.Querier, ctx context.Context, joinTable, parentCol, relatedCol string, parentPK any, relatedPKs []any) error {
-	if len(relatedPKs) == 0 {
-		return nil
-	}
-
-	rows := make([][]any, 0, len(relatedPKs))
-	for _, relPK := range relatedPKs {
-		rows = append(rows, []any{parentPK, relPK})
-	}
-
-	sqler := sqlc.Into(joinTable).
-		Columns(parentCol, relatedCol).
-		Ignore().
-		ValuesRows(rows...)
-
-	sql, args, err := sqler.ToSql()
-	if err != nil {
-		return fmt.Errorf("failed to build join table INSERT SQL: %w", err)
-	}
-
-	if _, err := q.Exec(ctx, sql, args...); err != nil {
-		return fmt.Errorf("failed to insert join table rows: %w", err)
 	}
 
 	return nil

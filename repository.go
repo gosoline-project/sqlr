@@ -110,7 +110,9 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 	}
 
 	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
-		return r.createEntityWithAssociations(tx, ctx, entity, policy, journal)
+		associationCtx := newAssociationCreateContext(r.statementCache, tx, policy, journal)
+
+		return r.createEntityWithAssociations(ctx, associationCtx, entity)
 	})
 	if err != nil {
 		journal.restore()
@@ -159,7 +161,8 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 	var updated *E
 
 	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
-		updated, err = r.updateEntityWithAssociations(tx, ctx, entity, policy, journal)
+		associationCtx := newAssociationSyncContext(r.statementCache, tx, policy, journal)
+		updated, err = r.updateEntityWithAssociations(ctx, associationCtx, entity)
 
 		return err
 	})

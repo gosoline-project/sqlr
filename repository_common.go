@@ -66,19 +66,19 @@ func applyOptions[T any](builder T, opts []func(T)) T {
 // All operations must be executed within a transaction so that a failure at any step
 // rolls back the entire tree. The caller is responsible for providing a transaction
 // querier (q) and a non-nil ttx when association saves are required.
-func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy, journal *mutationJournal) error {
+func (r *repositoryCommon[K, E]) createEntityWithAssociations(ctx context.Context, associationCtx *associationCreateContext, entity *E) error {
 	// Phase 1: persist BelongsTo relations and set their FKs on the parent.
-	if err := r.saveBelongsToAssociations(q, ctx, entity, policy, journal); err != nil {
+	if err := r.saveBelongsToAssociations(ctx, associationCtx, entity); err != nil {
 		return err
 	}
 
 	// Phase 2: persist the parent entity row.
-	if err := r.createEntity(q, ctx, entity, journal); err != nil {
+	if err := r.createEntity(associationCtx.q, ctx, entity, associationCtx.journal); err != nil {
 		return err
 	}
 
 	// Phase 3 + 4: persist HasOne, HasMany, and ManyToMany relations.
-	return r.saveAssociations(q, ctx, entity, policy, journal)
+	return r.saveAssociations(ctx, associationCtx, entity)
 }
 
 // createEntity persists a new entity to the database. It extracts insert column
@@ -256,15 +256,13 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 // QueryBuilderUpdate. BelongsTo relations are synchronized first so the parent's
 // foreign keys are current before the root row is updated. HasOne, HasMany, and
 // ManyToMany relations are synchronized afterwards.
-func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy, journal *mutationJournal) (*E, error) {
+func (r *repositoryCommon[K, E]) updateEntityWithAssociations(ctx context.Context, associationCtx *associationSyncContext, entity *E) (*E, error) {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return nil, err
 	}
 
-	state := newAssociationSyncState()
-
-	if err := syncExistingEntityGraph(r.statementCache, q, ctx, r.schema, rv, state, policy, journal); err != nil {
+	if err := associationCtx.syncExistingEntityGraph(ctx, r.schema, rv); err != nil {
 		return nil, err
 	}
 

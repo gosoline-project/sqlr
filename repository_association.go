@@ -3,8 +3,6 @@ package sqlr
 import (
 	"context"
 	"reflect"
-
-	"github.com/gosoline-project/sqlc"
 )
 
 // hasAssociationsToSave returns true if any association field on the entity is non-zero.
@@ -57,23 +55,23 @@ func relationHasValues(field reflect.Value) bool {
 // persisted via saveBelongsToAssociations called before the parent insert. This
 // function handles HasOne, HasMany, and ManyToMany phases by delegating to the
 // schema-based createRelatedForwardAssociations helper.
-func (r *repositoryCommon[K, E]) saveAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy, journal *mutationJournal) error {
+func (r *repositoryCommon[K, E]) saveAssociations(ctx context.Context, associationCtx *associationCreateContext, entity *E) error {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return err
 	}
 
-	return createRelatedForwardAssociations(r.statementCache, q, ctx, r.schema, rv, policy, "", journal)
+	return associationCtx.createRelatedForwardAssociations(ctx, r.schema, rv, "")
 }
 
 // saveBelongsToAssociations inserts any BelongsTo related entities that have a zero
 // primary key, then sets the corresponding FK column on the parent entity. This must be
 // called BEFORE the parent entity is inserted so that the FK value is populated in time.
-func (r *repositoryCommon[K, E]) saveBelongsToAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy, journal *mutationJournal) error {
+func (r *repositoryCommon[K, E]) saveBelongsToAssociations(ctx context.Context, associationCtx *associationCreateContext, entity *E) error {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return err
 	}
 
-	return createRelatedBelongsTo(r.statementCache, q, ctx, r.schema, rv, policy, "", journal)
+	return associationCtx.createRelatedBelongsTo(ctx, r.schema, rv, "")
 }

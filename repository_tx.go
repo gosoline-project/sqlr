@@ -82,7 +82,8 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 		return err
 	}
 
-	err = t.createEntityWithAssociations(ttx, ttx, entity, policy, journal)
+	associationCtx := newAssociationCreateContext(t.statementCache, ttx, policy, journal)
+	err = t.createEntityWithAssociations(ttx, associationCtx, entity)
 	if err != nil {
 		journal.restore()
 	}
@@ -126,7 +127,8 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 		return updated, nil
 	}
 
-	updated, err := t.updateEntityWithAssociations(ttx, ttx, entity, policy, journal)
+	associationCtx := newAssociationSyncContext(t.statementCache, ttx, policy, journal)
+	updated, err := t.updateEntityWithAssociations(ttx, associationCtx, entity)
 	if err != nil {
 		journal.restore()
 		return nil, err
