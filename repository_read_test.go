@@ -772,6 +772,32 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreloadManyToMany() 
 	})
 }
 
+// TestRead_WithPreload_SecondaryQueryError verifies that Read propagates direct
+// preload query failures with relation-path context.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithPreload_SecondaryQueryError() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnError(errors.New("connection lost"))
+
+	result, err := s.authorRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
+		qb.Preload("Posts")
+	})
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.Contains(err.Error(), `failed to execute preload query for "Posts"`)
+	s.Contains(err.Error(), "connection lost")
+}
+
 // ==========================================================================
 // Join Tests
 // ==========================================================================

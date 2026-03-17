@@ -2,6 +2,7 @@ package sqlr_test
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -625,6 +626,107 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithForeignKeyNotMappedInR
 	s.Contains(err.Error(), `failed to map preload foreign key column "author_id" for relation "Posts"`)
 }
 
+// TestQuery_PreloadSecondaryQueryError verifies that a failure in the secondary
+// preload query is returned with relation-path context for a direct preload.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadSecondaryQueryError() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnError(errors.New("connection lost"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Posts")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `failed to execute preload query for "Posts"`)
+	s.Contains(err.Error(), "connection lost")
+}
+
+// TestQuery_PreloadBelongsToSecondaryQueryError verifies that a failure in a
+// BelongsTo preload query is returned with the failing relation path.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadBelongsToSecondaryQueryError() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_post_with_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(10, now, now, int64(1), "First Post"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnError(errors.New("connection lost"))
+
+	results, err := s.postWithAuthorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Author")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `failed to execute preload query for "Author"`)
+	s.Contains(err.Error(), "connection lost")
+}
+
+// TestQuery_PreloadMissingForeignKeyColumnInResult verifies that preload result
+// sets missing the relationship foreign key column fail with context.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadMissingForeignKeyColumnInResult() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title", "status"}).
+			AddRow(10, now, now, "Broken Post", "published"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Posts")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `foreign key column "author_id" not found in preload result for "Posts"`)
+}
+
+// TestQuery_PreloadHydrationError verifies that row scan failures during preload
+// hydration are wrapped with the failing relation path.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadHydrationError() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow("bad-id", now, now, int64(1), "Broken Post", "published"))
+
+	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Posts")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `failed to hydrate preload rows for "Posts"`)
+	s.Contains(err.Error(), "failed to scan row")
+}
+
 // TestQuery_PreloadWithCondition verifies that an extra WHERE condition passed to
 // Preload is appended to the HasMany preload query.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithCondition() {
@@ -909,6 +1011,58 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithEmptyStringK
 	s.Require().Len(results[0].Tags, 1)
 	s.Equal("EmptyTag", results[0].Tags[0].Name)
 	s.Equal("", results[0].Tags[0].GetId())
+}
+
+// TestQuery_PreloadManyToManyMissingJoinColumns verifies that malformed join
+// table result sets fail with enough context to identify the relation path.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyMissingJoinColumns() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_articles`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title"}).
+			AddRow(1, now, now, "My Article"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `article_tags` WHERE `article_tags`.`test_article_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"article_id", "tag_id"}).
+			AddRow(1, 100))
+
+	results, err := s.articleRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Tags")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `join table "article_tags" missing expected columns "test_article_id" or "test_tag_id"`)
+	s.Contains(err.Error(), `preload relation "Tags"`)
+}
+
+// TestQuery_PreloadManyToManyMalformedJoinRow verifies that join-table scan
+// failures are wrapped with relation-path context.
+func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyMalformedJoinRow() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_articles`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title"}).
+			AddRow(1, now, now, "My Article"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `article_tags` WHERE `article_tags`.`test_article_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"test_article_id", "test_tag_id"}).
+			AddRow(1, "bad-tag-id"))
+
+	results, err := s.articleRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Preload("Tags")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `failed to scan join table rows for preload relation "Tags"`)
+	s.Contains(err.Error(), "failed to scan join table row")
 }
 
 // TestQuery_PreloadNested verifies that a dot-separated path ("Posts.Comments")

@@ -445,15 +445,20 @@ func (r *repositoryCommon[K, E]) scanM2MJoinTable(
 	defer joinRows.Close() //nolint:errcheck // safe to ignore in defer
 
 	if joinColumns, err = joinRows.Columns(); err != nil {
-		return nil, nil, fmt.Errorf("failed to get join table columns: %w", err)
+		return nil, nil, fmt.Errorf("failed to get join table columns for preload relation %q: %w", relationPath, err)
 	}
 
 	parentColIdx, relatedColIdx := findJoinColumnIndices(joinColumns, parentColName, relatedColName)
 	if parentColIdx < 0 || relatedColIdx < 0 {
-		return nil, nil, fmt.Errorf("join table %q missing expected columns %q or %q", rel.JoinTable, parentColName, relatedColName)
+		return nil, nil, fmt.Errorf("join table %q missing expected columns %q or %q for preload relation %q", rel.JoinTable, parentColName, relatedColName, relationPath)
 	}
 
-	return scanJoinTableRows(joinRows, joinColumns, parentColIdx, relatedColIdx, parentSchema, relSchema, rel)
+	links, relatedIDs, err := scanJoinTableRows(joinRows, joinColumns, parentColIdx, relatedColIdx, parentSchema, relSchema, rel)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to scan join table rows for preload relation %q: %w", relationPath, err)
+	}
+
+	return links, relatedIDs, nil
 }
 
 // findJoinColumnIndices returns the column indices for the parent and related
