@@ -1088,13 +1088,14 @@ type schemaUntaggedFieldNameVariants struct {
 
 // schemaAutoHasManyChild is the related entity for the HasMany auto-detection test.
 type schemaAutoHasManyChild struct {
-	ID       int64  `db:"id,primaryKey"`
-	ParentID int64  // → parent_id (auto-column)
-	Body     string // → body (auto-column)
+	ID                        int64  `db:"id,primaryKey"`
+	SchemaAutoHasManyParentID int64  // → schema_auto_has_many_parent_id (auto-column)
+	Body                      string // → body (auto-column)
 }
 
 // schemaAutoHasManyParent has an untagged slice field — should be auto-detected
-// as HasMany with FK = "schema_auto_has_many_parent_id".
+// as HasMany with FK = "schema_auto_has_many_parent_id" because the inferred
+// foreign key column exists on the related entity.
 type schemaAutoHasManyParent struct {
 	ID       int64                    `db:"id,primaryKey"`
 	Name     string                   // → name (auto-column)
@@ -1190,6 +1191,46 @@ func TestParseSchema_UntaggedStructField_AutoDetectedBelongsToFKMustExist(t *tes
 	// BelongsTo FK requirement; schema parsing must succeed.
 	_, err := ParseSchema[schemaAutoBelongsToItem]()
 	require.NoError(t, err)
+}
+
+type schemaCustomValueObject struct {
+	Amount string
+}
+
+type schemaCustomValueObjectEntity struct {
+	ID    int64                   `db:"id,primaryKey"`
+	Money schemaCustomValueObject // → money (column, NOT a relationship)
+}
+
+type schemaAutoBelongsToCandidateWithoutFK struct {
+	ID      int64                    `db:"id,primaryKey"`
+	Related schemaAutoBelongsToOwner // → related (column, NOT a relationship)
+}
+
+// TestParseSchema_UntaggedCustomValueObject_MappedAsColumn verifies that a
+// custom untagged struct without entity evidence is treated as a column instead
+// of being auto-detected as a relationship.
+func TestParseSchema_UntaggedCustomValueObject_MappedAsColumn(t *testing.T) {
+	schema, err := ParseSchema[schemaCustomValueObjectEntity]()
+	require.NoError(t, err)
+
+	assert.Empty(t, schema.Relationships)
+
+	_, ok := schema.ColumnByName("money")
+	assert.True(t, ok, "expected untagged custom value object to map to column money")
+}
+
+// TestParseSchema_UntaggedStructField_WithoutInferredFKMappedAsColumn verifies
+// that an untagged struct field is not auto-detected as BelongsTo when the
+// inferred foreign key column is missing on the parent entity.
+func TestParseSchema_UntaggedStructField_WithoutInferredFKMappedAsColumn(t *testing.T) {
+	schema, err := ParseSchema[schemaAutoBelongsToCandidateWithoutFK]()
+	require.NoError(t, err)
+
+	assert.Empty(t, schema.Relationships)
+
+	_, ok := schema.ColumnByName("related")
+	assert.True(t, ok, "expected untagged struct without inferred FK to map to column related")
 }
 
 // ============================================================

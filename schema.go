@@ -168,13 +168,13 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 // many2many:<table>, and preload.
 //
 // When a public field has no db tag, its name is transformed by
-// SchemaNameTransformer (default: toSnakeCase) to derive the column name. Public
-// struct and slice-of-struct fields with no db tag are auto-detected as
-// relationships: a non-slice struct field becomes BelongsTo with a foreign key
-// derived as SchemaNameTransformer(fieldName)+"_id", and a slice field becomes
-// HasMany with a foreign key derived as
-// SchemaNameTransformer(parentTypeName)+"_id". Unexported fields with no db tag
-// are silently ignored. To explicitly exclude a public field from mapping, use
+// SchemaNameTransformer (default: toSnakeCase) to derive the column name.
+// Untagged struct and slice-of-struct fields are only auto-detected as
+// relationships when sqlr finds stronger evidence that they represent entities:
+// the related type must declare a primary key, and the conventional inferred
+// foreign key must exist on the parent or related type. Otherwise the field is
+// treated like any other untagged field. Unexported fields with no db tag are
+// silently ignored. To explicitly exclude a public field from mapping, use
 // db:"-".
 //
 // Relationship examples:
@@ -393,9 +393,9 @@ func tryParseEmbeddedField(field reflect.StructField, fieldIndex []int, schema *
 // parseFieldTag parses a single struct field's db tag and adds it to the schema
 // as either a relationship or a column. When no db tag is present on a public
 // field, the field name is passed through SchemaNameTransformer to derive the
-// column name. Public struct and slice-of-struct fields without a db tag are
-// auto-detected as relationships (BelongsTo for non-slices, HasMany for slices)
-// with the foreign key inferred from the field or parent entity type name.
+// column name. Untagged struct fields are only auto-detected as relationships
+// when the related type looks like an entity and the inferred conventional
+// foreign key can be found on the parent or related type.
 func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySchema) error {
 	dbTag := field.Tag.Get("db")
 	if dbTag == "" {
@@ -428,15 +428,16 @@ func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySc
 }
 
 // parseUntaggedField handles a struct field that has no db tag. Unexported fields
-// are silently skipped. Public struct and slice-of-struct fields are auto-detected
-// as relationships; all other public fields are mapped to a column whose name is
+// are silently skipped. Public struct and slice-of-struct fields are only
+// auto-detected as relationships when sqlr can validate conventional entity
+// evidence for them; all other public fields are mapped to a column whose name is
 // derived by applying SchemaNameTransformer to the Go field name.
 func parseUntaggedField(field reflect.StructField, fieldIndex []int, schema *EntitySchema) error {
 	if !isPublicField(field) {
 		return nil
 	}
 
-	if isAutoRelationshipType(field.Type) {
+	if shouldAutoDetectRelationship(field, schema.entityType) {
 		rel, err := parseRelationship(field, nil, fieldIndex, schema.entityType)
 		if err != nil {
 			return fmt.Errorf("field %s: %w", field.Name, err)
@@ -674,9 +675,11 @@ var valueTypePackages = map[string]struct{}{ //nolint:gochecknoglobals // intent
 }
 
 // isAutoRelationshipType returns true when the field's underlying type is a
-// struct or a slice of structs that can be auto-detected as a relationship when
-// no db tag is present. Types whose package is listed in valueTypePackages (e.g.
-// time.Time, sql.NullString) are excluded so they map to columns instead.
+// struct or slice of structs that looks like an entity candidate for untagged
+// relationship auto-detection. Besides excluding well-known scalar value-type
+// packages, the related type must also declare a primary key somewhere in its
+// field tree. This keeps custom value objects from being misclassified as
+// relationships based on shape alone.
 func isAutoRelationshipType(ft reflect.Type) bool {
 	unwrapped, _ := unwrapRelatedType(ft)
 	if unwrapped.Kind() != reflect.Struct {
@@ -687,7 +690,98 @@ func isAutoRelationshipType(ft reflect.Type) bool {
 		return false
 	}
 
-	return true
+	return typeHasPrimaryKey(unwrapped)
+}
+
+func shouldAutoDetectRelationship(field reflect.StructField, parentEntityType reflect.Type) bool {
+	relatedType, isSlice := unwrapRelatedType(field.Type)
+	if !isAutoRelationshipType(field.Type) {
+		return false
+	}
+
+	if isSlice {
+		return typeDefinesColumn(relatedType, SchemaNameTransformer(parentEntityType.Name())+"_id")
+	}
+
+	return typeDefinesColumn(parentEntityType, SchemaNameTransformer(field.Name)+"_id")
+}
+
+func typeHasPrimaryKey(t reflect.Type) bool {
+	t = unwrapSchemaFieldType(t)
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+		fieldType := unwrapSchemaFieldType(field.Type)
+
+		if field.Anonymous && fieldType.Kind() == reflect.Struct && typeHasPrimaryKey(fieldType) {
+			return true
+		}
+
+		dbTag := field.Tag.Get("db")
+		if dbTag == "" {
+			continue
+		}
+
+		parts := strings.Split(dbTag, ",")
+		for _, opt := range parts[1:] {
+			if strings.TrimSpace(opt) == "primaryKey" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func typeDefinesColumn(t reflect.Type, columnName string) bool {
+	t = unwrapSchemaFieldType(t)
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+		fieldType := unwrapSchemaFieldType(field.Type)
+
+		if field.Anonymous && fieldType.Kind() == reflect.Struct && typeDefinesColumn(fieldType, columnName) {
+			return true
+		}
+
+		if !isPublicField(field) {
+			continue
+		}
+
+		dbTag := field.Tag.Get("db")
+		if dbTag != "" {
+			parts := strings.Split(dbTag, ",")
+			if parts[0] == columnName && !isRelationshipField(parts[1:]) && parts[0] != "-" {
+				return true
+			}
+
+			continue
+		}
+
+		if isAutoRelationshipType(field.Type) {
+			continue
+		}
+
+		if SchemaNameTransformer(field.Name) == columnName {
+			return true
+		}
+	}
+
+	return false
+}
+
+func unwrapSchemaFieldType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	return t
 }
 
 func isIntegerKind(k reflect.Kind) bool {
