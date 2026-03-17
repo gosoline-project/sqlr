@@ -742,9 +742,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneNoRelated() {
 	s.Equal(testProfile{}, results[0].Profile)
 }
 
-// TestQuery_LeftJoinHasOneMultipleRows verifies that when multiple rows are
-// returned for a HasOne relation (e.g. due to a broad join), only the first
-// encountered row is used and subsequent rows are silently discarded.
+// TestQuery_LeftJoinHasOneMultipleRows verifies that conflicting duplicate rows
+// for a HasOne relation are rejected instead of silently using first-row-wins
+// semantics.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneMultipleRows() {
 	now := time.Now()
 
@@ -756,6 +756,30 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneMultipleRows() {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
 			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "First profile").
 			AddRow(1, now, now, "Alice", 101, now, now, int64(1), "Second profile"))
+
+	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Profile")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `conflicting rows for scalar joined relation "Profile"`)
+	s.Contains(err.Error(), `saw related primary keys 100 and 101`)
+}
+
+// TestQuery_LeftJoinHasOneDuplicateRowsSameRelated verifies that exact duplicate
+// rows for the same HasOne related entity are deduplicated without error.
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinHasOneDuplicateRowsSameRelated() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profiles` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "First profile").
+			AddRow(1, now, now, "Alice", 100, now, now, int64(1), "First profile"))
 
 	results, err := s.authorWithProfileRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Profile")
@@ -885,6 +909,54 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToPointer() {
 	s.Require().NoError(err)
 	s.Require().Len(results, 1)
 	s.Require().NotNil(results[0].Author)
+	s.Equal("Alice", results[0].Author.Name)
+}
+
+// TestQuery_LeftJoinBelongsToMultipleRows verifies that conflicting duplicate
+// rows for a BelongsTo relation are rejected instead of silently keeping the
+// first related entity.
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToMultipleRows() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice").
+			AddRow(10, now, now, int64(1), "First Post", "published", 2, now, now, "Bob"))
+
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Author")
+	})
+
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `conflicting rows for scalar joined relation "Author"`)
+	s.Contains(err.Error(), `saw related primary keys 1 and 2`)
+}
+
+// TestQuery_LeftJoinBelongsToDuplicateRowsSameRelated verifies that exact
+// duplicate rows for the same BelongsTo related entity are deduplicated.
+func (s *RepositoryQueryTestSuite) TestQuery_LeftJoinBelongsToDuplicateRowsSameRelated() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_posts`.`id`, `test_posts`.`created_at`, `test_posts`.`updated_at`, `test_posts`.`author_id`, `test_posts`.`title`, `test_posts`.`status`, " +
+			"`Author`.`id` AS `Author__id`, `Author`.`created_at` AS `Author__created_at`, `Author`.`updated_at` AS `Author__updated_at`, `Author`.`name` AS `Author__name`" +
+			" FROM `test_posts` LEFT JOIN `test_authors` AS Author ON `test_posts`.`author_id` = `Author`.`id`")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status", "Author__id", "Author__created_at", "Author__updated_at", "Author__name"}).
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice").
+			AddRow(10, now, now, int64(1), "First Post", "published", 1, now, now, "Alice"))
+
+	results, err := s.postRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.LeftJoin("Author")
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal(int64(10), results[0].GetId())
+	s.Equal(int64(1), results[0].Author.GetId())
 	s.Equal("Alice", results[0].Author.Name)
 }
 

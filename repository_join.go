@@ -210,7 +210,7 @@ func (r *repositoryCommon[K, E]) hydrateJoinResults(rows *sqlc.Rows, sortedJoins
 		}
 
 		target := reflect.ValueOf(&results[idx]).Elem()
-		if err := assignJoinedRelations(target, relationStates, relatedSeen[pkKey], relationPresent); err != nil {
+		if err := assignJoinedRelations(target, relationStates, relatedSeen[pkKey], relationPresent, pkKey); err != nil {
 			return nil, err
 		}
 	}
@@ -304,7 +304,7 @@ func upsertHydratedEntity[K KeyTypes, E Entitier[K]](results *[]E, entityIndex m
 
 // assignJoinedRelations assigns scanned join relation values to the target entity,
 // tracking already-seen related entities to avoid duplicates.
-func assignJoinedRelations(target reflect.Value, relationStates []joinRelationState, seen map[string]map[any]struct{}, relationPresent []bool) error {
+func assignJoinedRelations(target reflect.Value, relationStates []joinRelationState, seen map[string]map[any]struct{}, relationPresent []bool, parentPK any) error {
 	for i := range relationStates {
 		state := relationStates[i]
 		if !joinRelationShouldBeAssigned(state, relationPresent[i]) {
@@ -326,6 +326,10 @@ func assignJoinedRelations(target reflect.Value, relationStates []joinRelationSt
 			continue
 		}
 
+		if err := ensureScalarJoinRelationIsConsistent(state, relationSeen, parentPK, relPk); err != nil {
+			return err
+		}
+
 		markSeenJoinRelation(relationSeen, relPk)
 		if err := assignJoinRelation(target, state); err != nil {
 			return err
@@ -335,8 +339,20 @@ func assignJoinedRelations(target reflect.Value, relationStates []joinRelationSt
 	return nil
 }
 
+func ensureScalarJoinRelationIsConsistent(state joinRelationState, relationSeen map[any]struct{}, parentPK any, relPk any) error {
+	if !isScalarJoinRelation(state) || len(relationSeen) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("conflicting rows for scalar joined relation %q on parent %v: saw related primary keys %v and %v", state.name, parentPK, firstSeenJoinRelation(relationSeen), relPk)
+}
+
 func joinRelationShouldBeAssigned(state joinRelationState, relationPresent bool) bool {
 	return relationPresent && state.joinInfo.schema.PrimaryKey != nil
+}
+
+func isScalarJoinRelation(state joinRelationState) bool {
+	return state.joinInfo.rel.Type == HasOne || state.joinInfo.rel.Type == BelongsTo
 }
 
 func seenJoinRelation(name string, seen map[string]map[any]struct{}) map[any]struct{} {
@@ -357,6 +373,14 @@ func isSeenJoinRelation(relationSeen map[any]struct{}, relPk any) bool {
 
 func markSeenJoinRelation(relationSeen map[any]struct{}, relPk any) {
 	relationSeen[relPk] = struct{}{}
+}
+
+func firstSeenJoinRelation(relationSeen map[any]struct{}) any {
+	for relPk := range relationSeen {
+		return relPk
+	}
+
+	return nil
 }
 
 func assignJoinRelation(target reflect.Value, state joinRelationState) error {

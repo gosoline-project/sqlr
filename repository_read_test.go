@@ -995,6 +995,33 @@ func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOnePointe
 	s.Equal("A bio", result.Profile.Bio)
 }
 
+// TestRead_WithLeftJoinHasOneMultipleRows verifies that Read rejects
+// conflicting duplicate rows for scalar HasOne joins.
+func (s *RepositoryReadWithRelationsTestSuite) TestRead_WithLeftJoinHasOneMultipleRows() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `test_author_with_profiles`.`id`, `test_author_with_profiles`.`created_at`, `test_author_with_profiles`.`updated_at`, `test_author_with_profiles`.`name`, " +
+			"`Profile`.`id` AS `Profile__id`, `Profile`.`created_at` AS `Profile__created_at`, `Profile`.`updated_at` AS `Profile__updated_at`, " +
+			"`Profile`.`author_id` AS `Profile__author_id`, `Profile`.`bio` AS `Profile__bio`" +
+			" FROM `test_author_with_profiles` LEFT JOIN `test_profiles` AS Profile ON `test_author_with_profiles`.`id` = `Profile`.`author_id`" +
+			" WHERE `test_author_with_profiles`.`id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Profile__id", "Profile__created_at", "Profile__updated_at", "Profile__author_id", "Profile__bio"}).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "A bio").
+			AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Another bio"))
+
+	result, err := s.authorWithProfileRepo.Read(context.Background(), 1, func(qb *sqlr.QueryBuilderRead) {
+		qb.LeftJoin("Profile")
+	})
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.Contains(err.Error(), "failed to read entity")
+	s.Contains(err.Error(), `conflicting rows for scalar joined relation "Profile"`)
+	s.Contains(err.Error(), `saw related primary keys 10 and 11`)
+}
+
 // ==========================================================================
 // Not Found with Relations
 // ==========================================================================
