@@ -17,7 +17,7 @@ import (
 // ============================================================
 
 // schemaNoPrimaryKey is used by both the primary key error test and the
-// resolveRelationSchema error test.
+// ResolveRelatedSchema error test.
 type schemaNoPrimaryKey struct {
 	Name string `db:"name"`
 }
@@ -41,7 +41,7 @@ type schemaPrimaryKeyEntityWithDirectField struct {
 }
 
 // schemaCacheComment / schemaCachePost / schemaCacheAuthor are used by the
-// schema caching tests and the resolveRelationSchema concurrency test.
+// schema caching tests and the ResolveRelatedSchema concurrency test.
 type schemaCacheComment struct {
 	ID       int64  `db:"id,primaryKey"`
 	AuthorID int64  `db:"author_id"`
@@ -61,7 +61,7 @@ type schemaCacheAuthor struct {
 	Comments []schemaCacheComment `db:"-,foreignKey:author_id,preload"`
 }
 
-// schemaTableNamerRelated is used by the resolveRelationSchema TableNamer test
+// schemaTableNamerRelated is used by the ResolveRelatedSchema TableNamer test
 // and as a field type in schemaInvalidBelongsToRelated.
 type schemaTableNamerRelated struct {
 	ID   int64  `db:"id,primaryKey"`
@@ -116,7 +116,7 @@ func TestParseSchema_PrimaryKeyPointsToColumnsEntry(t *testing.T) {
 func assertPrimaryKeyPointsToColumnsEntry[E any](t *testing.T) {
 	t.Helper()
 
-	schema, err := parseSchema[E]()
+	schema, err := ParseSchema[E]()
 	require.NoError(t, err)
 	require.NotNil(t, schema.PrimaryKey)
 
@@ -132,11 +132,11 @@ func assertPrimaryKeyPointsToColumnsEntry[E any](t *testing.T) {
 	assert.Equal(t, schema.Columns[primaryKeyIndex], *schema.PrimaryKey)
 }
 
-// TestParseSchema_PointerToStruct_UnwrapsSuccessfully verifies that parseSchema
+// TestParseSchema_PointerToStruct_UnwrapsSuccessfully verifies that ParseSchema
 // accepts a pointer-to-struct type parameter and produces a valid schema identical
 // to parsing the struct directly.
 func TestParseSchema_PointerToStruct_UnwrapsSuccessfully(t *testing.T) {
-	schema, err := parseSchema[*schemaPrimaryKeyEntityWithEmbedded]()
+	schema, err := ParseSchema[*schemaPrimaryKeyEntityWithEmbedded]()
 	require.NoError(t, err)
 	require.NotNil(t, schema.PrimaryKey)
 	assert.Equal(t, "id", schema.PrimaryKey.Name)
@@ -147,7 +147,7 @@ func TestParseSchema_PointerToStruct_UnwrapsSuccessfully(t *testing.T) {
 // primary key is not treated as auto-increment and is therefore included in the
 // insert column list.
 func TestParseSchema_StringPK_IncludedInInsertColumns(t *testing.T) {
-	schema, err := parseSchema[schemaPrimaryKeyEntityWithDirectField]()
+	schema, err := ParseSchema[schemaPrimaryKeyEntityWithDirectField]()
 	require.NoError(t, err)
 	require.NotNil(t, schema.PrimaryKey)
 	assert.False(t, schema.PrimaryKey.AutoIncrement)
@@ -159,7 +159,7 @@ func TestParseSchema_StringPK_IncludedInInsertColumns(t *testing.T) {
 // primary key field is inferred as auto-increment and therefore excluded from
 // the insert column list.
 func TestParseSchema_PointerIntegerPK_AutoIncrementTrue(t *testing.T) {
-	schema, err := parseSchema[schemaPointerIntPK]()
+	schema, err := ParseSchema[schemaPointerIntPK]()
 	require.NoError(t, err)
 	require.NotNil(t, schema.PrimaryKey)
 	assert.True(t, schema.PrimaryKey.AutoIncrement)
@@ -169,7 +169,7 @@ func TestParseSchema_PointerIntegerPK_AutoIncrementTrue(t *testing.T) {
 // TestParseSchema_NoPrimaryKey_ReturnsError verifies that parsing a struct with
 // no primaryKey-tagged field fails with an appropriate error message.
 func TestParseSchema_NoPrimaryKey_ReturnsError(t *testing.T) {
-	_, err := parseSchema[schemaNoPrimaryKey]()
+	_, err := ParseSchema[schemaNoPrimaryKey]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "has no primary key")
 }
@@ -209,7 +209,7 @@ type schemaDashField struct {
 // returned by ColumnByName is the same pointer as the corresponding entry in
 // schema.Columns, ensuring the map and the slice stay in sync.
 func TestParseSchema_ColumnByNamePointsToColumnsEntries(t *testing.T) {
-	schema, err := parseSchema[schemaPrimaryKeyEntityWithEmbedded]()
+	schema, err := ParseSchema[schemaPrimaryKeyEntityWithEmbedded]()
 	require.NoError(t, err)
 	require.Len(t, schema.columnByName, len(schema.Columns))
 
@@ -225,7 +225,7 @@ func TestParseSchema_ColumnByNamePointsToColumnsEntries(t *testing.T) {
 // with autoCreateTime and autoUpdateTime have exactly the correct flags set and
 // the opposite flag cleared.
 func TestParseSchema_AutoCreateTimeAndUpdateTime(t *testing.T) {
-	schema, err := parseSchema[schemaAutoTimestamps]()
+	schema, err := ParseSchema[schemaAutoTimestamps]()
 	require.NoError(t, err)
 
 	createdAt, ok := schema.ColumnByName("created_at")
@@ -240,7 +240,7 @@ func TestParseSchema_AutoCreateTimeAndUpdateTime(t *testing.T) {
 }
 
 func TestParseSchema_AutoTimestampPointerFields_AreAccepted(t *testing.T) {
-	schema, err := parseSchema[schemaPointerAutoTimestamps]()
+	schema, err := ParseSchema[schemaPointerAutoTimestamps]()
 	require.NoError(t, err)
 
 	createdAt, ok := schema.ColumnByName("created_at")
@@ -255,7 +255,7 @@ func TestParseSchema_AutoTimestampPointerFields_AreAccepted(t *testing.T) {
 }
 
 func TestParseSchema_AutoTimestampWrongType_ReturnsError(t *testing.T) {
-	_, err := parseSchema[schemaInvalidAutoTimestamps]()
+	_, err := ParseSchema[schemaInvalidAutoTimestamps]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "auto timestamp tags")
 }
@@ -267,7 +267,7 @@ func TestParseSchema_DuplicateColumnNames_ReturnsError(t *testing.T) {
 		Name2 string `db:"name"`
 	}
 
-	_, err := parseSchema[duplicateColumns]()
+	_, err := ParseSchema[duplicateColumns]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "duplicate column name \"name\"")
 }
@@ -279,7 +279,7 @@ func TestParseSchema_MultiplePrimaryKeys_ReturnsError(t *testing.T) {
 		Name  string `db:"name"`
 	}
 
-	_, err := parseSchema[multiplePrimaryKeys]()
+	_, err := ParseSchema[multiplePrimaryKeys]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "defines multiple primary keys")
 }
@@ -288,7 +288,7 @@ func TestParseSchema_MultiplePrimaryKeys_ReturnsError(t *testing.T) {
 // tagged db:"-" (without any relationship option) is skipped entirely — it is
 // not added to the column list and no relationship is registered for it.
 func TestParseSchema_DbDashWithoutRelationship_FieldSkipped(t *testing.T) {
-	schema, err := parseSchema[schemaDashField]()
+	schema, err := ParseSchema[schemaDashField]()
 	require.NoError(t, err)
 
 	_, ok := schema.ColumnByName("-")
@@ -306,7 +306,7 @@ func TestParseSchema_DbDashWithoutRelationship_FieldSkipped(t *testing.T) {
 // method returns the same underlying slice that is stored in the cached field,
 // confirming no redundant recomputation.
 func TestParseSchema_CachesDerivedValues(t *testing.T) {
-	schema, err := parseSchema[schemaCacheAuthor]()
+	schema, err := ParseSchema[schemaCacheAuthor]()
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"name"}, schema.InsertColumns())
@@ -330,7 +330,7 @@ func TestParseSchema_CachesDerivedValues(t *testing.T) {
 // TestValidRelationNames_SortedOutput verifies that ValidRelationNames returns
 // all relationship names in sorted order.
 func TestValidRelationNames_SortedOutput(t *testing.T) {
-	schema, err := parseSchema[schemaCacheAuthor]()
+	schema, err := ParseSchema[schemaCacheAuthor]()
 	require.NoError(t, err)
 
 	names := schema.ValidRelationNames()
@@ -357,7 +357,7 @@ type schemaHasOneAuthor struct {
 // tagged with foreignKey is parsed as a HasOne relationship with the correct
 // foreign key column name.
 func TestParseSchema_HasOne_Relationship(t *testing.T) {
-	schema, err := parseSchema[schemaHasOneAuthor]()
+	schema, err := ParseSchema[schemaHasOneAuthor]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Profile"]
@@ -405,7 +405,7 @@ type schemaBelongsToPostMissingFK struct {
 // TestParseSchema_BelongsTo verifies that a non-slice struct field tagged with
 // belongsTo is parsed as a BelongsTo relationship with the correct foreign key.
 func TestParseSchema_BelongsTo(t *testing.T) {
-	schema, err := parseSchema[schemaBelongsToPost]()
+	schema, err := ParseSchema[schemaBelongsToPost]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Author"]
@@ -417,7 +417,7 @@ func TestParseSchema_BelongsTo(t *testing.T) {
 // TestParseSchema_BelongsToPointer verifies that a pointer scalar field tagged
 // with belongsTo is parsed the same way as the value form.
 func TestParseSchema_BelongsToPointer(t *testing.T) {
-	schema, err := parseSchema[schemaBelongsToPointerPost]()
+	schema, err := ParseSchema[schemaBelongsToPointerPost]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Author"]
@@ -431,7 +431,7 @@ func TestParseSchema_BelongsToPointer(t *testing.T) {
 // belongsTo is rejected with a descriptive error, because BelongsTo must be a
 // single struct, not a collection.
 func TestParseSchema_BelongsToSliceRejected(t *testing.T) {
-	_, err := parseSchema[schemaBelongsToPostInvalidSlice]()
+	_, err := ParseSchema[schemaBelongsToPostInvalidSlice]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "belongsTo relationship Author must not be a slice")
 }
@@ -440,7 +440,7 @@ func TestParseSchema_BelongsToSliceRejected(t *testing.T) {
 // BelongsTo tag referencing a foreign key column that does not exist on the
 // entity struct is rejected with a descriptive error.
 func TestParseSchema_BelongsToMissingForeignKeyColumnRejected(t *testing.T) {
-	_, err := parseSchema[schemaBelongsToPostMissingFK]()
+	_, err := ParseSchema[schemaBelongsToPostMissingFK]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "belongsTo foreign key column \"author_id\" not found on entity")
 }
@@ -476,7 +476,7 @@ type schemaManyToManyPointerArticle struct {
 // with many2many is parsed as a ManyToMany relationship with the correct join
 // table name and no foreign key.
 func TestParseSchema_ManyToMany_Relationship(t *testing.T) {
-	schema, err := parseSchema[schemaManyToManyArticle]()
+	schema, err := ParseSchema[schemaManyToManyArticle]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Tags"]
@@ -490,7 +490,7 @@ func TestParseSchema_ManyToMany_Relationship(t *testing.T) {
 // slices are accepted for HasMany and ManyToMany relations and resolve the same
 // related entity type as value-element slices.
 func TestParseSchema_PointerCollectionRelationships(t *testing.T) {
-	authorSchema, err := parseSchema[schemaHasManyPointerAuthor]()
+	authorSchema, err := ParseSchema[schemaHasManyPointerAuthor]()
 	require.NoError(t, err)
 
 	postsRel, ok := authorSchema.Relationships["Posts"]
@@ -499,7 +499,7 @@ func TestParseSchema_PointerCollectionRelationships(t *testing.T) {
 	assert.Equal(t, "author_id", postsRel.ForeignKey)
 	assert.Equal(t, reflect.TypeOf(schemaBelongsToPost{}), postsRel.RelatedType)
 
-	articleSchema, err := parseSchema[schemaManyToManyPointerArticle]()
+	articleSchema, err := ParseSchema[schemaManyToManyPointerArticle]()
 	require.NoError(t, err)
 
 	tagsRel, ok := articleSchema.Relationships["Tags"]
@@ -566,7 +566,7 @@ type schemaCircularAutoChild struct {
 // relations explicitly tagged with the "preload" option appear in AutoPreloads,
 // and relations without that tag are excluded.
 func TestParseSchema_MixedPreloadAndNonPreload_AutoPreloads(t *testing.T) {
-	schema, err := parseSchema[schemaMixedPreloadAuthor]()
+	schema, err := ParseSchema[schemaMixedPreloadAuthor]()
 	require.NoError(t, err)
 
 	autoPreloads := schema.AutoPreloads()
@@ -578,7 +578,7 @@ func TestParseSchema_MixedPreloadAndNonPreload_AutoPreloads(t *testing.T) {
 // preload chains transitively, producing dot-separated paths for nested relations
 // (e.g. "Posts.Comments" when both levels carry the preload tag).
 func TestParseSchema_AutoPreloadsNested(t *testing.T) {
-	schema, err := parseSchema[schemaNestedAutoAuthor]()
+	schema, err := ParseSchema[schemaNestedAutoAuthor]()
 	require.NoError(t, err)
 	assert.Equal(t, []preloadEntry{
 		{relation: "Posts"},
@@ -593,7 +593,7 @@ func TestParseSchema_AutoPreloadsCircular(t *testing.T) {
 	var schema *EntitySchema
 	require.NotPanics(t, func() {
 		var err error
-		schema, err = parseSchema[schemaCircularAutoParent]()
+		schema, err = ParseSchema[schemaCircularAutoParent]()
 		require.NoError(t, err)
 	})
 	assert.Equal(t, []preloadEntry{
@@ -637,14 +637,14 @@ func TestIsRelationshipField_EmptySlice_ReturnsFalse(t *testing.T) {
 }
 
 // ============================================================
-// resolveRelationSchema
+// ResolveRelatedSchema
 // ============================================================
 
-// TestRelationshipResolveRelationSchema_Concurrent verifies that concurrent
-// calls to resolveRelationSchema on the same Relationship always return the
+// TestRelationshipResolveRelatedSchema_Concurrent verifies that concurrent
+// calls to ResolveRelatedSchema on the same Relationship always return the
 // identical *EntitySchema pointer, confirming that lazy initialisation is
 // thread-safe and the result is cached after the first resolution.
-func TestRelationshipResolveRelationSchema_Concurrent(t *testing.T) {
+func TestRelationshipResolveRelatedSchema_Concurrent(t *testing.T) {
 	rel := &Relationship{
 		RelatedType: reflect.TypeOf(schemaCachePost{}),
 	}
@@ -659,7 +659,7 @@ func TestRelationshipResolveRelationSchema_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			s, err := rel.resolveRelationSchema()
+			s, err := rel.ResolveRelatedSchema()
 			if err != nil {
 				errs <- err
 
@@ -690,15 +690,15 @@ func TestRelationshipResolveRelationSchema_Concurrent(t *testing.T) {
 	assert.Same(t, first, rel.RelatedSchema)
 }
 
-// TestResolveRelationSchema_RelatedTypeNoPrimaryKey_ReturnsError verifies that
-// resolveRelationSchema returns an error when the related entity type has no
+// TestResolveRelatedSchema_RelatedTypeNoPrimaryKey_ReturnsError verifies that
+// ResolveRelatedSchema returns an error when the related entity type has no
 // primary key, rather than producing a silently broken schema.
-func TestResolveRelationSchema_RelatedTypeNoPrimaryKey_ReturnsError(t *testing.T) {
+func TestResolveRelatedSchema_RelatedTypeNoPrimaryKey_ReturnsError(t *testing.T) {
 	rel := &Relationship{
 		RelatedType: reflect.TypeOf(schemaNoPrimaryKey{}),
 	}
 
-	_, err := rel.resolveRelationSchema()
+	_, err := rel.ResolveRelatedSchema()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "has no primary key")
 }
@@ -712,26 +712,26 @@ type schemaInvalidBelongsToRelated struct {
 }
 
 // schemaInvalidBelongsToParent has a relationship to schemaInvalidBelongsToRelated,
-// so that resolveRelationSchema will attempt to parse schemaInvalidBelongsToRelated.
+// so that ResolveRelatedSchema will attempt to parse schemaInvalidBelongsToRelated.
 type schemaInvalidBelongsToParent struct {
 	ID        int64                         `db:"id,primaryKey"`
 	Related   schemaInvalidBelongsToRelated `db:"-,belongsTo:related_id"`
 	RelatedID int64                         `db:"related_id"`
 }
 
-// TestResolveRelationSchema_ReturnsErrorForInvalidBelongsToFK verifies that
-// resolveRelationSchema propagates a parse error from a related entity whose
+// TestResolveRelatedSchema_ReturnsErrorForInvalidBelongsToFK verifies that
+// ResolveRelatedSchema propagates a parse error from a related entity whose
 // BelongsTo tag references a non-existent FK column, and that the error message
 // identifies the missing column name.
-func TestResolveRelationSchema_ReturnsErrorForInvalidBelongsToFK(t *testing.T) {
-	schema, err := parseSchema[schemaInvalidBelongsToParent]()
+func TestResolveRelatedSchema_ReturnsErrorForInvalidBelongsToFK(t *testing.T) {
+	schema, err := ParseSchema[schemaInvalidBelongsToParent]()
 	require.NoError(t, err, "parsing the parent schema itself must succeed")
 
 	rel, ok := schema.Relationships["Related"]
 	require.True(t, ok, "expected relationship Related on parent")
 
-	_, err = rel.resolveRelationSchema()
-	require.Error(t, err, "resolveRelationSchema must return an error for an invalid BelongsTo FK on the related entity")
+	_, err = rel.ResolveRelatedSchema()
+	require.Error(t, err, "ResolveRelatedSchema must return an error for an invalid BelongsTo FK on the related entity")
 	assert.Contains(t, err.Error(), "nonexistent_id")
 }
 
@@ -743,21 +743,44 @@ type schemaTableNamerParent struct {
 	RelatedID int64                   `db:"related_id"`
 }
 
-// TestResolveRelationSchema_HonoursTableNamerOnRelatedEntity verifies that when
-// the related entity implements TableNamer, resolveRelationSchema uses its custom
+// TestResolveRelatedSchema_HonoursTableNamerOnRelatedEntity verifies that when
+// the related entity implements TableNamer, ResolveRelatedSchema uses its custom
 // table name rather than the auto-derived snake_case name.
-func TestResolveRelationSchema_HonoursTableNamerOnRelatedEntity(t *testing.T) {
-	schema, err := parseSchema[schemaTableNamerParent]()
+func TestResolveRelatedSchema_HonoursTableNamerOnRelatedEntity(t *testing.T) {
+	schema, err := ParseSchema[schemaTableNamerParent]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Related"]
 	require.True(t, ok, "expected relationship Related")
 
-	relSchema, err := rel.resolveRelationSchema()
+	relSchema, err := rel.ResolveRelatedSchema()
 	require.NoError(t, err)
 
 	assert.Equal(t, "custom_related_table", relSchema.TableName,
-		"resolveRelationSchema must honour TableNamer on the related entity")
+		"ResolveRelatedSchema must honour TableNamer on the related entity")
+}
+
+// TestResolveRelatedSchema_FromParsedRelationship_ResolvesNestedSchema verifies
+// that a relationship obtained from ParseSchema can resolve its related schema
+// through the exported API and continue traversing nested relationships.
+func TestResolveRelatedSchema_FromParsedRelationship_ResolvesNestedSchema(t *testing.T) {
+	schema, err := ParseSchema[schemaNestedAutoAuthor]()
+	require.NoError(t, err)
+
+	postsRel, ok := schema.Relationships["Posts"]
+	require.True(t, ok, "expected relationship Posts")
+
+	postSchema, err := postsRel.ResolveRelatedSchema()
+	require.NoError(t, err)
+	require.NotNil(t, postSchema)
+
+	commentsRel, ok := postSchema.Relationships["Comments"]
+	require.True(t, ok, "expected nested relationship Comments")
+
+	commentSchema, err := commentsRel.ResolveRelatedSchema()
+	require.NoError(t, err)
+	require.NotNil(t, commentSchema)
+	assert.Equal(t, tableNameForType(reflect.TypeOf(schemaNestedAutoComment{})), commentSchema.TableName)
 }
 
 // ============================================================
@@ -775,9 +798,9 @@ type schemaRelationNonStruct struct {
 }
 
 // TestParseSchema_NonStructType_ReturnsError verifies that passing a primitive
-// type (e.g. int) to parseSchema fails with an error indicating it is not a struct.
+// type (e.g. int) to ParseSchema fails with an error indicating it is not a struct.
 func TestParseSchema_NonStructType_ReturnsError(t *testing.T) {
-	_, err := parseSchema[int]()
+	_, err := ParseSchema[int]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "is not a struct")
 }
@@ -786,7 +809,7 @@ func TestParseSchema_NonStructType_ReturnsError(t *testing.T) {
 // with an empty key value is rejected with an error stating that a foreignKey
 // option is required.
 func TestParseSchema_MissingForeignKey_ReturnsError(t *testing.T) {
-	_, err := parseSchema[schemaMissingFKRelation]()
+	_, err := ParseSchema[schemaMissingFKRelation]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "requires a foreignKey option")
 }
@@ -795,7 +818,7 @@ func TestParseSchema_MissingForeignKey_ReturnsError(t *testing.T) {
 // applying a relationship tag (foreignKey) to a non-struct field (e.g. string)
 // is rejected with an error indicating the field must be a struct or slice of structs.
 func TestParseSchema_RelationshipOnNonStructField_ReturnsError(t *testing.T) {
-	_, err := parseSchema[schemaRelationNonStruct]()
+	_, err := ParseSchema[schemaRelationNonStruct]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "must be a struct or slice of structs")
 }
@@ -858,7 +881,7 @@ type schemaAutoBelongsToItem struct {
 // TestParseSchema_UntaggedPublicFields_MappedToSnakeCase verifies that public
 // fields without a db tag are automatically mapped to snake_case column names.
 func TestParseSchema_UntaggedPublicFields_MappedToSnakeCase(t *testing.T) {
-	schema, err := parseSchema[schemaUntaggedPublic]()
+	schema, err := ParseSchema[schemaUntaggedPublic]()
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"id", "first_name", "last_name"}, schema.AllColumns())
@@ -874,7 +897,7 @@ func TestParseSchema_UntaggedPublicFields_MappedToSnakeCase(t *testing.T) {
 // unexported fields are silently excluded from the column list even when other
 // untagged exported fields on the same struct are auto-mapped.
 func TestParseSchema_UntaggedPublicField_UnexportedFieldSkipped(t *testing.T) {
-	schema, err := parseSchema[schemaUntaggedPublic]()
+	schema, err := ParseSchema[schemaUntaggedPublic]()
 	require.NoError(t, err)
 
 	// Only the three exported fields should be present (id, first_name, last_name).
@@ -887,7 +910,7 @@ func TestParseSchema_UntaggedPublicField_UnexportedFieldSkipped(t *testing.T) {
 // plain PascalCase (FullName → full_name), and digit→uppercase transitions
 // (Uint64Value → uint64_value, Int32Counter → int32_counter).
 func TestParseSchema_UntaggedPublicField_SnakeCaseTransformerVariants(t *testing.T) {
-	schema, err := parseSchema[schemaUntaggedFieldNameVariants]()
+	schema, err := ParseSchema[schemaUntaggedFieldNameVariants]()
 	require.NoError(t, err)
 
 	expectedCols := []string{"id", "user_id", "http_code", "full_name", "uint64_value", "int32_counter", "field123_thing"}
@@ -898,7 +921,7 @@ func TestParseSchema_UntaggedPublicField_SnakeCaseTransformerVariants(t *testing
 // untagged slice field whose element type is a struct is automatically detected
 // as a HasMany relationship, with the foreign key derived from the parent type name.
 func TestParseSchema_UntaggedSliceField_AutoDetectsHasMany(t *testing.T) {
-	schema, err := parseSchema[schemaAutoHasManyParent]()
+	schema, err := ParseSchema[schemaAutoHasManyParent]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Children"]
@@ -912,7 +935,7 @@ func TestParseSchema_UntaggedSliceField_AutoDetectsHasMany(t *testing.T) {
 // untagged non-slice struct field is automatically detected as a BelongsTo
 // relationship, with the foreign key derived from the field name.
 func TestParseSchema_UntaggedStructField_AutoDetectsBelongsTo(t *testing.T) {
-	schema, err := parseSchema[schemaAutoBelongsToItem]()
+	schema, err := ParseSchema[schemaAutoBelongsToItem]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Owner"]
@@ -928,7 +951,7 @@ func TestParseSchema_UntaggedStructField_AutoDetectsBelongsTo(t *testing.T) {
 func TestParseSchema_UntaggedStructField_AutoDetectedBelongsToFKMustExist(t *testing.T) {
 	// schemaAutoBelongsToItem has OwnerID (→ "owner_id") which satisfies the
 	// BelongsTo FK requirement; schema parsing must succeed.
-	_, err := parseSchema[schemaAutoBelongsToItem]()
+	_, err := ParseSchema[schemaAutoBelongsToItem]()
 	require.NoError(t, err)
 }
 
@@ -949,7 +972,7 @@ type schemaValueTypeFields struct {
 // BelongsTo relationship), because "time" is in the valueTypePackages exclusion
 // list.
 func TestParseSchema_UntaggedTimeField_MappedAsColumn(t *testing.T) {
-	schema, err := parseSchema[schemaValueTypeFields]()
+	schema, err := ParseSchema[schemaValueTypeFields]()
 	require.NoError(t, err)
 
 	// time.Time and sql.NullString must appear as columns, not relationships.
@@ -1003,7 +1026,7 @@ func TestSchemaNameTransformer_CanBeOverridden(t *testing.T) {
 		FirstName string // with identity transformer → column name "FirstName"
 	}
 
-	schema, err := parseSchema[schemaIdentityTransform]()
+	schema, err := ParseSchema[schemaIdentityTransform]()
 	require.NoError(t, err)
 
 	_, ok := schema.ColumnByName("FirstName")
@@ -1047,7 +1070,7 @@ func TestSchemaNameTransformer_AffectsTableNameDerivation(t *testing.T) {
 		Name string `db:"name"`
 	}
 
-	schema, err := parseSchema[schemaTableNameTransformEntity]()
+	schema, err := ParseSchema[schemaTableNameTransformEntity]()
 	require.NoError(t, err)
 
 	// With the custom transformer the type name "schemaTableNameTransformEntity"
@@ -1084,15 +1107,15 @@ type schemaTableNamerAutoPreloadParent struct {
 // schema uses the custom table name rather than the auto-derived one.
 func TestParseRelatedSchemaForAutoPreload_HonoursTableNamer(t *testing.T) {
 	// parseRelatedSchemaForAutoPreload is exercised by collectAutoPreloads, which
-	// is called from cacheSchemaDerivedValues inside parseSchema. We parse the
+	// is called from cacheSchemaDerivedValues inside ParseSchema. We parse the
 	// parent schema and then lazily resolve the child relation to check its table name.
-	schema, err := parseSchema[schemaTableNamerAutoPreloadParent]()
+	schema, err := ParseSchema[schemaTableNamerAutoPreloadParent]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Children"]
 	require.True(t, ok, "expected relationship Children")
 
-	relSchema, err := rel.resolveRelationSchema()
+	relSchema, err := rel.ResolveRelatedSchema()
 	require.NoError(t, err)
 
 	assert.Equal(t, "custom_child_table", relSchema.TableName,
@@ -1122,7 +1145,7 @@ type schemaM2MTableNamerOwner struct {
 // the auto-derived join table name is built from the custom table name rather than
 // the default snake_case type name.
 func TestParseSchema_M2M_AutoDerived_HonoursTableNamer(t *testing.T) {
-	schema, err := parseSchema[schemaM2MTableNamerOwner]()
+	schema, err := ParseSchema[schemaM2MTableNamerOwner]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Sides"]
@@ -1142,7 +1165,7 @@ func TestParseSchema_M2M_AutoDerived_HonoursTableNamer(t *testing.T) {
 // explicit parentKey and relatedKey options in the many2many tag are stored on
 // the Relationship and take precedence over the auto-derived column names.
 func TestParseSchema_M2M_ColumnOverrides_StoredOnRelationship(t *testing.T) {
-	schema, err := parseSchema[schemaM2MColOverrideArticle]()
+	schema, err := ParseSchema[schemaM2MColOverrideArticle]()
 	require.NoError(t, err)
 
 	rel, ok := schema.Relationships["Tags"]

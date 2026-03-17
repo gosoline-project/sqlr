@@ -89,7 +89,7 @@ type Relationship struct {
 
 // EntitySchema holds the parsed metadata for an entity type, including its table
 // name, column mappings, primary key, and relationships. It is created once at
-// repository construction time via parseSchema and reused for all operations.
+// repository construction time via ParseSchema and reused for all operations.
 type EntitySchema struct {
 	// TableName is the database table name.
 	TableName string
@@ -155,7 +155,7 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 	return s.autoPreloads
 }
 
-// parseSchema parses the entity type E using reflection to build an EntitySchema.
+// ParseSchema parses the entity type E using reflection to build an EntitySchema.
 // It reads `db` tags for column mappings and field behaviour metadata. The db tag
 // format is "column_name[,option1][,option2]..." where options include primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
@@ -216,7 +216,7 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 //   - Missing related rows keep the field at its natural zero value: nil for
 //     pointer scalars, zero struct for value scalars, and empty or nil slices
 //     for collection relations when no related rows are assigned.
-func parseSchema[E any]() (*EntitySchema, error) {
+func ParseSchema[E any]() (*EntitySchema, error) {
 	var zero E
 	t := reflect.TypeOf(zero)
 	for t.Kind() == reflect.Ptr {
@@ -817,8 +817,11 @@ func validateRelationshipType(rel *Relationship, isSlice bool) error {
 	return nil
 }
 
-// resolveRelationSchema lazily parses and caches the related entity's schema.
-func (r *Relationship) resolveRelationSchema() (*EntitySchema, error) {
+// ResolveRelatedSchema lazily parses the related entity schema on first use,
+// caches the result on the relationship, and returns the cached schema on
+// subsequent calls. It is safe for concurrent use and returns validation errors
+// when the related type cannot be parsed into a valid entity schema.
+func (r *Relationship) ResolveRelatedSchema() (*EntitySchema, error) {
 	r.resolveOnce.Do(func() {
 		t := r.RelatedType
 

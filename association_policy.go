@@ -109,7 +109,7 @@ func validateAssociationPath(schema *EntitySchema, path string) error {
 
 		currentPath = append(currentPath, segment)
 
-		relSchema, err := rel.resolveRelationSchema()
+		relSchema, err := rel.ResolveRelatedSchema()
 		if err != nil {
 			return fmt.Errorf("failed to resolve schema for relation %q: %w", strings.Join(currentPath, "."), err)
 		}

@@ -63,7 +63,7 @@ func deleteAssociationForEntity(cache *statementCache, q sqlc.Querier, ctx conte
 }
 
 func deleteChildAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any, state *associationSyncState) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for delete relation %q: %w", rel.Name, err)
 	}
@@ -83,7 +83,7 @@ func deleteChildAssociation(cache *statementCache, q sqlc.Querier, ctx context.C
 }
 
 func deleteManyToManyAssociation(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for ManyToMany delete relation %q: %w", rel.Name, err)
 	}

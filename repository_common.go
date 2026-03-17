@@ -23,7 +23,7 @@ var ErrNilEntity = errors.New("entity must not be nil")
 // type E using reflection. The schema is used at query time to generate SQL and
 // validate join/preload relations. Returns an error if the entity's schema cannot be parsed.
 func newRepositoryCommon[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (repositoryCommon[K, E], error) {
-	schema, err := parseSchema[E]()
+	schema, err := ParseSchema[E]()
 	if err != nil {
 		return repositoryCommon[K, E]{}, fmt.Errorf("can not parse model schema of %T: %w", *new(E), err)
 	}

@@ -110,7 +110,7 @@ func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx contex
 			continue
 		}
 
-		nestedSchema, err := rel.resolveRelationSchema()
+		nestedSchema, err := rel.ResolveRelatedSchema()
 		if err != nil {
 			return fmt.Errorf("failed to resolve schema for BelongsTo relation %q: %w", rel.Name, err)
 		}
@@ -200,7 +200,7 @@ func syncHasOneAssociation(
 	policy *associationSyncPolicy,
 	relationPath string,
 ) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
 	}
@@ -261,7 +261,7 @@ func syncHasManyAssociation(
 	policy *associationSyncPolicy,
 	relationPath string,
 ) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
 	}
@@ -327,7 +327,7 @@ func syncManyToManyAssociation(
 	policy *associationSyncPolicy,
 	relationPath string,
 ) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
 	}

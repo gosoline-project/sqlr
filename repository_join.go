@@ -103,7 +103,7 @@ func (r *repositoryCommon[K, E]) buildJoinQuery(sortedJoins []joinEntry) (*sqlc.
 			return nil, nil, fmt.Errorf("join relation %q not found", j.relation)
 		}
 
-		if relSchema, err = rel.resolveRelationSchema(); err != nil {
+		if relSchema, err = rel.ResolveRelatedSchema(); err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve schema for relation %q: %w", j.relation, err)
 		}
 
@@ -546,7 +546,7 @@ func (r *repositoryCommon[K, E]) validateJoinRelations(joins []joinEntry) error 
 				return fmt.Errorf("join relation %q is a many-to-many association which is not supported; many-to-many joins require a join table and are not supported (use Preload instead)", j.relation)
 			}
 
-			if relSchema, err = rel.resolveRelationSchema(); err != nil {
+			if relSchema, err = rel.ResolveRelatedSchema(); err != nil {
 				return fmt.Errorf("failed to resolve schema for join relation %q: %w", j.relation, err)
 			}
 

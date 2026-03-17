@@ -61,7 +61,7 @@ func tableNameFor[E any]() string {
 // to table names.
 //
 // This function exists because tableNameFor requires a compile-time type parameter
-// and cannot be used in reflection-driven code paths such as resolveRelationSchema
+// and cannot be used in reflection-driven code paths such as ResolveRelatedSchema
 // and parseRelatedSchemaForAutoPreload.
 func tableNameForType(t reflect.Type) string {
 	tableNamerType := reflect.TypeOf((*TableNamer)(nil)).Elem()

@@ -206,7 +206,7 @@ func (r *repositoryCommon[K, E]) executePreloadNode(
 		return fmt.Errorf("preload relation %q not found", relationPath)
 	}
 
-	relSchema, err := rel.resolveRelationSchema()
+	relSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for preload relation %q: %w", relationPath, err)
 	}
@@ -600,7 +600,7 @@ func (r *repositoryCommon[K, E]) validatePreloadRelations(preloads []preloadEntr
 				return fmt.Errorf("preload relation %q not found on model %s; valid relations: %v", p.relation, currentSchema.entityType.Name(), currentSchema.ValidRelationNames())
 			}
 
-			if relSchema, err = rel.resolveRelationSchema(); err != nil {
+			if relSchema, err = rel.ResolveRelatedSchema(); err != nil {
 				return fmt.Errorf("failed to resolve schema for preload relation %q: %w", p.relation, err)
 			}
 

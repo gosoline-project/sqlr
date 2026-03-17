@@ -57,7 +57,7 @@ func createRelatedBelongsTo(cache *statementCache, q sqlc.Querier, ctx context.C
 			continue
 		}
 
-		nestedSchema, err := rel.resolveRelationSchema()
+		nestedSchema, err := rel.ResolveRelatedSchema()
 		if err != nil {
 			return fmt.Errorf("failed to resolve schema for BelongsTo relation %q: %w", rel.Name, err)
 		}
@@ -117,7 +117,7 @@ func createRelatedForwardAssociations(cache *statementCache, q sqlc.Querier, ctx
 }
 
 func createRelatedHasOne(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
 	}
@@ -151,7 +151,7 @@ func createRelatedHasOne(cache *statementCache, q sqlc.Querier, ctx context.Cont
 }
 
 func createRelatedHasMany(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasMany relation %q: %w", rel.Name, err)
 	}
@@ -191,7 +191,7 @@ func createRelatedHasMany(cache *statementCache, q sqlc.Querier, ctx context.Con
 }
 
 func createRelatedManyToMany(cache *statementCache, q sqlc.Querier, ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, policy *associationSyncPolicy, relationPath string) error {
-	nestedSchema, err := rel.resolveRelationSchema()
+	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for ManyToMany relation %q: %w", rel.Name, err)
 	}
