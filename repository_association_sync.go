@@ -30,13 +30,13 @@ func (s *associationSyncState) leave(key string) {
 	delete(s.active, key)
 }
 
-func syncExistingEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy) error {
-	_, err := syncEntityGraph(cache, q, ctx, schema, entityValue, state, policy, "")
+func syncExistingEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, journal *mutationJournal) error {
+	_, err := syncEntityGraph(cache, q, ctx, schema, entityValue, state, policy, "", journal)
 
 	return err
 }
 
-func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, path string) (any, error) {
+func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, path string, journal *mutationJournal) (any, error) {
 	entityValue = unwrapEntityValue(entityValue)
 	if !entityValue.IsValid() {
 		return nil, fmt.Errorf("invalid entity value for schema %s", schema.TableName)
@@ -55,45 +55,45 @@ func syncEntityGraph(cache *statementCache, q sqlc.Querier, ctx context.Context,
 		defer state.leave(key)
 	}
 
-	if err := syncBelongsToAssociations(cache, q, ctx, schema, entityValue, state, policy, path); err != nil {
+	if err := syncBelongsToAssociations(cache, q, ctx, schema, entityValue, state, policy, path, journal); err != nil {
 		return nil, err
 	}
 
-	pk, err := persistEntityGraphNode(cache, q, ctx, schema, entityValue)
+	pk, err := persistEntityGraphNode(cache, q, ctx, schema, entityValue, journal)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := syncForwardAssociations(cache, q, ctx, schema, entityValue, state, policy, path); err != nil {
+	if err := syncForwardAssociations(cache, q, ctx, schema, entityValue, state, policy, path, journal); err != nil {
 		return nil, err
 	}
 
 	return pk, nil
 }
 
-func persistEntityGraphNode(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) (any, error) {
+func persistEntityGraphNode(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, journal *mutationJournal) (any, error) {
 	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
 	if !pkField.IsZero() {
-		if err := updateStoredEntity(cache, q, ctx, schema, entityValue); err != nil {
+		if err := updateStoredEntity(cache, q, ctx, schema, entityValue, journal); err != nil {
 			return nil, err
 		}
 
 		return pkField.Interface(), nil
 	}
 
-	pk, err := insertRelatedEntity(q, ctx, schema, entityValue)
+	pk, err := insertRelatedEntity(q, ctx, schema, entityValue, journal)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := setEntityPrimaryKey(schema, entityValue, pk); err != nil {
+	if err := setEntityPrimaryKey(schema, entityValue, pk, journal); err != nil {
 		return nil, err
 	}
 
 	return entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface(), nil
 }
 
-func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, parentPath string) error {
+func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, parentPath string, journal *mutationJournal) error {
 	for _, rel := range schema.Relationships {
 		if rel.Type != BelongsTo {
 			continue
@@ -115,7 +115,7 @@ func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx contex
 			return fmt.Errorf("failed to resolve schema for BelongsTo relation %q: %w", rel.Name, err)
 		}
 
-		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, field, state, policy, relationPath); err != nil {
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, field, state, policy, relationPath, journal); err != nil {
 			return fmt.Errorf("failed to synchronize BelongsTo relation %q: %w", rel.Name, err)
 		}
 
@@ -127,7 +127,7 @@ func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx contex
 		}
 
 		fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
-		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey); err != nil {
+		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey, journal); err != nil {
 			return fmt.Errorf("BelongsTo relation %q: %w", rel.Name, err)
 		}
 	}
@@ -135,9 +135,9 @@ func syncBelongsToAssociations(cache *statementCache, q sqlc.Querier, ctx contex
 	return nil
 }
 
-func syncForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, parentPath string) error {
+func syncForwardAssociations(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, state *associationSyncState, policy *associationSyncPolicy, parentPath string, journal *mutationJournal) error {
 	for _, rel := range schema.Relationships {
-		if err := syncForwardAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, parentPath); err != nil {
+		if err := syncForwardAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, parentPath, journal); err != nil {
 			return err
 		}
 	}
@@ -155,6 +155,7 @@ func syncForwardAssociation(
 	state *associationSyncState,
 	policy *associationSyncPolicy,
 	parentPath string,
+	journal *mutationJournal,
 ) error {
 	relationPath := joinAssociationPath(parentPath, rel.Name)
 	if policy != nil && !policy.shouldSyncPath(relationPath) {
@@ -169,19 +170,19 @@ func syncForwardAssociation(
 			return nil
 		}
 
-		return syncHasOneAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath)
+		return syncHasOneAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath, journal)
 	case HasMany:
 		if field.IsNil() {
 			return nil
 		}
 
-		return syncHasManyAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath)
+		return syncHasManyAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath, journal)
 	case ManyToMany:
 		if field.IsNil() {
 			return nil
 		}
 
-		return syncManyToManyAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath)
+		return syncManyToManyAssociation(cache, q, ctx, schema, entityValue, rel, state, policy, relationPath, journal)
 	case BelongsTo:
 		return nil
 	default:
@@ -199,6 +200,7 @@ func syncHasOneAssociation(
 	state *associationSyncState,
 	policy *associationSyncPolicy,
 	relationPath string,
+	journal *mutationJournal,
 ) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
@@ -212,11 +214,11 @@ func syncHasOneAssociation(
 		return fmt.Errorf("HasOne relation %q is nil", rel.Name)
 	}
 
-	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK); err != nil {
+	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK, journal); err != nil {
 		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
 	}
 
-	if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, relField, state, policy, relationPath); err != nil {
+	if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, relField, state, policy, relationPath, journal); err != nil {
 		return fmt.Errorf("failed to synchronize HasOne relation %q: %w", rel.Name, err)
 	}
 
@@ -260,6 +262,7 @@ func syncHasManyAssociation(
 	state *associationSyncState,
 	policy *associationSyncPolicy,
 	relationPath string,
+	journal *mutationJournal,
 ) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
@@ -280,11 +283,11 @@ func syncHasManyAssociation(
 			return fmt.Errorf("HasMany relation %q[%d] is nil", rel.Name, i)
 		}
 
-		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK); err != nil {
+		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK, journal); err != nil {
 			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
-		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state, policy, relationPath); err != nil {
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state, policy, relationPath, journal); err != nil {
 			return fmt.Errorf("failed to synchronize HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
@@ -326,6 +329,7 @@ func syncManyToManyAssociation(
 	state *associationSyncState,
 	policy *associationSyncPolicy,
 	relationPath string,
+	journal *mutationJournal,
 ) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
@@ -333,7 +337,7 @@ func syncManyToManyAssociation(
 	}
 
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
-	desiredKeys, desiredPKs, err := collectDesiredManyToManyTargets(cache, q, ctx, nestedSchema, parentValue.FieldByIndex(rel.FieldIndex), rel, state, policy, relationPath)
+	desiredKeys, desiredPKs, err := collectDesiredManyToManyTargets(cache, q, ctx, nestedSchema, parentValue.FieldByIndex(rel.FieldIndex), rel, state, policy, relationPath, journal)
 	if err != nil {
 		return err
 	}
@@ -371,6 +375,7 @@ func collectDesiredManyToManyTargets(
 	state *associationSyncState,
 	policy *associationSyncPolicy,
 	relationPath string,
+	journal *mutationJournal,
 ) (desiredKeys map[any]struct{}, desiredPKs []any, err error) {
 	desiredKeys = make(map[any]struct{}, sliceField.Len())
 	desiredPKs = make([]any, 0, sliceField.Len())
@@ -381,7 +386,7 @@ func collectDesiredManyToManyTargets(
 			return nil, nil, fmt.Errorf("ManyToMany relation %q[%d] is nil", rel.Name, i)
 		}
 
-		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state, policy, relationPath); err != nil {
+		if _, err := syncEntityGraph(cache, q, ctx, nestedSchema, elem, state, policy, relationPath, journal); err != nil {
 			return nil, nil, fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 

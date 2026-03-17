@@ -98,13 +98,25 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 		return err
 	}
 
+	journal := newMutationJournal()
+
 	if !r.hasAssociationsToSave(entity, policy) {
-		return r.createEntity(r.client, ctx, entity)
+		err = r.createEntity(r.client, ctx, entity, journal)
+		if err != nil {
+			journal.restore()
+		}
+
+		return err
 	}
 
-	return r.client.WithTx(ctx, func(tx sqlc.Tx) error {
-		return r.createEntityWithAssociations(tx, ctx, entity, policy)
+	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
+		return r.createEntityWithAssociations(tx, ctx, entity, policy, journal)
 	})
+	if err != nil {
+		journal.restore()
+	}
+
+	return err
 }
 
 func (r *repository[K, E]) Read(ctx context.Context, id K, opts ...func(qb *QueryBuilderRead)) (*E, error) {
@@ -132,18 +144,28 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 		return nil, err
 	}
 
+	journal := newMutationJournal()
+
 	if !qb.shouldSyncAssociations() {
-		return r.updateEntity(r.client, ctx, entity)
+		updated, err := r.updateEntity(r.client, ctx, entity, journal)
+		if err != nil {
+			journal.restore()
+			return nil, err
+		}
+
+		return updated, nil
 	}
 
 	var updated *E
 
 	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
-		updated, err = r.updateEntityWithAssociations(tx, ctx, entity, policy)
+		updated, err = r.updateEntityWithAssociations(tx, ctx, entity, policy, journal)
 
 		return err
 	})
 	if err != nil {
+		journal.restore()
+
 		return nil, err
 	}
 

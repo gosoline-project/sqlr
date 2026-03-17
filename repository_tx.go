@@ -71,11 +71,23 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 		return err
 	}
 
+	journal := newMutationJournal()
+
 	if !t.hasAssociationsToSave(entity, policy) {
-		return t.createEntity(ttx, ttx, entity)
+		err = t.createEntity(ttx, ttx, entity, journal)
+		if err != nil {
+			journal.restore()
+		}
+
+		return err
 	}
 
-	return t.createEntityWithAssociations(ttx, ttx, entity, policy)
+	err = t.createEntityWithAssociations(ttx, ttx, entity, policy, journal)
+	if err != nil {
+		journal.restore()
+	}
+
+	return err
 }
 
 func (t *repositoryTx[K, E]) Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRead)) (*E, error) {
@@ -102,11 +114,25 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 		return nil, err
 	}
 
+	journal := newMutationJournal()
+
 	if !qb.shouldSyncAssociations() {
-		return t.updateEntity(ttx, ttx, entity)
+		updated, err := t.updateEntity(ttx, ttx, entity, journal)
+		if err != nil {
+			journal.restore()
+			return nil, err
+		}
+
+		return updated, nil
 	}
 
-	return t.updateEntityWithAssociations(ttx, ttx, entity, policy)
+	updated, err := t.updateEntityWithAssociations(ttx, ttx, entity, policy, journal)
+	if err != nil {
+		journal.restore()
+		return nil, err
+	}
+
+	return updated, nil
 }
 
 func (t *repositoryTx[K, E]) Delete(ttx TTx, id K) error {

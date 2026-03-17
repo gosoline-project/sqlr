@@ -8,11 +8,11 @@ import (
 	"github.com/gosoline-project/sqlc"
 )
 
-func setCreateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time) error {
+func setCreateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time, journal *mutationJournal) error {
 	for _, col := range schema.Columns {
 		if col.AutoCreateTime || col.AutoUpdateTime {
 			field := entityValue.FieldByIndex(col.FieldIndex)
-			if err := setFieldValue(field, now, schema.TableName, col.Name); err != nil {
+			if err := setFieldValue(field, now, schema.TableName, col.Name, journal); err != nil {
 				return err
 			}
 		}
@@ -21,11 +21,11 @@ func setCreateTimestamps(entityValue reflect.Value, schema *EntitySchema, now ti
 	return nil
 }
 
-func setUpdateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time) error {
+func setUpdateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time, journal *mutationJournal) error {
 	for _, col := range schema.Columns {
 		if col.AutoUpdateTime {
 			field := entityValue.FieldByIndex(col.FieldIndex)
-			if err := setFieldValue(field, now, schema.TableName, col.Name); err != nil {
+			if err := setFieldValue(field, now, schema.TableName, col.Name, journal); err != nil {
 				return err
 			}
 		}

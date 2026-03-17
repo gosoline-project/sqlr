@@ -816,6 +816,14 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_RollbackOnAsso
 	err := repo.Create(context.Background(), &entity)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "constraint violation")
+	s.Zero(entity.GetId())
+	s.Zero(entity.CreatedAt)
+	s.Zero(entity.UpdatedAt)
+	s.Require().Len(entity.Posts, 1)
+	s.Zero(entity.Posts[0].GetId())
+	s.Zero(entity.Posts[0].AuthorID)
+	s.Zero(entity.Posts[0].CreatedAt)
+	s.Zero(entity.Posts[0].UpdatedAt)
 }
 
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_RollbackOnRelatedInsertError() {
@@ -838,6 +846,13 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_RollbackOnRe
 	err := repo.Create(context.Background(), &entity)
 	s.Require().Error(err)
 	s.Contains(err.Error(), "db error")
+	s.Zero(entity.GetId())
+	s.Zero(entity.AuthorID)
+	s.Zero(entity.CreatedAt)
+	s.Zero(entity.UpdatedAt)
+	s.Zero(entity.Author.GetId())
+	s.Zero(entity.Author.CreatedAt)
+	s.Zero(entity.Author.UpdatedAt)
 }
 
 // --------------------------------------------------------------------------

@@ -225,6 +225,31 @@ func (s *RepositoryCreateTestSuite) TestCreate_LastInsertIDError() {
 	s.Contains(err.Error(), "failed to get last insert id")
 }
 
+func (s *RepositoryCreateTestSuite) TestCreate_Error_RestoresInMemoryState() {
+	now := time.Now()
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Bob", "bob@test.com").
+		WillReturnError(fmt.Errorf("duplicate entry"))
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Bob",
+		Email: "bob@test.com",
+	}
+
+	err := s.repo.Create(context.Background(), &entity)
+
+	s.Require().Error(err)
+	s.Zero(entity.GetId())
+	s.Equal(now, entity.CreatedAt)
+	s.Equal(now, entity.UpdatedAt)
+}
+
 // ==========================================================================
 // Non-Standard Key Types
 // ==========================================================================

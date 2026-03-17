@@ -437,6 +437,56 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToManyPointerEleme
 	s.Require().Error(err)
 	s.Nil(result)
 	s.ErrorContains(err, "ManyToMany relation \"Tags\"[0] is nil")
+	s.Equal(now, entity.UpdatedAt)
+}
+
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_RollbackRestoresParentAndChildState() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Old Post"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(int64(1), postNow, "Updated Post", isTimestamp{}, int64(10)).
+		WillReturnError(errors.New("child update failed"))
+	s.mock.ExpectRollback()
+
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+		Posts: []assocPost{{
+			Entity: sqlr.Entity[int64]{
+				Id:        10,
+				CreatedAt: postNow,
+				UpdatedAt: postNow,
+			},
+			Title: "Updated Post",
+		}},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociations)
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.ErrorContains(err, "child update failed")
+	s.Equal(now, entity.UpdatedAt)
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(postNow, entity.Posts[0].UpdatedAt)
+	s.Equal(int64(0), entity.Posts[0].AuthorID)
 }
 
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_BelongsToWithNullableFK() {

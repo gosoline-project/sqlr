@@ -49,15 +49,15 @@ func associationSyncKey(schema *EntitySchema, entityValue reflect.Value) (string
 	return "", false
 }
 
-func setEntityPrimaryKey(schema *EntitySchema, entityValue reflect.Value, pk any) error {
+func setEntityPrimaryKey(schema *EntitySchema, entityValue reflect.Value, pk any, journal *mutationJournal) error {
 	pkField := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex)
 
-	return setFieldValue(pkField, pk, schema.TableName, schema.PrimaryKey.Name)
+	return setFieldValue(pkField, pk, schema.TableName, schema.PrimaryKey.Name, journal)
 }
 
-func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value) error {
+func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, journal *mutationJournal) error {
 	now := time.Now()
-	if err := setUpdateTimestamps(entityValue, schema, now); err != nil {
+	if err := setUpdateTimestamps(entityValue, schema, now, journal); err != nil {
 		return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
 	}
 	setMap, pkValue := buildUpdateSetMap(entityValue, schema)
@@ -78,7 +78,7 @@ func updateStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Conte
 	return nil
 }
 
-func updateStoredEntityForeignKey(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, fkColName string) error {
+func updateStoredEntityForeignKey(cache *statementCache, q sqlc.Querier, ctx context.Context, schema *EntitySchema, entityValue reflect.Value, fkColName string, journal *mutationJournal) error {
 	fkCol, ok := schema.ColumnByName(fkColName)
 	if !ok {
 		return fmt.Errorf("FK column %q not found in schema for %s", fkColName, schema.TableName)
@@ -95,7 +95,7 @@ func updateStoredEntityForeignKey(cache *statementCache, q sqlc.Querier, ctx con
 		}
 
 		field := entityValue.FieldByIndex(col.FieldIndex)
-		if err := setFieldValue(field, now, schema.TableName, col.Name); err != nil {
+		if err := setFieldValue(field, now, schema.TableName, col.Name, journal); err != nil {
 			return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
 		}
 
@@ -211,7 +211,7 @@ func deleteStoredEntity(cache *statementCache, q sqlc.Querier, ctx context.Conte
 	return nil
 }
 
-func setRelatedFK(entityValue reflect.Value, schema *EntitySchema, fkColName string, parentPK any) error {
+func setRelatedFK(entityValue reflect.Value, schema *EntitySchema, fkColName string, parentPK any, journal *mutationJournal) error {
 	fkCol, ok := schema.ColumnByName(fkColName)
 	if !ok {
 		return fmt.Errorf("FK column %q not found in schema for %s", fkColName, schema.TableName)
@@ -219,10 +219,10 @@ func setRelatedFK(entityValue reflect.Value, schema *EntitySchema, fkColName str
 
 	fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
 
-	return setFieldValue(fkField, parentPK, schema.TableName, fkColName)
+	return setFieldValue(fkField, parentPK, schema.TableName, fkColName, journal)
 }
 
-func setFieldValue(field reflect.Value, value any, tableName string, columnName string) error {
+func setFieldValue(field reflect.Value, value any, tableName string, columnName string, journal *mutationJournal) error {
 	valueRef := reflect.ValueOf(value)
 	if !valueRef.IsValid() {
 		return fmt.Errorf("invalid value for %s.%s", tableName, columnName)
@@ -237,7 +237,7 @@ func setFieldValue(field reflect.Value, value any, tableName string, columnName 
 	}
 
 	if field.Kind() == reflect.Ptr {
-		return setPointerFieldValue(field, valueRef, tableName, columnName)
+		return setPointerFieldValue(field, valueRef, tableName, columnName, journal)
 	}
 
 	if valueRef.Kind() == reflect.Ptr {
@@ -252,20 +252,32 @@ func setFieldValue(field reflect.Value, value any, tableName string, columnName 
 		return fmt.Errorf("value type %s is not convertible to field type %s for %s.%s", valueRef.Type(), field.Type(), tableName, columnName)
 	}
 
+	if err := journal.record(field); err != nil {
+		return fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
+	}
+
 	field.Set(valueRef.Convert(field.Type()))
 
 	return nil
 }
 
-func setPointerFieldValue(field reflect.Value, valueRef reflect.Value, tableName string, columnName string) error {
+func setPointerFieldValue(field reflect.Value, valueRef reflect.Value, tableName string, columnName string, journal *mutationJournal) error {
 	if valueRef.Kind() == reflect.Ptr {
 		if valueRef.IsNil() {
+			if err := journal.record(field); err != nil {
+				return fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
+			}
+
 			field.Set(reflect.Zero(field.Type()))
 
 			return nil
 		}
 
 		if valueRef.Type().ConvertibleTo(field.Type()) {
+			if err := journal.record(field); err != nil {
+				return fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
+			}
+
 			field.Set(valueRef.Convert(field.Type()))
 
 			return nil
@@ -276,6 +288,10 @@ func setPointerFieldValue(field reflect.Value, valueRef reflect.Value, tableName
 
 	if !valueRef.Type().ConvertibleTo(field.Type().Elem()) {
 		return fmt.Errorf("value type %s is not convertible to field type %s for %s.%s", valueRef.Type(), field.Type(), tableName, columnName)
+	}
+
+	if err := journal.record(field); err != nil {
+		return fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
 	}
 
 	ptr := reflect.New(field.Type().Elem())

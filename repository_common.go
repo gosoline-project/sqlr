@@ -66,19 +66,19 @@ func applyOptions[T any](builder T, opts []func(T)) T {
 // All operations must be executed within a transaction so that a failure at any step
 // rolls back the entire tree. The caller is responsible for providing a transaction
 // querier (q) and a non-nil ttx when association saves are required.
-func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy) error {
+func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy, journal *mutationJournal) error {
 	// Phase 1: persist BelongsTo relations and set their FKs on the parent.
-	if err := r.saveBelongsToAssociations(q, ctx, entity, policy); err != nil {
+	if err := r.saveBelongsToAssociations(q, ctx, entity, policy, journal); err != nil {
 		return err
 	}
 
 	// Phase 2: persist the parent entity row.
-	if err := r.createEntity(q, ctx, entity); err != nil {
+	if err := r.createEntity(q, ctx, entity, journal); err != nil {
 		return err
 	}
 
 	// Phase 3 + 4: persist HasOne, HasMany, and ManyToMany relations.
-	return r.saveAssociations(q, ctx, entity, policy)
+	return r.saveAssociations(q, ctx, entity, policy, journal)
 }
 
 // createEntity persists a new entity to the database. It extracts insert column
@@ -86,7 +86,7 @@ func (r *repositoryCommon[K, E]) createEntityWithAssociations(q sqlc.Querier, ct
 // an auto-increment primary key back on the entity when applicable.
 // Relationship fields are not persisted; use createEntityWithAssociations to also
 // persist populated association fields.
-func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E) error {
+func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E, journal *mutationJournal) error {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return err
@@ -95,7 +95,7 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 	now := time.Now()
 
 	insertCols := r.schema.InsertColumns()
-	if err := setCreateTimestamps(rv, r.schema, now); err != nil {
+	if err := setCreateTimestamps(rv, r.schema, now, journal); err != nil {
 		return fmt.Errorf("failed to set create timestamps: %w", err)
 	}
 	vals := buildInsertValues(rv, r.schema)
@@ -125,12 +125,17 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 			return fmt.Errorf("failed to set primary key: %w", err)
 		}
 
+		pkField := rv.FieldByIndex(r.schema.PrimaryKey.FieldIndex)
+		if err := journal.record(pkField); err != nil {
+			return fmt.Errorf("failed to record primary key before mutation: %w", err)
+		}
+
 		setter.SetId(key)
 
 		return nil
 	}
 
-	if err := setEntityPrimaryKey(r.schema, rv, lastID); err != nil {
+	if err := setEntityPrimaryKey(r.schema, rv, lastID, journal); err != nil {
 		return fmt.Errorf("failed to set primary key: %w", err)
 	}
 
@@ -211,7 +216,7 @@ func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.
 // updateEntity saves all fields of the given entity back to the database. It builds
 // a column-value map from the entity using reflection and executes an UPDATE via sqlc.
 // Relationship fields are not synchronized; Update is intentionally not cascade-aware.
-func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E) (*E, error) {
+func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E, journal *mutationJournal) (*E, error) {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return nil, err
@@ -223,7 +228,7 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 
 	now := time.Now()
 
-	if err := setUpdateTimestamps(rv, r.schema, now); err != nil {
+	if err := setUpdateTimestamps(rv, r.schema, now, journal); err != nil {
 		return nil, fmt.Errorf("failed to set update timestamps: %w", err)
 	}
 	setMap, pkValue := buildUpdateSetMap(rv, r.schema)
@@ -251,7 +256,7 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 // QueryBuilderUpdate. BelongsTo relations are synchronized first so the parent's
 // foreign keys are current before the root row is updated. HasOne, HasMany, and
 // ManyToMany relations are synchronized afterwards.
-func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy) (*E, error) {
+func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ctx context.Context, entity *E, policy *associationSyncPolicy, journal *mutationJournal) (*E, error) {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return nil, err
@@ -259,7 +264,7 @@ func (r *repositoryCommon[K, E]) updateEntityWithAssociations(q sqlc.Querier, ct
 
 	state := newAssociationSyncState()
 
-	if err := syncExistingEntityGraph(r.statementCache, q, ctx, r.schema, rv, state, policy); err != nil {
+	if err := syncExistingEntityGraph(r.statementCache, q, ctx, r.schema, rv, state, policy, journal); err != nil {
 		return nil, err
 	}
 

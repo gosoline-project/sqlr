@@ -274,7 +274,7 @@ func hydrateScannedJoinRelations(columns []string, relationStates []joinRelation
 		relationPresent[targetInfo.relationIndex] = true
 		relState := relationStates[targetInfo.relationIndex]
 		relField := relState.value.FieldByIndex(targetInfo.relationFieldIndex)
-		if err := setFieldValue(relField, scanned, relState.joinInfo.schema.TableName, targetInfo.relationColumnName); err != nil {
+		if err := setFieldValue(relField, scanned, relState.joinInfo.schema.TableName, targetInfo.relationColumnName, nil); err != nil {
 			return nil, fmt.Errorf("failed to hydrate joined relation %q column %q: %w", relState.name, targetInfo.relationColumnName, err)
 		}
 	}

@@ -118,6 +118,37 @@ func TestRepositoryTxCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId(t
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestRepositoryTxCreate_Error_RestoresInMemoryState(t *testing.T) {
+	client, mock := newTestClient(t)
+
+	repo := mustNewTxRepo[int64, testUser](t, client)
+	now := time.Now()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice", "alice@test.com").
+		WillReturnError(errors.New("insert failed"))
+	mock.ExpectRollback()
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Alice",
+		Email: "alice@test.com",
+	}
+
+	err := runWithTx(context.Background(), client, func(ttx sqlr.TTx) error {
+		return repo.Create(ttx, &entity)
+	})
+	require.Error(t, err)
+	require.Equal(t, now, entity.CreatedAt)
+	require.Equal(t, now, entity.UpdatedAt)
+	require.Zero(t, entity.GetId())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 type RepositoryTxCrudTestSuite struct {
 	suite.Suite
 	client      sqlc.Client
