@@ -578,8 +578,7 @@ func assignM2MRelations(parents []reflect.Value, parentSchema *EntitySchema, rel
 }
 
 // validatePreloadRelations checks that every preload relation referenced in the
-// query exists on the entity's schema. Dotted relation paths (e.g.
-// "Posts.Comments") are resolved step by step through nested schemas. Unlike join
+// query resolves through the schema's relation-path validator. Unlike join
 // validation, many-to-many associations are allowed because preloads execute
 // separate queries and handle them correctly.
 func (r *repositoryCommon[K, E]) validatePreloadRelations(preloads []preloadEntry) error {
@@ -588,7 +587,7 @@ func (r *repositoryCommon[K, E]) validatePreloadRelations(preloads []preloadEntr
 	}
 
 	for _, p := range preloads {
-		if _, _, err := r.schema.ResolveRelationPath(p.relation); err != nil {
+		if err := r.schema.ValidateRelationPath(p.relation); err != nil {
 			return wrapRelationPathError("preload relation", p.relation, err)
 		}
 	}

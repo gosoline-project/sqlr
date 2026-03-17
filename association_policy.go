@@ -80,15 +80,23 @@ func (p *associationSyncPolicy) validate(schema *EntitySchema) error {
 	}
 
 	for _, path := range p.syncPaths {
-		if _, _, err := schema.ResolveRelationPath(path); err != nil {
-			return fmt.Errorf("invalid sync association path %q: %w", path, err)
+		if err := validateAssociationPath(schema, path, "invalid sync association path"); err != nil {
+			return err
 		}
 	}
 
 	for _, path := range p.omitPaths {
-		if _, _, err := schema.ResolveRelationPath(path); err != nil {
-			return fmt.Errorf("invalid omit association path %q: %w", path, err)
+		if err := validateAssociationPath(schema, path, "invalid omit association path"); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+func validateAssociationPath(schema *EntitySchema, path string, context string) error {
+	if err := schema.ValidateRelationPath(path); err != nil {
+		return fmt.Errorf("%s %q: %w", context, path, err)
 	}
 
 	return nil

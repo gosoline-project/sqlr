@@ -94,6 +94,16 @@ func (s *EntitySchema) ResolveRelationPath(path string) (*Relationship, *EntityS
 	return rel, relSchema, nil
 }
 
+// ValidateRelationPath resolves a dotted relation path against the schema and
+// returns an error when the path is malformed, unknown, or its related schema
+// cannot be resolved. It is a convenience wrapper for callers that only need to
+// validate relation paths and not inspect the resolved relationship metadata.
+func (s *EntitySchema) ValidateRelationPath(path string) error {
+	_, _, err := s.ResolveRelationPath(path)
+
+	return err
+}
+
 func splitRelationPath(path string) ([]string, error) {
 	if path == "" {
 		return nil, &relationPathError{kind: errRelationPathEmpty}

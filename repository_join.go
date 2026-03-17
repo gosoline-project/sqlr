@@ -505,9 +505,8 @@ func scanDestForJoinColumn(rv reflect.Value, relationStates []joinRelationState,
 }
 
 // validateJoinRelations checks that every join relation referenced in the query
-// exists in the schema and is not ManyToMany. Nested/dotted join paths are
-// validated segment-by-segment, but join execution is limited to direct relations;
-// use Preload for nested relation loading.
+// exists in the schema and is not ManyToMany. Join execution is limited to
+// direct relations; use Preload for nested relation loading.
 func (r *repositoryCommon[K, E]) validateJoinRelations(joins []joinEntry) error {
 	seenRelations := make(map[string]struct{}, len(joins))
 
