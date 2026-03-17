@@ -3,6 +3,7 @@ package sqlr_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"testing"
 	"time"
@@ -442,6 +443,43 @@ func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_NotFound() 
 	s.Require().Error(err)
 	s.Nil(result)
 	s.True(errors.Is(err, sqlr.ErrNotFound))
+}
+
+func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_PrepareError() {
+	readSQL := "SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"
+
+	s.mock.ExpectPrepare(regexp.QuoteMeta(readSQL)).
+		WillReturnError(fmt.Errorf("prepare failed"))
+
+	result, err := s.repo.Read(context.Background(), 1)
+
+	s.Nil(result)
+	s.Require().EqualError(err, "failed to read entity: failed to prepare statement: prepare failed")
+}
+
+func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_CloseError() {
+	client, mock := newTestClient(s.T())
+	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})
+
+	now := time.Now()
+	readSQL := "SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"
+
+	mock.ExpectPrepare(regexp.QuoteMeta(readSQL))
+
+	mock.ExpectQuery(regexp.QuoteMeta(readSQL)).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
+			AddRow(1, now, now, "Alice", "alice@test.com"))
+
+	result, err := repo.Read(context.Background(), 1)
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+
+	forceFirstCachedStmtCloseError(s.T(), repo, fmt.Errorf("close failed"))
+
+	err = repo.Close()
+	s.Require().EqualError(err, "failed to close prepared statement: close failed")
+	s.Require().NoError(mock.ExpectationsWereMet())
 }
 
 // ==========================================================================

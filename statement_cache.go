@@ -100,20 +100,23 @@ func (c *statementCache) do(
 		return doDirect(sql, args)
 	}
 
+	var stmt *sqlc.Stmt
+	var ok bool
+
 	c.Lock()
-	if _, ok := c.cache[sql]; !ok {
-		if c.cache[sql], err = c.client.Prepare(ctx, sql); err != nil {
+	if stmt, ok = c.cache[sql]; !ok {
+		if stmt, err = c.client.Prepare(ctx, sql); err != nil {
 			c.Unlock()
 
 			return nil, nil, fmt.Errorf("failed to prepare statement: %w", err)
 		}
-	}
 
-	stmt := c.cache[sql]
+		c.cache[sql] = stmt
+	}
 	c.Unlock()
 
 	if tx, ok := q.(sqlc.Tx); ok {
-		stmt = tx.SqlTx().StmtxContext(ctx, c.cache[sql])
+		stmt = tx.SqlTx().StmtxContext(ctx, stmt)
 	}
 
 	return doPrepared(stmt, args)

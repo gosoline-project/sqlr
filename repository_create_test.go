@@ -372,3 +372,46 @@ func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_Error()
 	s.Require().Error(err)
 	s.Contains(err.Error(), "failed to create entity")
 }
+
+func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_PrepareError() {
+	createSQL := "INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)"
+
+	s.mock.ExpectPrepare(regexp.QuoteMeta(createSQL)).
+		WillReturnError(fmt.Errorf("prepare failed"))
+
+	entity := testUser{
+		Name:  "Charlie",
+		Email: "charlie@test.com",
+	}
+
+	err := s.repo.Create(context.Background(), &entity)
+
+	s.Require().EqualError(err, "failed to create entity: failed to prepare statement: prepare failed")
+}
+
+func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_CloseError() {
+	client, mock := newTestClient(s.T())
+	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})
+
+	createSQL := "INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)"
+
+	mock.ExpectPrepare(regexp.QuoteMeta(createSQL))
+
+	mock.ExpectExec(regexp.QuoteMeta(createSQL)).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Charlie", "charlie@test.com").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	entity := testUser{
+		Name:  "Charlie",
+		Email: "charlie@test.com",
+	}
+
+	err := repo.Create(context.Background(), &entity)
+	s.Require().NoError(err)
+
+	forceFirstCachedStmtCloseError(s.T(), repo, fmt.Errorf("close failed"))
+
+	err = repo.Close()
+	s.Require().EqualError(err, "failed to close prepared statement: close failed")
+	s.Require().NoError(mock.ExpectationsWereMet())
+}

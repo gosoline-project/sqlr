@@ -216,3 +216,36 @@ func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_Error()
 	s.Require().Error(err)
 	s.Contains(err.Error(), "failed to delete entity")
 }
+
+func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_PrepareError() {
+	deleteSQL := "DELETE FROM `test_users` WHERE `id` = ?"
+
+	s.mock.ExpectPrepare(regexp.QuoteMeta(deleteSQL)).
+		WillReturnError(fmt.Errorf("prepare failed"))
+
+	err := s.repo.Delete(context.Background(), 1)
+
+	s.Require().EqualError(err, "failed to delete entity: failed to prepare statement: prepare failed")
+}
+
+func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_CloseError() {
+	client, mock := newTestClient(s.T())
+	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})
+
+	deleteSQL := "DELETE FROM `test_users` WHERE `id` = ?"
+
+	mock.ExpectPrepare(regexp.QuoteMeta(deleteSQL))
+
+	mock.ExpectExec(regexp.QuoteMeta(deleteSQL)).
+		WithArgs(int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := repo.Delete(context.Background(), 1)
+	s.Require().NoError(err)
+
+	forceFirstCachedStmtCloseError(s.T(), repo, fmt.Errorf("close failed"))
+
+	err = repo.Close()
+	s.Require().EqualError(err, "failed to close prepared statement: close failed")
+	s.Require().NoError(mock.ExpectationsWereMet())
+}

@@ -2,8 +2,10 @@ package sqlr_test
 
 import (
 	"database/sql/driver"
+	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gosoline-project/sqlc"
@@ -538,6 +540,35 @@ func mustNewRepoWithSettings[K sqlr.KeyTypes, E sqlr.Entitier[K]](t *testing.T, 
 	require.NoError(t, err)
 
 	return repo
+}
+
+func forceFirstCachedStmtCloseError(t testing.TB, repo any, closeErr error) {
+	t.Helper()
+
+	repoValue := reflect.ValueOf(repo)
+	if repoValue.Kind() == reflect.Pointer {
+		repoValue = repoValue.Elem()
+	}
+
+	commonValue := unsafeReflectValue(repoValue.FieldByName("repositoryCommon"))
+	statementCacheValue := unsafeReflectValue(commonValue.FieldByName("statementCache"))
+	cacheValue := unsafeReflectValue(statementCacheValue.Elem().FieldByName("cache"))
+	cache := cacheValue.Interface().(map[string]*sqlx.Stmt)
+
+	for _, stmt := range cache {
+		stmtValue := reflect.ValueOf(stmt).Elem()
+		sqlStmtValue := stmtValue.FieldByName("Stmt").Elem()
+		stickyErrValue := unsafeReflectValue(sqlStmtValue.FieldByName("stickyErr"))
+		stickyErrValue.Set(reflect.ValueOf(closeErr))
+
+		return
+	}
+
+	t.Fatal("no cached prepared statement found")
+}
+
+func unsafeReflectValue(value reflect.Value) reflect.Value {
+	return reflect.NewAt(value.Type(), unsafe.Pointer(value.UnsafeAddr())).Elem()
 }
 
 // ==========================================================================

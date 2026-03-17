@@ -417,3 +417,60 @@ func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_NotFoun
 	s.Nil(result)
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
+
+func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_PrepareError() {
+	now := time.Now()
+	updateSQL := "UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"
+
+	s.mock.ExpectPrepare(regexp.QuoteMeta(updateSQL)).
+		WillReturnError(fmt.Errorf("prepare failed"))
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Alice",
+		Email: "alice@test.com",
+	}
+
+	result, err := s.repo.Update(context.Background(), &entity)
+
+	s.Nil(result)
+	s.Require().EqualError(err, "failed to update entity: failed to prepare statement: prepare failed")
+}
+
+func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_CloseError() {
+	client, mock := newTestClient(s.T())
+	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})
+
+	now := time.Now()
+	updateSQL := "UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"
+
+	mock.ExpectPrepare(regexp.QuoteMeta(updateSQL))
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Alice Updated",
+		Email: "alice-updated@test.com",
+	}
+
+	mock.ExpectExec(regexp.QuoteMeta(updateSQL)).
+		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	result, err := repo.Update(context.Background(), &entity)
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+
+	forceFirstCachedStmtCloseError(s.T(), repo, fmt.Errorf("close failed"))
+
+	err = repo.Close()
+	s.Require().EqualError(err, "failed to close prepared statement: close failed")
+	s.Require().NoError(mock.ExpectationsWereMet())
+}
