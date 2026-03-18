@@ -50,8 +50,8 @@ func syncAllAssociationsDisableAutoUpdates(qb *sqlr.QueryBuilderUpdate) {
 	qb.SyncAllAssociations().DisableAutoUpdates()
 }
 
-func syncAllAssociationsWithManyToManyEntities(qb *sqlr.QueryBuilderUpdate) {
-	qb.SyncAllAssociations().SyncManyToManyEntities("Tags")
+func syncAllAssociationsWithMany2many(qb *sqlr.QueryBuilderUpdate) {
+	qb.SyncAllAssociations().SyncMany2many("Tags")
 }
 
 // TestUpdate_Default_DoesNotSynchronizePopulatedAssociations verifies that Update does not synchronize populated associations by default.
@@ -496,7 +496,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_FullEntityS
 		},
 	}
 
-	result, err := repo.Update(context.Background(), &entity, syncAllAssociationsWithManyToManyEntities)
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociationsWithMany2many)
 
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
@@ -807,6 +807,124 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_OnlySy
 	s.Equal(int64(0), result.Profile.AuthorID)
 }
 
+// TestUpdate_SyncUpdateTag_OnlySynchronizesTaggedRelation verifies that
+// syncUpdate tags enable association sync by default for tagged paths.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncUpdateTag_OnlySynchronizesTaggedRelation() {
+	repo := mustNewRepo[int64, assocAuthorSyncUpdateDefaults](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_author_sync_update_defaults` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Old Post"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(int64(1), postNow, "Updated Post", isTimestamp{}, int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthorSyncUpdateDefaults{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+		Posts: []assocPost{{
+			Entity: sqlr.Entity[int64]{
+				Id:        10,
+				CreatedAt: postNow,
+				UpdatedAt: postNow,
+			},
+			Title: "Updated Post",
+		}},
+		Profile: assocProfile{Bio: "ignore me"},
+	}
+
+	result, err := repo.Update(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Len(result.Posts, 1)
+	s.Equal(int64(10), result.Posts[0].GetId())
+	s.Equal(int64(1), result.Posts[0].AuthorID)
+	s.Equal(int64(0), result.Profile.GetId())
+	s.Equal(int64(0), result.Profile.AuthorID)
+}
+
+// TestUpdate_SyncUpdateTag_ManyToManyDefaultsFullEntitySync verifies that
+// syncUpdate and syncMany2many tags activate full many-to-many entity
+// synchronization without per-call query-builder options.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncUpdateTag_ManyToManyDefaultsFullEntitySync() {
+	repo := mustNewRepo[int64, assocArticleSyncUpdateDefaults](s.T(), s.client)
+	now := time.Now()
+	tagNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_article_sync_update_defaults` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_tags` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(tagNow, "golang-updated", isTimestamp{}, int64(100)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "new-tag").
+		WillReturnResult(sqlmock.NewResult(102, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_article_sync_update_default_tags` WHERE `assoc_article_sync_update_default_tags`.`assoc_article_sync_update_defaults_id` = ?")).
+		WithArgs(int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_sync_update_defaults_id", "assoc_tag_id"}).
+			AddRow(int64(2), int64(100)).
+			AddRow(int64(2), int64(101)))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_article_sync_update_default_tags` WHERE `assoc_article_sync_update_defaults_id` = ? AND `assoc_tag_id` = ?")).
+		WithArgs(int64(2), int64(101)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT IGNORE INTO `assoc_article_sync_update_default_tags` (`assoc_article_sync_update_defaults_id`, `assoc_tag_id`) VALUES (?, ?)")).
+		WithArgs(int64(2), int64(102)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocArticleSyncUpdateDefaults{
+		Entity: sqlr.Entity[int64]{
+			Id:        2,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Title: "Go Tips Updated",
+		Tags: []assocTag{
+			{
+				Entity: sqlr.Entity[int64]{
+					Id:        100,
+					CreatedAt: tagNow,
+					UpdatedAt: tagNow,
+				},
+				Name: "golang-updated",
+			},
+			{Name: "new-tag"},
+		},
+	}
+
+	result, err := repo.Update(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Len(result.Tags, 2)
+	s.Equal(int64(100), result.Tags[0].GetId())
+	s.Equal(int64(102), result.Tags[1].GetId())
+}
+
 // TestUpdate_SyncAllAssociations_OmitAssociation_SkipsOmittedRelation verifies that Update skips omitted relations even when syncing all associations.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_OmitAssociation_SkipsOmittedRelation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
@@ -860,8 +978,8 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_Invali
 	s.ErrorContains(err, "invalid sync association path \"Unknown\"")
 }
 
-// TestUpdate_SyncManyToManyEntities_InvalidPathReturnsError verifies that Update rejects invalid many-to-many entity sync paths.
-func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities_InvalidPathReturnsError() {
+// TestUpdate_SyncMany2many_InvalidPathReturnsError verifies that Update rejects invalid many2many sync paths.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncMany2many_InvalidPathReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
 	entity := assocAuthor{
@@ -874,16 +992,16 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities
 	}
 
 	result, err := repo.Update(context.Background(), &entity, func(qb *sqlr.QueryBuilderUpdate) {
-		qb.SyncManyToManyEntities("Unknown")
+		qb.SyncMany2many("Unknown")
 	})
 
 	s.Require().Error(err)
 	s.Nil(result)
-	s.ErrorContains(err, "invalid many-to-many sync association path \"Unknown\"")
+	s.ErrorContains(err, "invalid many2many sync association path \"Unknown\"")
 }
 
-// TestUpdate_SyncManyToManyEntities_NonManyToManyPathReturnsError verifies that Update rejects many-to-many entity sync paths for non-many-to-many relations.
-func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities_NonManyToManyPathReturnsError() {
+// TestUpdate_SyncMany2many_NonManyToManyPathReturnsError verifies that Update rejects many2many sync paths for non-many-to-many relations.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncMany2many_NonManyToManyPathReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
 	entity := assocAuthor{
@@ -896,12 +1014,12 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities
 	}
 
 	result, err := repo.Update(context.Background(), &entity, func(qb *sqlr.QueryBuilderUpdate) {
-		qb.SyncManyToManyEntities("Posts")
+		qb.SyncMany2many("Posts")
 	})
 
 	s.Require().Error(err)
 	s.Nil(result)
-	s.ErrorContains(err, "invalid many-to-many sync association path \"Posts\": relation is not many-to-many")
+	s.ErrorContains(err, "invalid many2many sync association path \"Posts\": relation is not many-to-many")
 }
 
 // TestUpdate_SyncAllAssociations_MissingParentReturnsNotFound verifies that Update returns ErrNotFound for missing parent with sync-all-associations enabled.

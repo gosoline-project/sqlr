@@ -61,6 +61,37 @@ type schemaCacheAuthor struct {
 	Comments []schemaCacheComment `db:"-,foreignKey:author_id,preload"`
 }
 
+type schemaSyncDefaultsComment struct {
+	ID     int64  `db:"id,primaryKey"`
+	PostID int64  `db:"post_id"`
+	Body   string `db:"body"`
+}
+
+type schemaSyncDefaultsPost struct {
+	ID       int64                       `db:"id,primaryKey"`
+	AuthorID int64                       `db:"author_id"`
+	Title    string                      `db:"title"`
+	Comments []schemaSyncDefaultsComment `db:"-,foreignKey:post_id,syncUpdate"`
+}
+
+type schemaSyncDefaultsTag struct {
+	ID   int64  `db:"id,primaryKey"`
+	Name string `db:"name"`
+}
+
+type schemaSyncDefaultsAuthor struct {
+	ID    int64                    `db:"id,primaryKey"`
+	Name  string                   `db:"name"`
+	Posts []schemaSyncDefaultsPost `db:"-,foreignKey:author_id,syncCreate,syncUpdate"`
+	Tags  []schemaSyncDefaultsTag  `db:"-,many2many:author_tags,syncUpdate,syncMany2many"`
+}
+
+type schemaInvalidSyncMany2manyRelation struct {
+	ID    int64                 `db:"id,primaryKey"`
+	Name  string                `db:"name"`
+	Posts []schemaBelongsToPost `db:"-,foreignKey:author_id,syncMany2many"`
+}
+
 // schemaTableNamerRelated is used by the ResolveRelatedSchema TableNamer test
 // and as a field type in schemaInvalidBelongsToRelated.
 type schemaTableNamerRelated struct {
@@ -445,6 +476,9 @@ func TestParseSchema_CachesDerivedValues(t *testing.T) {
 	assert.Equal(t, []any{"id", "name"}, schema.allColumnsAny)
 	assert.Equal(t, schema.qualifiedColumns, schema.QualifiedColumns())
 	assert.Equal(t, schema.autoPreloads, schema.AutoPreloads())
+	assert.Equal(t, schema.autoSyncCreates, schema.AutoSyncCreatePaths())
+	assert.Equal(t, schema.autoSyncUpdates, schema.AutoSyncUpdatePaths())
+	assert.Equal(t, schema.autoSyncMany2many, schema.AutoSyncMany2manyPaths())
 }
 
 // TestValidRelationNames_SortedOutput verifies that ValidRelationNames returns
@@ -606,6 +640,37 @@ func TestParseSchema_ManyToMany_Relationship(t *testing.T) {
 	assert.Equal(t, "", rel.ForeignKey)
 }
 
+// TestParseSchema_RelationshipSyncOptions verifies that relationship sync tag
+// options are parsed onto relationship metadata and cached schema defaults.
+func TestParseSchema_RelationshipSyncOptions(t *testing.T) {
+	schema, err := ParseSchema[schemaSyncDefaultsAuthor]()
+	require.NoError(t, err)
+
+	postsRel, ok := schema.Relationships["Posts"]
+	require.True(t, ok)
+	assert.True(t, postsRel.SyncCreate)
+	assert.True(t, postsRel.SyncUpdate)
+	assert.False(t, postsRel.SyncMany2many)
+
+	tagsRel, ok := schema.Relationships["Tags"]
+	require.True(t, ok)
+	assert.False(t, tagsRel.SyncCreate)
+	assert.True(t, tagsRel.SyncUpdate)
+	assert.True(t, tagsRel.SyncMany2many)
+
+	assert.Equal(t, []string{"Posts"}, schema.AutoSyncCreatePaths())
+	assert.Equal(t, []string{"Posts", "Posts.Comments", "Tags"}, schema.AutoSyncUpdatePaths())
+	assert.Equal(t, []string{"Tags"}, schema.AutoSyncMany2manyPaths())
+}
+
+// TestParseSchema_SyncMany2manyOnNonManyToManyRejected verifies that
+// syncMany2many may only be used on many-to-many relations.
+func TestParseSchema_SyncMany2manyOnNonManyToManyRejected(t *testing.T) {
+	_, err := ParseSchema[schemaInvalidSyncMany2manyRelation]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "relationship Posts uses syncMany2many but is not many-to-many")
+}
+
 // TestParseSchema_PointerCollectionRelationships verifies that pointer-element
 // slices are accepted for HasMany and ManyToMany relations and resolve the same
 // related entity type as value-element slices.
@@ -722,13 +787,13 @@ func TestParseSchema_AutoPreloadsCircular(t *testing.T) {
 	}, schema.AutoPreloads())
 }
 
-// TestParseSchema_AutoPreloadsInvalidRelatedSchema verifies that auto-preload
-// schema parsing now runs through the shared type-based parser and therefore
+// TestParseSchema_AutoPreloadsInvalidRelatedSchema verifies that derived schema
+// default collection now runs through the shared type-based parser and therefore
 // preserves primary-key validation for related entities.
 func TestParseSchema_AutoPreloadsInvalidRelatedSchema(t *testing.T) {
 	_, err := ParseSchema[schemaAutoPreloadParentWithInvalidChild]()
 	require.Error(t, err)
-	require.ErrorContains(t, err, "failed to collect auto-preloads")
+	require.ErrorContains(t, err, "failed to collect schema defaults")
 	require.ErrorContains(t, err, "related entity type schemaAutoPreloadChildNoPrimaryKey has no primary key")
 }
 

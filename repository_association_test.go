@@ -26,6 +26,24 @@ type assocAuthor struct {
 	Profile assocProfile `db:"-,foreignKey:author_id"`
 }
 
+type assocAuthorSyncCreateDefaults struct {
+	sqlr.Entity[int64]
+	Name    string       `db:"name"`
+	Posts   []assocPost  `db:"-,foreignKey:author_id,syncCreate"`
+	Profile assocProfile `db:"-,foreignKey:author_id"`
+}
+
+func (assocAuthorSyncCreateDefaults) TableName() string { return "assoc_author_sync_create_defaults" }
+
+type assocAuthorSyncUpdateDefaults struct {
+	sqlr.Entity[int64]
+	Name    string       `db:"name"`
+	Posts   []assocPost  `db:"-,foreignKey:author_id,syncUpdate"`
+	Profile assocProfile `db:"-,foreignKey:author_id"`
+}
+
+func (assocAuthorSyncUpdateDefaults) TableName() string { return "assoc_author_sync_update_defaults" }
+
 type assocAuthorWithPointerProfile struct {
 	sqlr.Entity[int64]
 	Name    string        `db:"name"`
@@ -67,6 +85,14 @@ type assocArticle struct {
 	Title string     `db:"title"`
 	Tags  []assocTag `db:"-,many2many:assoc_article_tags"`
 }
+
+type assocArticleSyncUpdateDefaults struct {
+	sqlr.Entity[int64]
+	Title string     `db:"title"`
+	Tags  []assocTag `db:"-,many2many:assoc_article_sync_update_default_tags,syncUpdate,syncMany2many"`
+}
+
+func (assocArticleSyncUpdateDefaults) TableName() string { return "assoc_article_sync_update_defaults" }
 
 type assocArticleWithPointerTags struct {
 	sqlr.Entity[int64]
@@ -407,6 +433,35 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_OnlyCr
 	}
 
 	s.Require().NoError(repo.Create(context.Background(), &entity, syncCreatePosts))
+	s.Equal(int64(1), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(10), entity.Posts[0].GetId())
+	s.Equal(int64(1), entity.Posts[0].AuthorID)
+	s.Equal(int64(0), entity.Profile.GetId())
+	s.Equal(int64(0), entity.Profile.AuthorID)
+}
+
+// TestCreate_SyncCreateTag_OnlyCreatesTaggedRelations verifies that syncCreate
+// tags narrow Create's default association synchronization to tagged paths.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncCreateTag_OnlyCreatesTaggedRelations() {
+	repo := mustNewRepo[int64, assocAuthorSyncCreateDefaults](s.T(), s.client)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_author_sync_create_defaults` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Post A").
+		WillReturnResult(sqlmock.NewResult(10, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthorSyncCreateDefaults{
+		Name:    "Alice",
+		Posts:   []assocPost{{Title: "Post A"}},
+		Profile: assocProfile{Bio: "Skipped"},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity))
 	s.Equal(int64(1), entity.GetId())
 	s.Require().Len(entity.Posts, 1)
 	s.Equal(int64(10), entity.Posts[0].GetId())

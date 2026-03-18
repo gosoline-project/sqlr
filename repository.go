@@ -13,7 +13,8 @@ var _ Repository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])
 
 // Repository provides CRUD and query operations for an entity type. Create
 // synchronizes populated relationship fields together with the base entity row
-// and can limit or omit association paths via QueryBuilderCreate. Update
+// and can limit or omit association paths via QueryBuilderCreate. Relationship
+// db tags may also define default sync behavior for Create and Update. Update
 // persists the base entity row by default and can explicitly synchronize
 // associations via QueryBuilderUpdate. Delete only removes the base entity row. Read and Query are relation-aware for loading: both support joins for direct
 // HasOne/HasMany/BelongsTo relations and preloads for
@@ -24,7 +25,8 @@ var _ Repository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])
 type Repository[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
 	// Optional functions receive a QueryBuilderCreate to restrict or omit
-	// association synchronization for this call.
+	// association synchronization for this call, in addition to any schema-level
+	// defaults declared via relationship db tags.
 	Create(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderCreate)) error
 	// Read loads one entity by primary key. Optional functions receive a
 	// QueryBuilderRead to configure joins and preloads for eager-loading
@@ -37,8 +39,10 @@ type Repository[K KeyTypes, E Entitier[K]] interface {
 	Query(ctx context.Context, opts ...func(qb *QueryBuilderSelect)) ([]E, error)
 	// Update updates the base entity row. Optional functions receive a
 	// QueryBuilderUpdate to enable or restrict association synchronization for
-	// this call. Many-to-many updates reconcile join-table membership by default;
-	// related many-to-many rows are only updated when explicitly opted in per path.
+	// this call, in addition to any schema-level defaults declared via
+	// relationship db tags. Many-to-many updates reconcile join-table membership
+	// by default; related many-to-many rows are only updated when explicitly
+	// opted in per path.
 	Update(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	// Delete removes the base entity row only; related entities are not cascaded.
 	Delete(ctx context.Context, id K) error
@@ -151,7 +155,7 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 
 	journal := newMutationJournal()
 
-	if !qb.shouldSyncAssociations() {
+	if policy == nil || !policy.shouldSyncRootAssociations() {
 		updated, err := r.updateEntity(r.client, ctx, entity, journal, mutationOptions)
 		if err != nil {
 			journal.restore()

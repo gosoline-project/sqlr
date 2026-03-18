@@ -85,6 +85,19 @@ type Relationship struct {
 	// when reading entities, without requiring an explicit Preload() call on the
 	// query builder.
 	Preload bool
+	// SyncCreate indicates that this relationship should be synchronized by
+	// default during Create. When at least one relationship on the schema tree is
+	// tagged with syncCreate, Create limits default synchronization to the tagged
+	// relation paths unless the query builder overrides that behavior.
+	SyncCreate bool
+	// SyncUpdate indicates that this relationship should be synchronized by
+	// default during Update. Tagged relation paths are merged with per-call
+	// QueryBuilderUpdate options.
+	SyncUpdate bool
+	// SyncMany2many indicates that this many-to-many relationship should
+	// perform full related-entity synchronization during Update by default,
+	// instead of the link-only reconciliation strategy.
+	SyncMany2many bool
 }
 
 // EntitySchema holds the parsed metadata for an entity type, including its table
@@ -104,11 +117,14 @@ type EntitySchema struct {
 	// entityType is the reflect.Type of the entity struct.
 	entityType reflect.Type
 	// Cached schema-derived values, computed once after parsing.
-	insertColumns    []string
-	allColumns       []string
-	allColumnsAny    []any
-	qualifiedColumns []string
-	autoPreloads     []preloadEntry
+	insertColumns     []string
+	allColumns        []string
+	allColumnsAny     []any
+	qualifiedColumns  []string
+	autoPreloads      []preloadEntry
+	autoSyncCreates   []string
+	autoSyncUpdates   []string
+	autoSyncMany2many []string
 }
 
 type schemaParseOptions struct {
@@ -161,11 +177,32 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 	return s.autoPreloads
 }
 
+// AutoSyncCreatePaths returns relation paths that have the "syncCreate" tag
+// option set somewhere in the schema tree. These defaults are merged with
+// per-call Create association options.
+func (s *EntitySchema) AutoSyncCreatePaths() []string {
+	return s.autoSyncCreates
+}
+
+// AutoSyncUpdatePaths returns relation paths that have the "syncUpdate" tag
+// option set somewhere in the schema tree. These defaults are merged with
+// per-call Update association options.
+func (s *EntitySchema) AutoSyncUpdatePaths() []string {
+	return s.autoSyncUpdates
+}
+
+// AutoSyncMany2manyPaths returns many-to-many relation paths that have the
+// "syncMany2many" tag option set somewhere in the schema tree.
+// These defaults opt tagged paths into full entity synchronization during Update.
+func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
+	return s.autoSyncMany2many
+}
+
 // ParseSchema parses the entity type E using reflection to build an EntitySchema.
 // It reads `db` tags for column mappings and field behaviour metadata. The db tag
 // format is "column_name[,option1][,option2]..." where options include primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
-// many2many:<table>, and preload.
+// many2many:<table>, preload, syncCreate, syncUpdate, and syncMany2many.
 //
 // When a public field has no db tag, its name is transformed by
 // SchemaNameTransformer (default: toSnakeCase) to derive the column name.
@@ -295,7 +332,7 @@ func parseSchemaType(t reflect.Type, options schemaParseOptions) (*EntitySchema,
 
 	if options.cacheDerivedValues {
 		if err = cacheSchemaDerivedValues(schema); err != nil {
-			return nil, fmt.Errorf("failed to collect auto-preloads for %s: %w", typeName, err)
+			return nil, fmt.Errorf("failed to collect schema defaults for %s: %w", typeName, err)
 		}
 	}
 
@@ -546,6 +583,10 @@ func validateRelationships(schema *EntitySchema) error {
 			return fmt.Errorf("relationship %s is ManyToMany but has no join table; provide many2many:<table> or leave the table name empty for auto-detection", rel.Name)
 		}
 
+		if rel.SyncMany2many && rel.Type != ManyToMany {
+			return fmt.Errorf("relationship %s uses syncMany2many but is not many-to-many", rel.Name)
+		}
+
 		if rel.Type != BelongsTo {
 			continue
 		}
@@ -579,11 +620,35 @@ func cacheSchemaDerivedValues(schema *EntitySchema) error {
 		return err
 	}
 
+	autoSyncCreates, err := collectTaggedRelationPaths(schema, func(rel *Relationship) bool {
+		return rel.SyncCreate
+	})
+	if err != nil {
+		return fmt.Errorf("failed to collect syncCreate defaults: %w", err)
+	}
+
+	autoSyncUpdates, err := collectTaggedRelationPaths(schema, func(rel *Relationship) bool {
+		return rel.SyncUpdate
+	})
+	if err != nil {
+		return fmt.Errorf("failed to collect syncUpdate defaults: %w", err)
+	}
+
+	autoSyncMany2many, err := collectTaggedRelationPaths(schema, func(rel *Relationship) bool {
+		return rel.SyncMany2many
+	})
+	if err != nil {
+		return fmt.Errorf("failed to collect syncMany2many defaults: %w", err)
+	}
+
 	schema.insertColumns = insertCols
 	schema.allColumns = allCols
 	schema.allColumnsAny = allColsAny
 	schema.qualifiedColumns = qualifiedCols
 	schema.autoPreloads = autoPreloads
+	schema.autoSyncCreates = autoSyncCreates
+	schema.autoSyncUpdates = autoSyncUpdates
+	schema.autoSyncMany2many = autoSyncMany2many
 
 	return nil
 }
@@ -651,6 +716,72 @@ func collectAutoPreloadsRecursive(schema *EntitySchema, prefix string, visitedTy
 }
 
 func parseRelatedSchemaForAutoPreload(relatedType reflect.Type) (*EntitySchema, error) {
+	return parseSchemaType(relatedType, autoPreloadSchemaParseOptions())
+}
+
+func collectTaggedRelationPaths(schema *EntitySchema, predicate func(rel *Relationship) bool) ([]string, error) {
+	taggedPaths := make([]string, 0)
+	seenPaths := make(map[string]struct{})
+	visitedTypes := make(map[reflect.Type]struct{}, 1)
+	if schema.entityType != nil {
+		visitedTypes[schema.entityType] = struct{}{}
+	}
+
+	if err := collectTaggedRelationPathsRecursive(schema, "", visitedTypes, seenPaths, &taggedPaths, predicate); err != nil {
+		return nil, err
+	}
+
+	sort.Strings(taggedPaths)
+
+	return taggedPaths, nil
+}
+
+func collectTaggedRelationPathsRecursive(
+	schema *EntitySchema,
+	prefix string,
+	visitedTypes map[reflect.Type]struct{},
+	seenPaths map[string]struct{},
+	taggedPaths *[]string,
+	predicate func(rel *Relationship) bool,
+) error {
+	for _, rel := range schema.Relationships {
+		relationPath := rel.Name
+		if prefix != "" {
+			relationPath = prefix + "." + rel.Name
+		}
+
+		if !predicate(rel) {
+			continue
+		}
+
+		if _, seen := seenPaths[relationPath]; !seen {
+			*taggedPaths = append(*taggedPaths, relationPath)
+			seenPaths[relationPath] = struct{}{}
+		}
+
+		if _, seen := visitedTypes[rel.RelatedType]; seen {
+			continue
+		}
+
+		relSchema, err := parseRelatedSchemaForAssociationDefaults(rel.RelatedType)
+		if err != nil {
+			return fmt.Errorf("failed to parse default-sync schema for relation %q: %w", relationPath, err)
+		}
+
+		visitedTypes[rel.RelatedType] = struct{}{}
+		if err := collectTaggedRelationPathsRecursive(relSchema, relationPath, visitedTypes, seenPaths, taggedPaths, predicate); err != nil {
+			delete(visitedTypes, rel.RelatedType)
+
+			return err
+		}
+
+		delete(visitedTypes, rel.RelatedType)
+	}
+
+	return nil
+}
+
+func parseRelatedSchemaForAssociationDefaults(relatedType reflect.Type) (*EntitySchema, error) {
 	return parseSchemaType(relatedType, autoPreloadSchemaParseOptions())
 }
 
@@ -959,6 +1090,12 @@ func applyRelationshipOptions(rel *Relationship, options []string) {
 			rel.Type = BelongsTo
 		case opt == "preload":
 			rel.Preload = true
+		case opt == "syncCreate":
+			rel.SyncCreate = true
+		case opt == "syncUpdate":
+			rel.SyncUpdate = true
+		case opt == "syncMany2many":
+			rel.SyncMany2many = true
 		}
 	}
 }

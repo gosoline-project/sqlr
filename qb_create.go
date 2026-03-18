@@ -1,7 +1,8 @@
 package sqlr
 
 // QueryBuilderCreate configures optional association synchronization behavior
-// for Repository.Create and RepositoryTx.Create.
+// for Repository.Create and RepositoryTx.Create, augmenting or overriding any
+// schema-level relationship sync defaults.
 type QueryBuilderCreate struct {
 	associationOptions associationSyncOptions
 	disableAutoUpdates bool

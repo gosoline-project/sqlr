@@ -319,7 +319,7 @@ func (c *associationSyncContext) syncManyToManyAssociation(ctx context.Context, 
 	}
 
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
-	fullEntitySync := c.policy != nil && c.policy.shouldFullSyncManyToManyPath(relationPath)
+	fullEntitySync := c.policy != nil && c.policy.shouldFullSyncMany2manyPath(relationPath)
 	desiredKeys, desiredPKs, err := c.collectDesiredManyToManyTargets(ctx, nestedSchema, parentValue.FieldByIndex(rel.FieldIndex), rel, relationPath, fullEntitySync)
 	if err != nil {
 		return err

@@ -1,7 +1,8 @@
 package sqlr
 
 // QueryBuilderUpdate configures optional behavior for Repository.Update and
-// RepositoryTx.Update.
+// RepositoryTx.Update, augmenting or overriding any schema-level relationship
+// sync defaults.
 type QueryBuilderUpdate struct {
 	syncAllAssociations bool
 	associationOptions  associationSyncOptions
@@ -16,7 +17,7 @@ func NewQueryBuilderUpdate() *QueryBuilderUpdate {
 // SyncAllAssociations enables full synchronization of explicitly-present
 // associations during Update. Without this option, Update only persists the base
 // entity row unless SyncAssociation is used. Many-to-many relations still use
-// link-only synchronization by default; use SyncManyToManyEntities to opt a
+// link-only synchronization by default; use SyncMany2many to opt a
 // many-to-many path into recursive related-row synchronization.
 func (u *QueryBuilderUpdate) SyncAllAssociations() *QueryBuilderUpdate {
 	u.syncAllAssociations = true
@@ -33,12 +34,12 @@ func (u *QueryBuilderUpdate) SyncAssociation(paths ...string) *QueryBuilderUpdat
 	return u
 }
 
-// SyncManyToManyEntities opts the provided many-to-many relation paths into
+// SyncMany2many opts the provided many-to-many relation paths into
 // full entity synchronization during Update. By default, Update only
 // reconciles many-to-many join-table membership for existing related rows while
 // still inserting new related rows that have no primary key.
-func (u *QueryBuilderUpdate) SyncManyToManyEntities(paths ...string) *QueryBuilderUpdate {
-	u.associationOptions.addFullSyncManyToManyPaths(paths...)
+func (u *QueryBuilderUpdate) SyncMany2many(paths ...string) *QueryBuilderUpdate {
+	u.associationOptions.addFullSyncMany2manyPaths(paths...)
 
 	return u
 }
@@ -66,7 +67,7 @@ func (u *QueryBuilderUpdate) shouldSyncAllAssociations() bool {
 }
 
 func (u *QueryBuilderUpdate) shouldSyncAssociations() bool {
-	return u != nil && (u.syncAllAssociations || len(u.associationOptions.syncPaths) > 0 || len(u.associationOptions.fullSyncManyToManyPaths) > 0)
+	return u != nil && (u.syncAllAssociations || len(u.associationOptions.syncPaths) > 0 || len(u.associationOptions.fullSyncMany2manyPaths) > 0)
 }
 
 func (u *QueryBuilderUpdate) mutationOptions() mutationOptions {
