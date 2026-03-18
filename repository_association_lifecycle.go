@@ -22,7 +22,7 @@ func (r *repositoryCommon[K, E]) createEntityWithAssociations(ctx context.Contex
 		return err
 	}
 
-	if err := r.createEntity(associationCtx.q, ctx, entity, associationCtx.journal); err != nil {
+	if err := r.createEntity(associationCtx.q, ctx, entity, associationCtx.journal, associationCtx.mutationOptions); err != nil {
 		return err
 	}
 

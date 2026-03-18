@@ -4,6 +4,7 @@ package sqlr
 // for Repository.Create and RepositoryTx.Create.
 type QueryBuilderCreate struct {
 	associationOptions associationSyncOptions
+	disableAutoUpdates bool
 }
 
 // NewQueryBuilderCreate creates a new QueryBuilderCreate instance.
@@ -27,4 +28,23 @@ func (c *QueryBuilderCreate) OmitAssociation(paths ...string) *QueryBuilderCreat
 	c.associationOptions.addOmitPaths(paths...)
 
 	return c
+}
+
+// DisableAutoUpdates disables sqlr-managed primary key and timestamp mutations
+// for Create. The entity graph is persisted using the values already present on
+// the entities instead of auto-generated IDs or auto-populated timestamps.
+func (c *QueryBuilderCreate) DisableAutoUpdates() *QueryBuilderCreate {
+	c.disableAutoUpdates = true
+
+	return c
+}
+
+func (c *QueryBuilderCreate) mutationOptions() mutationOptions {
+	if c == nil {
+		return mutationOptions{}
+	}
+
+	return mutationOptions{
+		disableAutoUpdates: c.disableAutoUpdates,
+	}
 }

@@ -26,8 +26,10 @@ func (c *associationCreateContext) createRelatedEntity(ctx context.Context, sche
 		return nil, err
 	}
 
-	if err := setEntityPrimaryKey(schema, entityValue, pk, c.journal); err != nil {
-		return nil, err
+	if !c.mutationOptions.autoUpdatesDisabled() {
+		if err := setEntityPrimaryKey(schema, entityValue, pk, c.journal); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := c.createRelatedForwardAssociations(ctx, schema, entityValue, path); err != nil {
@@ -39,15 +41,11 @@ func (c *associationCreateContext) createRelatedEntity(ctx context.Context, sche
 
 func (c *associationCreateContext) createRelatedBelongsTo(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, parentPath string) error {
 	for _, rel := range schema.Relationships {
-		if rel.Type != BelongsTo {
+		if !c.shouldCreateBelongsTo(rel, parentPath) {
 			continue
 		}
 
 		relationPath := joinAssociationPath(parentPath, rel.Name)
-		if c.policy != nil && !c.policy.shouldSyncPath(relationPath) {
-			continue
-		}
-
 		field := entityValue.FieldByIndex(rel.FieldIndex)
 		field = unwrapEntityValue(field)
 		if !field.IsValid() || field.IsZero() {
@@ -67,18 +65,36 @@ func (c *associationCreateContext) createRelatedBelongsTo(ctx context.Context, s
 			}
 		}
 
-		fkCol, ok := schema.ColumnByName(rel.ForeignKey)
-		if !ok {
-			return fmt.Errorf("BelongsTo relation %q: FK column %q not found on schema", rel.Name, rel.ForeignKey)
-		}
-
-		fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
-		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey, c.journal); err != nil {
+		if err := c.setBelongsToForeignKey(entityValue, schema, rel, pkField.Interface()); err != nil {
 			return fmt.Errorf("BelongsTo relation %q: %w", rel.Name, err)
 		}
 	}
 
 	return nil
+}
+
+func (c *associationCreateContext) shouldCreateBelongsTo(rel *Relationship, parentPath string) bool {
+	if rel.Type != BelongsTo {
+		return false
+	}
+
+	relationPath := joinAssociationPath(parentPath, rel.Name)
+
+	return c.policy == nil || c.policy.shouldSyncPath(relationPath)
+}
+
+func (c *associationCreateContext) setBelongsToForeignKey(entityValue reflect.Value, schema *EntitySchema, rel *Relationship, value any) error {
+	fkCol, ok := schema.ColumnByName(rel.ForeignKey)
+	if !ok {
+		return fmt.Errorf("FK column %q not found on schema", rel.ForeignKey)
+	}
+
+	fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
+	if c.mutationOptions.autoUpdatesDisabled() {
+		return reconcileExistingFieldValue(fkField, value, schema.TableName, rel.ForeignKey, c.journal)
+	}
+
+	return setFieldValue(fkField, value, schema.TableName, rel.ForeignKey, c.journal)
 }
 
 func (c *associationCreateContext) createRelatedForwardAssociations(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, parentPath string) error {
@@ -127,7 +143,7 @@ func (c *associationCreateContext) createRelatedHasOne(ctx context.Context, pare
 
 	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
 
-	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK, c.journal); err != nil {
+	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK, c.journal, c.mutationOptions); err != nil {
 		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
 	}
 
@@ -166,7 +182,7 @@ func (c *associationCreateContext) createRelatedHasMany(ctx context.Context, par
 			return fmt.Errorf("HasMany relation %q[%d] is nil", rel.Name, i)
 		}
 
-		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK, c.journal); err != nil {
+		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK, c.journal, c.mutationOptions); err != nil {
 			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 

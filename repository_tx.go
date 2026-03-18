@@ -65,6 +65,7 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 	}
 
 	qb := applyOptions(NewQueryBuilderCreate(), opts)
+	mutationOptions := qb.mutationOptions()
 
 	policy, err := newCreateAssociationSyncPolicy(t.schema, qb)
 	if err != nil {
@@ -74,7 +75,7 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 	journal := newMutationJournal()
 
 	if !t.hasAssociationsToSave(entity, policy) {
-		err = t.createEntity(ttx, ttx, entity, journal)
+		err = t.createEntity(ttx, ttx, entity, journal, mutationOptions)
 		if err != nil {
 			journal.restore()
 		}
@@ -82,7 +83,7 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 		return err
 	}
 
-	associationCtx := newAssociationCreateContext(t.statementCache, ttx, policy, journal)
+	associationCtx := newAssociationCreateContext(t.statementCache, ttx, policy, journal, mutationOptions)
 	err = t.createEntityWithAssociations(ttx, associationCtx, entity)
 	if err != nil {
 		journal.restore()
@@ -109,6 +110,7 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 	}
 
 	qb := applyOptions(NewQueryBuilderUpdate(), opts)
+	mutationOptions := qb.mutationOptions()
 
 	policy, err := newUpdateAssociationSyncPolicy(t.schema, qb)
 	if err != nil {
@@ -118,19 +120,21 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 	journal := newMutationJournal()
 
 	if !qb.shouldSyncAssociations() {
-		updated, err := t.updateEntity(ttx, ttx, entity, journal)
+		updated, err := t.updateEntity(ttx, ttx, entity, journal, mutationOptions)
 		if err != nil {
 			journal.restore()
+
 			return nil, err
 		}
 
 		return updated, nil
 	}
 
-	associationCtx := newAssociationSyncContext(t.statementCache, ttx, policy, journal)
+	associationCtx := newAssociationSyncContext(t.statementCache, ttx, policy, journal, mutationOptions)
 	updated, err := t.updateEntityWithAssociations(ttx, associationCtx, entity)
 	if err != nil {
 		journal.restore()
+
 		return nil, err
 	}
 

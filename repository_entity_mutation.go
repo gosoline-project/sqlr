@@ -32,15 +32,41 @@ func setEntityPrimaryKey(schema *EntitySchema, entityValue reflect.Value, pk any
 	return setFieldValue(pkField, pk, schema.TableName, schema.PrimaryKey.Name, journal)
 }
 
-func setRelatedFK(entityValue reflect.Value, schema *EntitySchema, fkColName string, parentPK any, journal *mutationJournal) error {
+func setRelatedFK(entityValue reflect.Value, schema *EntitySchema, fkColName string, parentPK any, journal *mutationJournal, options mutationOptions) error {
 	fkCol, ok := schema.ColumnByName(fkColName)
 	if !ok {
 		return fmt.Errorf("FK column %q not found in schema for %s", fkColName, schema.TableName)
 	}
 
 	fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
+	if options.autoUpdatesDisabled() {
+		return reconcileExistingFieldValue(fkField, parentPK, schema.TableName, fkColName, journal)
+	}
 
 	return setFieldValue(fkField, parentPK, schema.TableName, fkColName, journal)
+}
+
+func reconcileExistingFieldValue(field reflect.Value, value any, tableName string, columnName string, journal *mutationJournal) error {
+	currentValue := field.Interface()
+	if field.IsZero() {
+		return setFieldValue(field, value, tableName, columnName, journal)
+	}
+
+	expectedKey, ok := comparableKey(value)
+	if !ok {
+		return fmt.Errorf("value type %T is not comparable for %s.%s", value, tableName, columnName)
+	}
+
+	currentKey, ok := comparableKey(currentValue)
+	if !ok {
+		return fmt.Errorf("field value type %T is not comparable for %s.%s", currentValue, tableName, columnName)
+	}
+
+	if currentKey != expectedKey {
+		return fmt.Errorf("field %s.%s value %v does not match associated primary key %v", tableName, columnName, currentValue, value)
+	}
+
+	return nil
 }
 
 func setFieldValue(field reflect.Value, value any, tableName string, columnName string, journal *mutationJournal) error {
@@ -84,24 +110,9 @@ func setFieldValue(field reflect.Value, value any, tableName string, columnName 
 
 func setPointerFieldValue(field reflect.Value, valueRef reflect.Value, tableName string, columnName string, journal *mutationJournal) error {
 	if valueRef.Kind() == reflect.Ptr {
-		if valueRef.IsNil() {
-			if err := journal.record(field); err != nil {
-				return fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
-			}
-
-			field.Set(reflect.Zero(field.Type()))
-
-			return nil
-		}
-
-		if valueRef.Type().ConvertibleTo(field.Type()) {
-			if err := journal.record(field); err != nil {
-				return fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
-			}
-
-			field.Set(valueRef.Convert(field.Type()))
-
-			return nil
+		handled, err := trySetPointerValue(field, valueRef, tableName, columnName, journal)
+		if handled || err != nil {
+			return err
 		}
 
 		valueRef = valueRef.Elem()
@@ -120,4 +131,28 @@ func setPointerFieldValue(field reflect.Value, valueRef reflect.Value, tableName
 	field.Set(ptr)
 
 	return nil
+}
+
+func trySetPointerValue(field reflect.Value, valueRef reflect.Value, tableName string, columnName string, journal *mutationJournal) (handled bool, err error) {
+	if valueRef.IsNil() {
+		if err := journal.record(field); err != nil {
+			return true, fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
+		}
+
+		field.Set(reflect.Zero(field.Type()))
+
+		return true, nil
+	}
+
+	if !valueRef.Type().ConvertibleTo(field.Type()) {
+		return false, nil
+	}
+
+	if err := journal.record(field); err != nil {
+		return true, fmt.Errorf("failed to record previous value for %s.%s: %w", tableName, columnName, err)
+	}
+
+	field.Set(valueRef.Convert(field.Type()))
+
+	return true, nil
 }

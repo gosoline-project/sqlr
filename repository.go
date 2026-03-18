@@ -92,6 +92,7 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 	}
 
 	qb := applyOptions(NewQueryBuilderCreate(), opts)
+	mutationOptions := qb.mutationOptions()
 
 	policy, err := newCreateAssociationSyncPolicy(r.schema, qb)
 	if err != nil {
@@ -101,7 +102,7 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 	journal := newMutationJournal()
 
 	if !r.hasAssociationsToSave(entity, policy) {
-		err = r.createEntity(r.client, ctx, entity, journal)
+		err = r.createEntity(r.client, ctx, entity, journal, mutationOptions)
 		if err != nil {
 			journal.restore()
 		}
@@ -110,7 +111,7 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 	}
 
 	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
-		associationCtx := newAssociationCreateContext(r.statementCache, tx, policy, journal)
+		associationCtx := newAssociationCreateContext(r.statementCache, tx, policy, journal, mutationOptions)
 
 		return r.createEntityWithAssociations(ctx, associationCtx, entity)
 	})
@@ -139,6 +140,7 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 	}
 
 	qb := applyOptions(NewQueryBuilderUpdate(), opts)
+	mutationOptions := qb.mutationOptions()
 
 	var err error
 	policy, err := newUpdateAssociationSyncPolicy(r.schema, qb)
@@ -149,9 +151,10 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 	journal := newMutationJournal()
 
 	if !qb.shouldSyncAssociations() {
-		updated, err := r.updateEntity(r.client, ctx, entity, journal)
+		updated, err := r.updateEntity(r.client, ctx, entity, journal, mutationOptions)
 		if err != nil {
 			journal.restore()
+
 			return nil, err
 		}
 
@@ -161,7 +164,7 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 	var updated *E
 
 	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
-		associationCtx := newAssociationSyncContext(r.statementCache, tx, policy, journal)
+		associationCtx := newAssociationSyncContext(r.statementCache, tx, policy, journal, mutationOptions)
 		updated, err = r.updateEntityWithAssociations(ctx, associationCtx, entity)
 
 		return err

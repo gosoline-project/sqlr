@@ -149,6 +149,40 @@ func TestRepositoryTxCreate_Error_RestoresInMemoryState(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestRepositoryTxCreate_DisableAutoUpdates_UsesPresetValues(t *testing.T) {
+	client, mock := newTestClient(t)
+	repo := mustNewTxRepo[int64, testUser](t, client)
+	createdAt := time.Now().Add(-2 * time.Hour)
+	updatedAt := time.Now().Add(-time.Hour)
+
+	insertSQL := regexp.QuoteMeta("INSERT INTO `test_users` (`id`, `created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?, ?)")
+
+	mock.ExpectBegin()
+	mock.ExpectExec(insertSQL).
+		WithArgs(int64(55), createdAt, updatedAt, "Alice", "alice@test.com").
+		WillReturnResult(sqlmock.NewResult(999, 1))
+	mock.ExpectCommit()
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        55,
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
+		},
+		Name:  "Alice",
+		Email: "alice@test.com",
+	}
+
+	err := runWithTx(context.Background(), client, func(ttx sqlr.TTx) error {
+		return repo.Create(ttx, &entity, func(qb *sqlr.QueryBuilderCreate) {
+			qb.DisableAutoUpdates()
+		})
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(55), entity.GetId())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 type RepositoryTxCrudTestSuite struct {
 	suite.Suite
 	client      sqlc.Client

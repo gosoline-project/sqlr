@@ -56,22 +56,28 @@ func applyOptions[T any](builder T, opts []func(T)) T {
 
 // createEntity persists a new entity to the database. It extracts insert column
 // values from the entity using reflection, executes an INSERT via sqlc, and sets
-// an auto-increment primary key back on the entity when applicable.
+// an auto-increment primary key back on the entity when applicable unless auto
+// updates are disabled.
 // Relationship fields are not persisted; use createEntityWithAssociations to also
 // persist populated association fields.
-func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E, journal *mutationJournal) error {
+func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Context, entity *E, journal *mutationJournal, options mutationOptions) error {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return err
 	}
 
-	now := time.Now()
+	if !options.autoUpdatesDisabled() {
+		now := time.Now()
 
-	insertCols := r.schema.InsertColumns()
-	if err := setCreateTimestamps(rv, r.schema, now, journal); err != nil {
-		return fmt.Errorf("failed to set create timestamps: %w", err)
+		if err := setCreateTimestamps(rv, r.schema, now, journal); err != nil {
+			return fmt.Errorf("failed to set create timestamps: %w", err)
+		}
 	}
-	vals := buildInsertValues(rv, r.schema)
+
+	insertCols, vals, err := buildInsertValues(rv, r.schema, options)
+	if err != nil {
+		return fmt.Errorf("failed to build create values: %w", err)
+	}
 
 	sqler := sqlc.IntoG[E](r.schema.TableName).
 		Columns(insertCols...).
@@ -82,7 +88,7 @@ func (r *repositoryCommon[K, E]) createEntity(q sqlc.Querier, ctx context.Contex
 		return fmt.Errorf("failed to create entity: %w", err)
 	}
 
-	if r.schema.PrimaryKey == nil || !r.schema.PrimaryKey.AutoIncrement {
+	if options.autoUpdatesDisabled() || r.schema.PrimaryKey == nil || !r.schema.PrimaryKey.AutoIncrement {
 		return nil
 	}
 
@@ -189,7 +195,7 @@ func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.
 // updateEntity saves all fields of the given entity back to the database. It builds
 // a column-value map from the entity using reflection and executes an UPDATE via sqlc.
 // Relationship fields are not synchronized; Update is intentionally not cascade-aware.
-func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E, journal *mutationJournal) (*E, error) {
+func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E, journal *mutationJournal, options mutationOptions) (*E, error) {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
 		return nil, err
@@ -199,12 +205,14 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 		return nil, fmt.Errorf("primary key not defined for %s", r.schema.TableName)
 	}
 
-	now := time.Now()
+	if !options.autoUpdatesDisabled() {
+		now := time.Now()
 
-	if err := setUpdateTimestamps(rv, r.schema, now, journal); err != nil {
-		return nil, fmt.Errorf("failed to set update timestamps: %w", err)
+		if err := setUpdateTimestamps(rv, r.schema, now, journal); err != nil {
+			return nil, fmt.Errorf("failed to set update timestamps: %w", err)
+		}
 	}
-	setMap, pkValue := buildUpdateSetMap(rv, r.schema)
+	setMap, pkValue := buildUpdateSetMap(rv, r.schema, options)
 
 	// Build the UPDATE SQL and args via sqlc builder.
 	sqler := sqlc.UpdateG[E](r.schema.TableName).

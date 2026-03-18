@@ -289,6 +289,36 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_PointerTimestamps_AreSet() {
 	s.False(result.UpdatedAt.IsZero())
 }
 
+func (s *RepositoryUpdateTestSuite) TestUpdate_DisableAutoUpdates_UsesPresetValues() {
+	createdAt := time.Now().Add(-2 * time.Hour)
+	updatedAt := time.Now().Add(-time.Hour)
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
+		},
+		Name:  "Alice Updated",
+		Email: "alice-updated@test.com",
+	}
+
+	updateSQL := regexp.QuoteMeta("UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")
+
+	s.mock.ExpectExec(updateSQL).
+		WithArgs(createdAt, entity.Email, entity.Name, updatedAt, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	result, err := s.repo.Update(context.Background(), &entity, func(qb *sqlr.QueryBuilderUpdate) {
+		qb.DisableAutoUpdates()
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Equal(createdAt, result.CreatedAt)
+	s.Equal(updatedAt, result.UpdatedAt)
+}
+
 // ==========================================================================
 // Prepared Statement Tests
 // ==========================================================================

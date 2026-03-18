@@ -8,6 +8,8 @@ import (
 	"github.com/gosoline-project/sqlc"
 )
 
+var ErrAutoUpdatesRequirePresetPrimaryKey = fmt.Errorf("disable auto updates requires primary key values to be preset")
+
 func setCreateTimestamps(entityValue reflect.Value, schema *EntitySchema, now time.Time, journal *mutationJournal) error {
 	for _, col := range schema.Columns {
 		if col.AutoCreateTime || col.AutoUpdateTime {
@@ -34,22 +36,28 @@ func setUpdateTimestamps(entityValue reflect.Value, schema *EntitySchema, now ti
 	return nil
 }
 
-func buildInsertValues(entityValue reflect.Value, schema *EntitySchema) []any {
-	insertCols := schema.InsertColumns()
-	vals := make([]any, 0, len(insertCols))
+func buildInsertValues(entityValue reflect.Value, schema *EntitySchema, options mutationOptions) (insertCols []string, vals []any, err error) {
+	insertCols = make([]string, 0, len(schema.Columns))
+	vals = make([]any, 0, len(schema.Columns))
 
 	for _, col := range schema.Columns {
-		if col.IsPrimaryKey && col.AutoIncrement {
+		if col.IsPrimaryKey && col.AutoIncrement && !options.autoUpdatesDisabled() {
 			continue
 		}
 
-		vals = append(vals, entityValue.FieldByIndex(col.FieldIndex).Interface())
+		field := entityValue.FieldByIndex(col.FieldIndex)
+		if col.IsPrimaryKey && options.autoUpdatesDisabled() && field.IsZero() {
+			return nil, nil, fmt.Errorf("%w for %s.%s", ErrAutoUpdatesRequirePresetPrimaryKey, schema.TableName, col.Name)
+		}
+
+		insertCols = append(insertCols, col.Name)
+		vals = append(vals, field.Interface())
 	}
 
-	return vals
+	return insertCols, vals, nil
 }
 
-func buildUpdateSetMap(entityValue reflect.Value, schema *EntitySchema) (setMap map[string]any, pkValue any) {
+func buildUpdateSetMap(entityValue reflect.Value, schema *EntitySchema, _ mutationOptions) (setMap map[string]any, pkValue any) {
 	setMap = make(map[string]any, len(schema.Columns))
 	pkValue = entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
 

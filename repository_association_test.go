@@ -212,6 +212,10 @@ func omitCreatePosts(qb *sqlr.QueryBuilderCreate) {
 	qb.OmitAssociation("Posts")
 }
 
+func disableCreateAutoUpdates(qb *sqlr.QueryBuilderCreate) {
+	qb.DisableAutoUpdates()
+}
+
 // --------------------------------------------------------------------------
 // No associations — no transaction overhead
 // --------------------------------------------------------------------------
@@ -628,6 +632,76 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExistingRela
 
 	s.Equal(int64(40), entity.GetId())
 	s.Equal(int64(7), entity.AuthorID) // FK set from existing author PK
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_DisableAutoUpdates_UsesPresetValuesAcrossGraph() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	authorCreatedAt := time.Now().Add(-3 * time.Hour)
+	authorUpdatedAt := time.Now().Add(-2 * time.Hour)
+	postCreatedAt := time.Now().Add(-90 * time.Minute)
+	postUpdatedAt := time.Now().Add(-75 * time.Minute)
+
+	authorInsertSQL := regexp.QuoteMeta("INSERT INTO `assoc_authors` (`id`, `created_at`, `updated_at`, `name`) VALUES (?, ?, ?, ?)")
+	postUpdateSQL := regexp.QuoteMeta("UPDATE `assoc_posts` SET `author_id` = ? WHERE `id` = ?")
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(authorInsertSQL).
+		WithArgs(int64(1), authorCreatedAt, authorUpdatedAt, "Alice").
+		WillReturnResult(sqlmock.NewResult(999, 1))
+	s.mock.ExpectExec(postUpdateSQL).
+		WithArgs(int64(1), int64(10)).
+		WillReturnResult(sqlmock.NewResult(999, 1))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: authorCreatedAt,
+			UpdatedAt: authorUpdatedAt,
+		},
+		Name: "Alice",
+		Posts: []assocPost{{
+			Entity: sqlr.Entity[int64]{
+				Id:        10,
+				CreatedAt: postCreatedAt,
+				UpdatedAt: postUpdatedAt,
+			},
+			Title: "Post A",
+		}},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, syncCreatePosts, disableCreateAutoUpdates))
+	s.Equal(int64(1), entity.GetId())
+	s.Equal(authorCreatedAt, entity.CreatedAt)
+	s.Equal(authorUpdatedAt, entity.UpdatedAt)
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(10), entity.Posts[0].GetId())
+	s.Equal(postCreatedAt, entity.Posts[0].CreatedAt)
+	s.Equal(postUpdatedAt, entity.Posts[0].UpdatedAt)
+	s.Equal(int64(1), entity.Posts[0].AuthorID)
+}
+
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_DisableAutoUpdates_FKMismatchReturnsError() {
+	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
+	s.mock.ExpectBegin()
+	s.mock.ExpectRollback()
+
+	entity := assocPostWithAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id: 5,
+		},
+		AuthorID: 99,
+		Title:    "Mismatch",
+		Author: assocAuthor{
+			Entity: sqlr.Entity[int64]{Id: 7},
+			Name:   "Frank",
+		},
+	}
+
+	err := repo.Create(context.Background(), &entity, disableCreateAutoUpdates)
+
+	s.Require().Error(err)
+	s.ErrorContains(err, "field assoc_post_with_authors.author_id value 99 does not match associated primary key 7")
 }
 
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ZeroRelated_Skipped() {

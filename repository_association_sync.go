@@ -103,8 +103,10 @@ func (c *associationSyncContext) persistEntityGraphNode(ctx context.Context, sch
 		return nil, err
 	}
 
-	if err := setEntityPrimaryKey(schema, entityValue, pk, c.journal); err != nil {
-		return nil, err
+	if !c.mutationOptions.autoUpdatesDisabled() {
+		if err := setEntityPrimaryKey(schema, entityValue, pk, c.journal); err != nil {
+			return nil, err
+		}
 	}
 
 	return entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface(), nil
@@ -144,8 +146,15 @@ func (c *associationSyncContext) syncBelongsToAssociations(ctx context.Context, 
 		}
 
 		fkField := entityValue.FieldByIndex(fkCol.FieldIndex)
-		if err := setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey, c.journal); err != nil {
-			return fmt.Errorf("BelongsTo relation %q: %w", rel.Name, err)
+		var setErr error
+		if c.mutationOptions.autoUpdatesDisabled() {
+			setErr = reconcileExistingFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey, c.journal)
+		} else {
+			setErr = setFieldValue(fkField, pkField.Interface(), schema.TableName, rel.ForeignKey, c.journal)
+		}
+
+		if setErr != nil {
+			return fmt.Errorf("BelongsTo relation %q: %w", rel.Name, setErr)
 		}
 	}
 
@@ -209,7 +218,7 @@ func (c *associationSyncContext) syncHasOneAssociation(ctx context.Context, pare
 		return fmt.Errorf("HasOne relation %q is nil", rel.Name)
 	}
 
-	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK, c.journal); err != nil {
+	if err := setRelatedFK(relField, nestedSchema, rel.ForeignKey, parentPK, c.journal, c.mutationOptions); err != nil {
 		return fmt.Errorf("HasOne relation %q: %w", rel.Name, err)
 	}
 
@@ -267,7 +276,7 @@ func (c *associationSyncContext) syncHasManyAssociation(ctx context.Context, par
 			return fmt.Errorf("HasMany relation %q[%d] is nil", rel.Name, i)
 		}
 
-		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK, c.journal); err != nil {
+		if err := setRelatedFK(elem, nestedSchema, rel.ForeignKey, parentPK, c.journal, c.mutationOptions); err != nil {
 			return fmt.Errorf("HasMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
@@ -338,7 +347,13 @@ func (c *associationSyncContext) syncManyToManyAssociation(ctx context.Context, 
 	return nil
 }
 
-func (c *associationSyncContext) collectDesiredManyToManyTargets(ctx context.Context, nestedSchema *EntitySchema, sliceField reflect.Value, rel *Relationship, relationPath string) (desiredKeys map[any]struct{}, desiredPKs []any, err error) {
+func (c *associationSyncContext) collectDesiredManyToManyTargets(
+	ctx context.Context,
+	nestedSchema *EntitySchema,
+	sliceField reflect.Value,
+	rel *Relationship,
+	relationPath string,
+) (desiredKeys map[any]struct{}, desiredPKs []any, err error) {
 	desiredKeys = make(map[any]struct{}, sliceField.Len())
 	desiredPKs = make([]any, 0, sliceField.Len())
 

@@ -10,12 +10,17 @@ import (
 )
 
 func (c *associationMutationContext) insertRelatedEntity(ctx context.Context, schema *EntitySchema, entityValue reflect.Value) (any, error) {
-	now := time.Now()
-	insertCols := schema.InsertColumns()
-	if err := setCreateTimestamps(entityValue, schema, now, c.journal); err != nil {
-		return nil, fmt.Errorf("failed to set create timestamps for %s: %w", schema.TableName, err)
+	if !c.mutationOptions.autoUpdatesDisabled() {
+		now := time.Now()
+		if err := setCreateTimestamps(entityValue, schema, now, c.journal); err != nil {
+			return nil, fmt.Errorf("failed to set create timestamps for %s: %w", schema.TableName, err)
+		}
 	}
-	vals := buildInsertValues(entityValue, schema)
+
+	insertCols, vals, err := buildInsertValues(entityValue, schema, c.mutationOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build insert values for %s: %w", schema.TableName, err)
+	}
 
 	sqler := sqlc.Into(schema.TableName).
 		Columns(insertCols...).
@@ -31,7 +36,7 @@ func (c *associationMutationContext) insertRelatedEntity(ctx context.Context, sc
 		return nil, fmt.Errorf("failed to execute INSERT for %s: %w", schema.TableName, err)
 	}
 
-	if schema.PrimaryKey == nil || !schema.PrimaryKey.AutoIncrement {
+	if c.mutationOptions.autoUpdatesDisabled() || schema.PrimaryKey == nil || !schema.PrimaryKey.AutoIncrement {
 		return entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface(), nil
 	}
 
@@ -44,11 +49,13 @@ func (c *associationMutationContext) insertRelatedEntity(ctx context.Context, sc
 }
 
 func (c *associationMutationContext) updateStoredEntity(ctx context.Context, schema *EntitySchema, entityValue reflect.Value) error {
-	now := time.Now()
-	if err := setUpdateTimestamps(entityValue, schema, now, c.journal); err != nil {
-		return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
+	if !c.mutationOptions.autoUpdatesDisabled() {
+		now := time.Now()
+		if err := setUpdateTimestamps(entityValue, schema, now, c.journal); err != nil {
+			return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
+		}
 	}
-	setMap, pkValue := buildUpdateSetMap(entityValue, schema)
+	setMap, pkValue := buildUpdateSetMap(entityValue, schema, c.mutationOptions)
 
 	sqler := sqlc.Update(schema.TableName).
 		SetMap(setMap).
@@ -76,18 +83,20 @@ func (c *associationMutationContext) updateStoredEntityForeignKey(ctx context.Co
 		fkColName: entityValue.FieldByIndex(fkCol.FieldIndex).Interface(),
 	}
 
-	now := time.Now()
-	for _, col := range schema.Columns {
-		if !col.AutoUpdateTime {
-			continue
-		}
+	if !c.mutationOptions.autoUpdatesDisabled() {
+		now := time.Now()
+		for _, col := range schema.Columns {
+			if !col.AutoUpdateTime {
+				continue
+			}
 
-		field := entityValue.FieldByIndex(col.FieldIndex)
-		if err := setFieldValue(field, now, schema.TableName, col.Name, c.journal); err != nil {
-			return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
-		}
+			field := entityValue.FieldByIndex(col.FieldIndex)
+			if err := setFieldValue(field, now, schema.TableName, col.Name, c.journal); err != nil {
+				return fmt.Errorf("failed to set update timestamps for %s: %w", schema.TableName, err)
+			}
 
-		setMap[col.Name] = field.Interface()
+			setMap[col.Name] = field.Interface()
+		}
 	}
 
 	pkValue := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()

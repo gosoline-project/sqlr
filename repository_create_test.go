@@ -141,6 +141,47 @@ func (s *RepositoryCreateTestSuite) TestCreate_PointerTimestamps_AreSet() {
 	s.False(entity.UpdatedAt.IsZero())
 }
 
+func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_UsesPresetValues() {
+	createdAt := time.Now().Add(-2 * time.Hour)
+	updatedAt := time.Now().Add(-time.Hour)
+
+	insertSQL := regexp.QuoteMeta("INSERT INTO `test_users` (`id`, `created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?, ?)")
+
+	s.mock.ExpectExec(insertSQL).
+		WithArgs(int64(55), createdAt, updatedAt, "Alice", "alice@test.com").
+		WillReturnResult(sqlmock.NewResult(999, 1))
+
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        55,
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
+		},
+		Name:  "Alice",
+		Email: "alice@test.com",
+	}
+
+	err := s.repo.Create(context.Background(), &entity, func(qb *sqlr.QueryBuilderCreate) {
+		qb.DisableAutoUpdates()
+	})
+
+	s.Require().NoError(err)
+	s.Equal(int64(55), entity.GetId())
+	s.Equal(createdAt, entity.CreatedAt)
+	s.Equal(updatedAt, entity.UpdatedAt)
+}
+
+func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_MissingPrimaryKeyReturnsError() {
+	entity := testUser{Name: "Alice", Email: "alice@test.com"}
+
+	err := s.repo.Create(context.Background(), &entity, func(qb *sqlr.QueryBuilderCreate) {
+		qb.DisableAutoUpdates()
+	})
+
+	s.Require().Error(err)
+	s.ErrorIs(err, sqlr.ErrAutoUpdatesRequirePresetPrimaryKey)
+}
+
 func (s *RepositoryCreateTestSuite) TestCreate_CustomPrimaryKeyColumn_UsesReflectionWithoutSetId() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_no_setter_custom_pk_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
