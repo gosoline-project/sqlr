@@ -188,6 +188,7 @@ type RepositoryAssociationCreateTestSuite struct {
 	mock   sqlmock.Sqlmock
 }
 
+// TestRepositoryAssociationCreateTestSuite runs the repository association create test suite.
 func TestRepositoryAssociationCreateTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryAssociationCreateTestSuite))
 }
@@ -220,6 +221,7 @@ func disableCreateAutoUpdates(qb *sqlr.QueryBuilderCreate) {
 // No associations — no transaction overhead
 // --------------------------------------------------------------------------
 
+// TestCreate_NoAssociations_NoTransaction verifies that Create avoids starting a transaction when no associations are populated.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_NoAssociations_NoTransaction() {
 	repo := mustNewRepo[int64, testUser](s.T(), s.client)
 
@@ -234,6 +236,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_NoAssociations_NoTrans
 	s.Equal(int64(1), entity.GetId())
 }
 
+// TestCreate_EmptyAssociationSlice_NoTransaction verifies that Create avoids starting a transaction for empty association slices.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_EmptyAssociationSlice_NoTransaction() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -247,6 +250,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_EmptyAssociationSlice_
 	s.Equal(int64(10), entity.GetId())
 }
 
+// TestCreate_OmitAssociation_SkipsOmittedRelationWithoutTransaction verifies that Create skips omitted relations without starting a transaction.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAssociation_SkipsOmittedRelationWithoutTransaction() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -266,6 +270,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAssociation_SkipsO
 	s.Equal(int64(0), entity.Posts[0].AuthorID)
 }
 
+// TestCreate_NilEntity_WithAssociationOptionsReturnsError verifies that Create returns an error for nil entities even when association sync is configured.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_NilEntity_WithAssociationOptionsReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -279,6 +284,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_NilEntity_WithAssociat
 // HasMany: author with posts
 // --------------------------------------------------------------------------
 
+// TestCreate_HasMany_InsertsAssociations verifies that Create inserts associations for has-many relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_InsertsAssociations() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -319,6 +325,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_InsertsAssocia
 	s.Equal(int64(1), entity.Posts[1].AuthorID)
 }
 
+// TestCreate_HasMany_PersistsExistingAssociations verifies that Create persists existing associations for has-many relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_PersistsExistingAssociations() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	authorNow := time.Now()
@@ -380,6 +387,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_PersistsExisti
 	s.Equal("Existing Post", stored.Posts[0].Title)
 }
 
+// TestCreate_SyncAssociation_OnlyCreatesSelectedRelation verifies that Create only creates selected relation for explicit association sync.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_OnlyCreatesSelectedRelation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -411,6 +419,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_OnlyCr
 // HasOne: author with profile
 // --------------------------------------------------------------------------
 
+// TestCreate_HasOne_InsertsAssociation verifies that Create inserts association for has-one relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_InsertsAssociation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -440,6 +449,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_InsertsAssociat
 	s.Equal(int64(5), entity.Profile.AuthorID)
 }
 
+// TestCreate_HasOnePointer_InsertsAssociation verifies that Create inserts association for pointer has-one relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOnePointer_InsertsAssociation() {
 	repo := mustNewRepo[int64, assocAuthorWithPointerProfile](s.T(), s.client)
 
@@ -463,6 +473,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOnePointer_InsertsA
 	s.Equal(int64(5), entity.Profile.AuthorID)
 }
 
+// TestCreate_HasOne_PersistsExistingAssociation verifies that Create persists existing association for has-one relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_PersistsExistingAssociation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	authorNow := time.Now()
@@ -519,6 +530,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_PersistsExistin
 // BelongsTo: post with author
 // --------------------------------------------------------------------------
 
+// TestCreate_BelongsTo_InsertsRelatedFirst verifies that Create inserts related first for belongs-to relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_InsertsRelatedFirst() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 
@@ -548,6 +560,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_InsertsRelat
 	s.Equal(int64(3), entity.Author.GetId())
 }
 
+// TestCreate_BelongsToPointer_InsertsRelatedFirst verifies that Create inserts related first for pointer belongs-to relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsToPointer_InsertsRelatedFirst() {
 	repo := mustNewRepo[int64, assocPostWithPointerAuthor](s.T(), s.client)
 
@@ -572,6 +585,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsToPointer_Inser
 	s.Equal(int64(8), entity.GetId())
 }
 
+// TestCreate_HasManyPointerElements_RejectsNilElement verifies that Create rejects nil element for pointer-based has-many collections.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasManyPointerElements_RejectsNilElement() {
 	repo := mustNewRepo[int64, assocAuthorWithPointerPosts](s.T(), s.client)
 
@@ -591,6 +605,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasManyPointerElements
 	s.ErrorContains(err, "HasMany relation \"Posts\"[0] is nil")
 }
 
+// TestCreate_ManyToManyPointerElements_RejectsNilElement verifies that Create rejects nil element for pointer-based many-to-many collections.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToManyPointerElements_RejectsNilElement() {
 	repo := mustNewRepo[int64, assocArticleWithPointerTags](s.T(), s.client)
 
@@ -610,6 +625,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToManyPointerEleme
 	s.ErrorContains(err, "ManyToMany relation \"Tags\"[0] is nil")
 }
 
+// TestCreate_BelongsTo_ExistingRelated_SetsFK verifies that Create reuses an existing belongs-to entity and sets the parent foreign key.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExistingRelated_SetsFK() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 
@@ -634,6 +650,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExistingRela
 	s.Equal(int64(7), entity.AuthorID) // FK set from existing author PK
 }
 
+// TestCreate_DisableAutoUpdates_UsesPresetValuesAcrossGraph verifies that Create uses preset values across graph when auto-updates are disabled.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_DisableAutoUpdates_UsesPresetValuesAcrossGraph() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	authorCreatedAt := time.Now().Add(-3 * time.Hour)
@@ -681,6 +698,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_DisableAutoUpdates_Use
 	s.Equal(int64(1), entity.Posts[0].AuthorID)
 }
 
+// TestCreate_DisableAutoUpdates_FKMismatchReturnsError verifies that Create returns an error for foreign key mismatch when auto-updates are disabled.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_DisableAutoUpdates_FKMismatchReturnsError() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 	s.mock.ExpectBegin()
@@ -704,6 +722,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_DisableAutoUpdates_FKM
 	s.ErrorContains(err, "field assoc_post_with_authors.author_id value 99 does not match associated primary key 7")
 }
 
+// TestCreate_BelongsTo_ZeroRelated_Skipped verifies that Create skips zero-value belongs-to relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ZeroRelated_Skipped() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 
@@ -728,6 +747,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ZeroRelated_
 // ManyToMany: article with tags
 // --------------------------------------------------------------------------
 
+// TestCreate_ManyToMany_InsertsTagsAndJoinRows verifies that Create inserts tags and join rows for many-to-many relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_InsertsTagsAndJoinRows() {
 	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
 
@@ -772,6 +792,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_InsertsTags
 	s.Equal(int64(101), entity.Tags[1].GetId())
 }
 
+// TestCreate_ManyToMany_SkipsExistingTags verifies that Create skips existing tags for many-to-many relations.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_SkipsExistingTags() {
 	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
 
@@ -814,6 +835,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_SkipsExisti
 // Mixed: post with BelongsTo author and HasMany comments
 // --------------------------------------------------------------------------
 
+// TestCreate_Mixed_BelongsToAndHasMany verifies that Create persists belongs-to and has-many relations within the same graph.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_Mixed_BelongsToAndHasMany() {
 	repo := mustNewRepo[int64, assocPostWithAll](s.T(), s.client)
 
@@ -865,6 +887,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_Mixed_BelongsToAndHasM
 // Transaction rollback on error
 // --------------------------------------------------------------------------
 
+// TestCreate_HasMany_RollbackOnAssociationError verifies that Create rolls back parent and child state when a has-many association insert fails.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_RollbackOnAssociationError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -900,6 +923,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_RollbackOnAsso
 	s.Zero(entity.Posts[0].UpdatedAt)
 }
 
+// TestCreate_BelongsTo_RollbackOnRelatedInsertError verifies that Create rolls back when inserting a belongs-to relation fails.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_RollbackOnRelatedInsertError() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 
@@ -933,6 +957,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_RollbackOnRe
 // Recursive: 3-level HasMany chain (deepAuthor → deepPost → deepComment)
 // --------------------------------------------------------------------------
 
+// TestCreate_HasMany_Recursive_InsertsNestedAssociations verifies that Create inserts nested associations for has-many recursive.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_Recursive_InsertsNestedAssociations() {
 	repo := mustNewRepo[int64, deepAuthor](s.T(), s.client)
 
@@ -998,6 +1023,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_Recursive_Inse
 	s.Empty(entity.Posts[1].Comments)
 }
 
+// TestCreate_SyncAssociation_NestedPathSynchronizesAncestors verifies that Create nested path synchronizes ancestors for explicit association sync.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_NestedPathSynchronizesAncestors() {
 	repo := mustNewRepo[int64, deepAuthor](s.T(), s.client)
 
@@ -1037,6 +1063,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_Nested
 // Recursive: 3-level BelongsTo chain (deepLeafComment → deepLeafPost → deepLeafAuthor)
 // --------------------------------------------------------------------------
 
+// TestCreate_BelongsTo_Recursive_InsertsNestedChain verifies that Create inserts nested chain for belongs-to recursive.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_Recursive_InsertsNestedChain() {
 	repo := mustNewRepo[int64, deepLeafComment](s.T(), s.client)
 
@@ -1079,6 +1106,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_Recursive_In
 	s.Equal(int64(5), entity.Post.Author.GetId())
 }
 
+// TestCreate_SyncAssociation_InvalidPathReturnsError verifies that Create returns an error for invalid path for explicit association sync.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_InvalidPathReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	entity := assocAuthor{Name: "Alice"}
@@ -1095,6 +1123,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_Invali
 // Recursive: ManyToMany where each related entity has its own HasMany
 // --------------------------------------------------------------------------
 
+// TestCreate_ManyToMany_Recursive_InsertsNestedHasMany verifies that Create persists nested has-many relations inside recursive many-to-many graphs.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_Recursive_InsertsNestedHasMany() {
 	repo := mustNewRepo[int64, deepArticle](s.T(), s.client)
 
@@ -1172,6 +1201,7 @@ type RepositoryTxAssociationTestSuite struct {
 	mock   sqlmock.Sqlmock
 }
 
+// TestRepositoryTxAssociationTestSuite runs the repository tx association test suite.
 func TestRepositoryTxAssociationTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryTxAssociationTestSuite))
 }
@@ -1184,6 +1214,7 @@ func (s *RepositoryTxAssociationTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+// TestCreate_HasMany_UsesExistingTransaction verifies that Create uses existing transaction for has-many relations.
 func (s *RepositoryTxAssociationTestSuite) TestCreate_HasMany_UsesExistingTransaction() {
 	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, assocAuthor](s.client, sqlr.DefaultSettings())
 	s.Require().NoError(err)
@@ -1214,6 +1245,7 @@ func (s *RepositoryTxAssociationTestSuite) TestCreate_HasMany_UsesExistingTransa
 	s.Require().NoError(err)
 }
 
+// TestCreate_HasMany_NoAssociations_NoExtraQueries verifies that RepositoryTx Create avoids extra association queries when no has-many data is populated.
 func (s *RepositoryTxAssociationTestSuite) TestCreate_HasMany_NoAssociations_NoExtraQueries() {
 	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, assocAuthor](s.client, sqlr.DefaultSettings())
 	s.Require().NoError(err)
@@ -1236,6 +1268,7 @@ func (s *RepositoryTxAssociationTestSuite) TestCreate_HasMany_NoAssociations_NoE
 	s.Require().NoError(err)
 }
 
+// TestCreate_EmptyRelationSlice_NoAssociationTransactionWork verifies that RepositoryTx Create performs no association work for empty relation slices.
 func (s *RepositoryTxAssociationTestSuite) TestCreate_EmptyRelationSlice_NoAssociationTransactionWork() {
 	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, assocAuthor](s.client, sqlr.DefaultSettings())
 	s.Require().NoError(err)
@@ -1255,6 +1288,7 @@ func (s *RepositoryTxAssociationTestSuite) TestCreate_EmptyRelationSlice_NoAssoc
 	s.Require().NoError(err)
 }
 
+// TestCreate_NilEntity_WithAssociationOptionsReturnsError verifies that Create returns an error for nil entities even when association sync is configured.
 func (s *RepositoryTxAssociationTestSuite) TestCreate_NilEntity_WithAssociationOptionsReturnsError() {
 	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, assocAuthor](s.client, sqlr.DefaultSettings())
 	s.Require().NoError(err)

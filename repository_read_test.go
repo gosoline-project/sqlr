@@ -31,6 +31,7 @@ type RepositoryReadTestSuite struct {
 	postWithAuthorAutoRepo sqlr.Repository[int64, testPostWithAuthorAutoPreload]
 }
 
+// TestRepositoryReadTestSuite runs the repository read test suite.
 func TestRepositoryReadTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryReadTestSuite))
 }
@@ -377,6 +378,7 @@ type RepositoryReadPreparedTestSuite struct {
 	repo   sqlr.Repository[int64, testUser]
 }
 
+// TestRepositoryReadPreparedTestSuite runs the repository read prepared test suite.
 func TestRepositoryReadPreparedTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryReadPreparedTestSuite))
 }
@@ -445,6 +447,7 @@ func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_NotFound() 
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
+// TestRead_PreparedStatement_PrepareError verifies that Read surfaces statement preparation errors in prepared-statement mode.
 func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_PrepareError() {
 	readSQL := "SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"
 
@@ -457,6 +460,7 @@ func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_PrepareErro
 	s.Require().EqualError(err, "failed to read entity: failed to prepare statement: prepare failed")
 }
 
+// TestRead_PreparedStatement_CloseError verifies that Read surfaces statement close errors in prepared-statement mode.
 func (s *RepositoryReadPreparedTestSuite) TestRead_PreparedStatement_CloseError() {
 	client, mock := newTestClient(s.T())
 	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})
@@ -504,6 +508,7 @@ type RepositoryReadWithRelationsTestSuite struct {
 	authorAutoPreloadRepo  sqlr.Repository[int64, testAuthorAutoPreload]
 }
 
+// TestRepositoryReadWithRelationsTestSuite runs the repository read with relations test suite.
 func TestRepositoryReadWithRelationsTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryReadWithRelationsTestSuite))
 }

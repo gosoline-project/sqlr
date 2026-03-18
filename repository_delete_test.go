@@ -25,6 +25,7 @@ type RepositoryDeleteTestSuite struct {
 	floatKeyRepo  sqlr.Repository[float64, testFloatKeyUser]
 }
 
+// TestRepositoryDeleteTestSuite runs the repository delete test suite.
 func TestRepositoryDeleteTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryDeleteTestSuite))
 }
@@ -49,6 +50,7 @@ func (s *RepositoryDeleteTestSuite) TearDownTest() {
 // Success Cases
 // ==========================================================================
 
+// TestDelete_Success verifies that Delete succeeds for the basic case.
 func (s *RepositoryDeleteTestSuite) TestDelete_Success() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `test_users` WHERE `id` = ?")).
@@ -64,6 +66,7 @@ func (s *RepositoryDeleteTestSuite) TestDelete_Success() {
 // Error/NotFound Cases
 // ==========================================================================
 
+// TestDelete_NotFound verifies that Delete returns ErrNotFound for missing rows.
 func (s *RepositoryDeleteTestSuite) TestDelete_NotFound() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `test_users` WHERE `id` = ?")).
@@ -77,6 +80,7 @@ func (s *RepositoryDeleteTestSuite) TestDelete_NotFound() {
 	s.Contains(err.Error(), "entity id=999")
 }
 
+// TestDelete_Error verifies that Delete propagates execution errors.
 func (s *RepositoryDeleteTestSuite) TestDelete_Error() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `test_users` WHERE `id` = ?")).
@@ -93,6 +97,7 @@ func (s *RepositoryDeleteTestSuite) TestDelete_Error() {
 // Key Type Variations
 // ==========================================================================
 
+// TestDelete_CustomPrimaryKey verifies that Delete custom primary key.
 func (s *RepositoryDeleteTestSuite) TestDelete_CustomPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `test_custom_pk_users` WHERE `user_id` = ?")).
@@ -104,6 +109,7 @@ func (s *RepositoryDeleteTestSuite) TestDelete_CustomPrimaryKey() {
 	s.Require().NoError(err)
 }
 
+// TestDelete_StringPrimaryKey verifies that Delete string primary key.
 func (s *RepositoryDeleteTestSuite) TestDelete_StringPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `test_string_key_users` WHERE `id` = ?")).
@@ -115,6 +121,7 @@ func (s *RepositoryDeleteTestSuite) TestDelete_StringPrimaryKey() {
 	s.Require().NoError(err)
 }
 
+// TestDelete_BoolPrimaryKey verifies that Delete bool primary key.
 func (s *RepositoryDeleteTestSuite) TestDelete_BoolPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `test_bool_key_users` WHERE `id` = ?")).
@@ -126,6 +133,7 @@ func (s *RepositoryDeleteTestSuite) TestDelete_BoolPrimaryKey() {
 	s.Require().NoError(err)
 }
 
+// TestDelete_FloatPrimaryKey verifies that Delete float primary key.
 func (s *RepositoryDeleteTestSuite) TestDelete_FloatPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `test_float_key_users` WHERE `id` = ?")).
@@ -149,6 +157,7 @@ type RepositoryDeletePreparedTestSuite struct {
 	repo   sqlr.Repository[int64, testUser]
 }
 
+// TestRepositoryDeletePreparedTestSuite runs the repository delete prepared test suite.
 func TestRepositoryDeletePreparedTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryDeletePreparedTestSuite))
 }
@@ -167,6 +176,7 @@ func (s *RepositoryDeletePreparedTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+// TestDelete_PreparedStatement_Success verifies that Delete succeeds for the basic case in prepared-statement mode.
 func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_Success() {
 	deleteSQL := "DELETE FROM `test_users` WHERE `id` = ?"
 
@@ -189,6 +199,7 @@ func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_Success
 	s.Require().NoError(err)
 }
 
+// TestDelete_PreparedStatement_NotFound verifies that Delete returns ErrNotFound for missing rows in prepared-statement mode.
 func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_NotFound() {
 	deleteSQL := "DELETE FROM `test_users` WHERE `id` = ?"
 
@@ -203,6 +214,7 @@ func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_NotFoun
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
+// TestDelete_PreparedStatement_Error verifies that Delete propagates execution errors in prepared-statement mode.
 func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_Error() {
 	deleteSQL := "DELETE FROM `test_users` WHERE `id` = ?"
 
@@ -217,6 +229,7 @@ func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_Error()
 	s.Contains(err.Error(), "failed to delete entity")
 }
 
+// TestDelete_PreparedStatement_PrepareError verifies that Delete surfaces statement preparation errors in prepared-statement mode.
 func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_PrepareError() {
 	deleteSQL := "DELETE FROM `test_users` WHERE `id` = ?"
 
@@ -228,6 +241,7 @@ func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_Prepare
 	s.Require().EqualError(err, "failed to delete entity: failed to prepare statement: prepare failed")
 }
 
+// TestDelete_PreparedStatement_CloseError verifies that Delete surfaces statement close errors in prepared-statement mode.
 func (s *RepositoryDeletePreparedTestSuite) TestDelete_PreparedStatement_CloseError() {
 	client, mock := newTestClient(s.T())
 	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})

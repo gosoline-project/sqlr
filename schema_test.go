@@ -355,6 +355,7 @@ func TestParseSchema_AutoCreateTimeAndUpdateTime(t *testing.T) {
 	assert.False(t, updatedAt.AutoCreateTime)
 }
 
+// TestParseSchema_AutoTimestampPointerFields_AreAccepted verifies that ParseSchema are accepted for auto timestamp pointer fields.
 func TestParseSchema_AutoTimestampPointerFields_AreAccepted(t *testing.T) {
 	schema, err := ParseSchema[schemaPointerAutoTimestamps]()
 	require.NoError(t, err)
@@ -370,12 +371,14 @@ func TestParseSchema_AutoTimestampPointerFields_AreAccepted(t *testing.T) {
 	assert.False(t, updatedAt.AutoCreateTime)
 }
 
+// TestParseSchema_AutoTimestampWrongType_ReturnsError verifies that ParseSchema returns an error for  for auto timestamp wrong type.
 func TestParseSchema_AutoTimestampWrongType_ReturnsError(t *testing.T) {
 	_, err := ParseSchema[schemaInvalidAutoTimestamps]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "auto timestamp tags")
 }
 
+// TestParseSchema_DuplicateColumnNames_ReturnsError verifies that ParseSchema returns an error for  for duplicate column names.
 func TestParseSchema_DuplicateColumnNames_ReturnsError(t *testing.T) {
 	type duplicateColumns struct {
 		ID    int64  `db:"id,primaryKey"`
@@ -388,6 +391,7 @@ func TestParseSchema_DuplicateColumnNames_ReturnsError(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate column name \"name\"")
 }
 
+// TestParseSchema_MultiplePrimaryKeys_ReturnsError verifies that ParseSchema returns an error for  for multipleprimary keys.
 func TestParseSchema_MultiplePrimaryKeys_ReturnsError(t *testing.T) {
 	type multiplePrimaryKeys struct {
 		ID    int64  `db:"id,primaryKey"`

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestQueryBuilderRead_Empty verifies that QueryBuilderRead starts with no joins or preloads configured.
 func TestQueryBuilderRead_Empty(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 
@@ -16,6 +17,7 @@ func TestQueryBuilderRead_Empty(t *testing.T) {
 	assert.Empty(t, qbr.preloads)
 }
 
+// TestQueryBuilderRead_Preload verifies that QueryBuilderRead records preloads correctly.
 func TestQueryBuilderRead_Preload(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.Preload("Posts")
@@ -26,6 +28,7 @@ func TestQueryBuilderRead_Preload(t *testing.T) {
 	assert.Empty(t, qbr.preloads[0].where)
 }
 
+// TestQueryBuilderRead_PreloadWithCondition verifies that QueryBuilderRead records preload conditions correctly.
 func TestQueryBuilderRead_PreloadWithCondition(t *testing.T) {
 	cond := Condition("status = ?", "active")
 	qbr := NewQueryBuilderRead()
@@ -36,6 +39,7 @@ func TestQueryBuilderRead_PreloadWithCondition(t *testing.T) {
 	require.Len(t, qbr.preloads[0].where, 1)
 }
 
+// TestQueryBuilderRead_PreloadNested verifies that QueryBuilderRead records nested preload paths correctly.
 func TestQueryBuilderRead_PreloadNested(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.Preload("Posts.Comments")
@@ -44,6 +48,7 @@ func TestQueryBuilderRead_PreloadNested(t *testing.T) {
 	assert.Equal(t, "Posts.Comments", qbr.preloads[0].relation)
 }
 
+// TestQueryBuilderRead_MultiplePreloads verifies that QueryBuilderRead supports multiple preloads.
 func TestQueryBuilderRead_MultiplePreloads(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.Preload("Posts").Preload("Profile")
@@ -53,6 +58,7 @@ func TestQueryBuilderRead_MultiplePreloads(t *testing.T) {
 	assert.Equal(t, "Profile", qbr.preloads[1].relation)
 }
 
+// TestQueryBuilderRead_LeftJoin verifies that QueryBuilderRead records left joins correctly.
 func TestQueryBuilderRead_LeftJoin(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.LeftJoin("Posts")
@@ -64,6 +70,7 @@ func TestQueryBuilderRead_LeftJoin(t *testing.T) {
 	assert.Empty(t, qbr.joins[0].where)
 }
 
+// TestQueryBuilderRead_LeftJoinWithCondition verifies that QueryBuilderRead records left joins with conditions correctly.
 func TestQueryBuilderRead_LeftJoinWithCondition(t *testing.T) {
 	cond := Condition("status = ?", "published")
 	qbr := NewQueryBuilderRead()
@@ -74,6 +81,7 @@ func TestQueryBuilderRead_LeftJoinWithCondition(t *testing.T) {
 	require.Len(t, qbr.joins[0].where, 1)
 }
 
+// TestQueryBuilderRead_InnerJoin verifies that QueryBuilderRead records inner joins correctly.
 func TestQueryBuilderRead_InnerJoin(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.InnerJoin("Posts")
@@ -83,6 +91,7 @@ func TestQueryBuilderRead_InnerJoin(t *testing.T) {
 	assert.Equal(t, "Posts", qbr.joins[0].relation)
 }
 
+// TestQueryBuilderRead_Chaining verifies that QueryBuilderRead supports method chaining.
 func TestQueryBuilderRead_Chaining(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	result := qbr.LeftJoin("Posts").Preload("Comments").InnerJoin("Profile")
@@ -92,6 +101,7 @@ func TestQueryBuilderRead_Chaining(t *testing.T) {
 	assert.Len(t, qbr.preloads, 1)
 }
 
+// TestQueryBuilderRead_ToQueryBuilderSelect_WithJoinOmitsLimit verifies that QueryBuilderRead omits row limits when converting joined reads to QueryBuilderSelect.
 func TestQueryBuilderRead_ToQueryBuilderSelect_WithJoinOmitsLimit(t *testing.T) {
 	cond := Condition("status = ?", "published")
 	qbr := NewQueryBuilderRead()
@@ -116,6 +126,7 @@ func TestQueryBuilderRead_ToQueryBuilderSelect_WithJoinOmitsLimit(t *testing.T) 
 	assert.Contains(t, params, int64(42))
 }
 
+// TestQueryBuilderRead_ToQueryBuilderSelect_PreloadOnlyAddsLimit verifies that QueryBuilderRead keeps the single-row limit when only preloads are configured.
 func TestQueryBuilderRead_ToQueryBuilderSelect_PreloadOnlyAddsLimit(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.Preload("Comments")
@@ -126,6 +137,7 @@ func TestQueryBuilderRead_ToQueryBuilderSelect_PreloadOnlyAddsLimit(t *testing.T
 	assert.Equal(t, 1, *qb.limit)
 }
 
+// TestQueryBuilderRead_ToQueryBuilderSelect_PreservesOriginal verifies that QueryBuilderRead preserves the original read builder when converting to QueryBuilderSelect.
 func TestQueryBuilderRead_ToQueryBuilderSelect_PreservesOriginal(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.LeftJoin("Posts")
@@ -137,6 +149,7 @@ func TestQueryBuilderRead_ToQueryBuilderSelect_PreservesOriginal(t *testing.T) {
 	assert.Empty(t, qbr.preloads)
 }
 
+// TestQueryBuilderRead_HasRelations_JoinOnly verifies that QueryBuilderRead treats join-only builders as relation-aware.
 func TestQueryBuilderRead_HasRelations_JoinOnly(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.LeftJoin("Posts")
@@ -144,6 +157,7 @@ func TestQueryBuilderRead_HasRelations_JoinOnly(t *testing.T) {
 	assert.True(t, qbr.hasRelations())
 }
 
+// TestQueryBuilderRead_HasRelations_PreloadOnly verifies that QueryBuilderRead treats preload-only builders as relation-aware.
 func TestQueryBuilderRead_HasRelations_PreloadOnly(t *testing.T) {
 	qbr := NewQueryBuilderRead()
 	qbr.Preload("Posts")

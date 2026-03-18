@@ -42,6 +42,7 @@ type RepositoryPreloadTestSuite struct {
 	articleAutoPreloadRepo   sqlr.Repository[int64, testArticleAutoPreload]
 }
 
+// TestRepositoryPreloadTestSuite runs the repository preload test suite.
 func TestRepositoryPreloadTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryPreloadTestSuite))
 }

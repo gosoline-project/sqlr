@@ -30,6 +30,7 @@ type RepositoryCreateTestSuite struct {
 	nullableAuthorRepo  sqlr.Repository[int64, testPostWithPointerAuthorID]
 }
 
+// TestRepositoryCreateTestSuite runs the repository create test suite.
 func TestRepositoryCreateTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryCreateTestSuite))
 }
@@ -59,6 +60,7 @@ func (s *RepositoryCreateTestSuite) TearDownTest() {
 // Success Cases
 // ==========================================================================
 
+// TestCreate_Success verifies that Create succeeds for the basic case.
 func (s *RepositoryCreateTestSuite) TestCreate_Success() {
 	now := time.Now()
 
@@ -82,6 +84,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_Success() {
 	s.Equal(int64(1), entity.GetId())
 }
 
+// TestCreate_PointerPrimaryKey_AutoIncrementSetsPointer verifies that Create sets pointer values from auto-increment IDs for pointer primary keys.
 func (s *RepositoryCreateTestSuite) TestCreate_PointerPrimaryKey_AutoIncrementSetsPointer() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_pointer_key_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
@@ -96,6 +99,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_PointerPrimaryKey_AutoIncrementSe
 	s.Equal(int64(42), *entity.GetId())
 }
 
+// TestCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId verifies that Create uses reflection without SetId for auto-increment primary keys.
 func (s *RepositoryCreateTestSuite) TestCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_no_setter_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
@@ -109,6 +113,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_AutoIncrementPrimaryKey_UsesRefle
 	s.Equal(int64(24), entity.GetId())
 }
 
+// TestCreate_PointerAutoIncrementPrimaryKey_UsesReflectionWithoutSetId verifies that Create uses reflection without SetId for pointer auto-increment primary keys.
 func (s *RepositoryCreateTestSuite) TestCreate_PointerAutoIncrementPrimaryKey_UsesReflectionWithoutSetId() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_no_setter_pointer_key_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
@@ -123,6 +128,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_PointerAutoIncrementPrimaryKey_Us
 	s.Equal(int64(43), *entity.GetId())
 }
 
+// TestCreate_PointerTimestamps_AreSet verifies that Create sets the expected values for pointer timestamps.
 func (s *RepositoryCreateTestSuite) TestCreate_PointerTimestamps_AreSet() {
 	insertSQL := regexp.QuoteMeta("INSERT INTO `test_pointer_timestamp_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")
 
@@ -141,6 +147,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_PointerTimestamps_AreSet() {
 	s.False(entity.UpdatedAt.IsZero())
 }
 
+// TestCreate_DisableAutoUpdates_UsesPresetValues verifies that Create uses preset values when auto-updates are disabled.
 func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_UsesPresetValues() {
 	createdAt := time.Now().Add(-2 * time.Hour)
 	updatedAt := time.Now().Add(-time.Hour)
@@ -171,6 +178,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_UsesPresetValu
 	s.Equal(updatedAt, entity.UpdatedAt)
 }
 
+// TestCreate_DisableAutoUpdates_MissingPrimaryKeyReturnsError verifies that Create returns an error when auto-updates are disabled without a preset primary key.
 func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_MissingPrimaryKeyReturnsError() {
 	entity := testUser{Name: "Alice", Email: "alice@test.com"}
 
@@ -182,6 +190,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_MissingPrimary
 	s.ErrorIs(err, sqlr.ErrAutoUpdatesRequirePresetPrimaryKey)
 }
 
+// TestCreate_CustomPrimaryKeyColumn_UsesReflectionWithoutSetId verifies that Create uses reflection without SetId for custom primary key columns.
 func (s *RepositoryCreateTestSuite) TestCreate_CustomPrimaryKeyColumn_UsesReflectionWithoutSetId() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_no_setter_custom_pk_users` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
@@ -195,6 +204,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_CustomPrimaryKeyColumn_UsesReflec
 	s.Equal(int64(17), entity.GetId())
 }
 
+// TestCreate_BelongsTo_SetsNullableForeignKey verifies that Create sets nullable foreign keys for belongs-to relations.
 func (s *RepositoryCreateTestSuite) TestCreate_BelongsTo_SetsNullableForeignKey() {
 	createdAt := time.Now().Add(-time.Hour)
 
@@ -229,6 +239,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_BelongsTo_SetsNullableForeignKey(
 // Error Cases
 // ==========================================================================
 
+// TestCreate_Error verifies that Create propagates execution errors.
 func (s *RepositoryCreateTestSuite) TestCreate_Error() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)")).
@@ -246,6 +257,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_Error() {
 	s.Contains(err.Error(), "failed to create entity")
 }
 
+// TestCreate_NilEntityReturnsError verifies that Create returns an error for nil entity.
 func (s *RepositoryCreateTestSuite) TestCreate_NilEntityReturnsError() {
 	err := s.repo.Create(context.Background(), nil)
 
@@ -253,6 +265,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_NilEntityReturnsError() {
 	s.Require().ErrorIs(err, sqlr.ErrNilEntity)
 }
 
+// TestCreate_LastInsertIDError verifies that Create surfaces last-insert-ID errors.
 func (s *RepositoryCreateTestSuite) TestCreate_LastInsertIDError() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)")).
@@ -266,6 +279,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_LastInsertIDError() {
 	s.Contains(err.Error(), "failed to get last insert id")
 }
 
+// TestCreate_Error_RestoresInMemoryState verifies that Create restores in-memory state for error.
 func (s *RepositoryCreateTestSuite) TestCreate_Error_RestoresInMemoryState() {
 	now := time.Now()
 
@@ -295,6 +309,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_Error_RestoresInMemoryState() {
 // Non-Standard Key Types
 // ==========================================================================
 
+// TestCreate_StringPrimaryKey verifies that Create string primary key.
 func (s *RepositoryCreateTestSuite) TestCreate_StringPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_string_key_users` (`id`, `created_at`, `updated_at`, `name`) VALUES (?, ?, ?, ?)")).
@@ -308,6 +323,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_StringPrimaryKey() {
 	s.Equal("", entity.GetId())
 }
 
+// TestCreate_BoolPrimaryKey verifies that Create bool primary key.
 func (s *RepositoryCreateTestSuite) TestCreate_BoolPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_bool_key_users` (`id`, `created_at`, `updated_at`, `name`) VALUES (?, ?, ?, ?)")).
@@ -324,6 +340,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_BoolPrimaryKey() {
 	s.True(entity.GetId())
 }
 
+// TestCreate_FloatPrimaryKey verifies that Create float primary key.
 func (s *RepositoryCreateTestSuite) TestCreate_FloatPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_float_key_users` (`id`, `created_at`, `updated_at`, `name`) VALUES (?, ?, ?, ?)")).
@@ -340,6 +357,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_FloatPrimaryKey() {
 	s.Equal(float64(7.5), entity.GetId())
 }
 
+// TestCreate_NonAutoIncrementIncludesPrimaryKey verifies that Create nonauto-increment includesprimary key.
 func (s *RepositoryCreateTestSuite) TestCreate_NonAutoIncrementIncludesPrimaryKey() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_string_key_users` (`id`, `created_at`, `updated_at`, `name`) VALUES (?, ?, ?, ?)")).
@@ -368,6 +386,7 @@ type RepositoryCreatePreparedTestSuite struct {
 	repo   sqlr.Repository[int64, testUser]
 }
 
+// TestRepositoryCreatePreparedTestSuite runs the repository create prepared test suite.
 func TestRepositoryCreatePreparedTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryCreatePreparedTestSuite))
 }
@@ -386,6 +405,7 @@ func (s *RepositoryCreatePreparedTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+// TestCreate_PreparedStatement_Success verifies that Create succeeds for the basic case in prepared-statement mode.
 func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_Success() {
 	createSQL := "INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)"
 
@@ -420,6 +440,7 @@ func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_Success
 	s.Equal(int64(2), entity2.GetId())
 }
 
+// TestCreate_PreparedStatement_Error verifies that Create propagates execution errors in prepared-statement mode.
 func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_Error() {
 	createSQL := "INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)"
 
@@ -439,6 +460,7 @@ func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_Error()
 	s.Contains(err.Error(), "failed to create entity")
 }
 
+// TestCreate_PreparedStatement_PrepareError verifies that Create surfaces statement preparation errors in prepared-statement mode.
 func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_PrepareError() {
 	createSQL := "INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)"
 
@@ -455,6 +477,7 @@ func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_Prepare
 	s.Require().EqualError(err, "failed to create entity: failed to prepare statement: prepare failed")
 }
 
+// TestCreate_PreparedStatement_CloseError verifies that Create surfaces statement close errors in prepared-statement mode.
 func (s *RepositoryCreatePreparedTestSuite) TestCreate_PreparedStatement_CloseError() {
 	client, mock := newTestClient(s.T())
 	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})

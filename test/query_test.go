@@ -13,6 +13,7 @@ import (
 	"github.com/justtrackio/gosoline/pkg/test/suite"
 )
 
+// TestQueryTestSuite runs the query test suite.
 func TestQueryTestSuite(t *testing.T) {
 	suite.Run(t, new(QueryTestSuite))
 }
@@ -46,6 +47,7 @@ func (s *QueryTestSuite) SetupTest() error {
 	return nil
 }
 
+// TestQuery verifies that the fixture-backed repository reads the seeded post correctly.
 func (s *QueryTestSuite) TestQuery() {
 	post, err := s.repo.Read(s.ctx, 1)
 	s.Require().NoError(err, "could not read post")

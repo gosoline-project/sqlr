@@ -31,6 +31,7 @@ type RepositoryQueryTestSuite struct {
 	authorAutoPreloadRepo sqlr.Repository[int64, testAuthorAutoPreload]
 }
 
+// TestRepositoryQueryTestSuite runs the repository query test suite.
 func TestRepositoryQueryTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryQueryTestSuite))
 }
@@ -442,6 +443,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_InnerJoin() {
 	})
 }
 
+// TestQuery_LeftJoin_DuplicateRelationReturnsError verifies that Query rejects duplicate left joins for the same relation.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_DuplicateRelationReturnsError() {
 	results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.LeftJoin("Posts").LeftJoin("Posts")
@@ -452,6 +454,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_DuplicateRelationReturnsEr
 	s.Contains(err.Error(), `join relation "Posts" specified multiple times`)
 }
 
+// TestQuery_LeftJoin_PointerPrimaryKeyDeduplicatesRows verifies that Query deduplicates joined rows for entities with pointer primary keys.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_PointerPrimaryKeyDeduplicatesRows() {
 	pointerRepo := mustNewRepo[*int64, testAuthorWithPointerKeyProfile](s.T(), s.client)
 	now := time.Now()

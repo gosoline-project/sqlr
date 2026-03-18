@@ -50,6 +50,7 @@ func TestNewRepositoryTxWithSettings_PreparedStatementsWithoutClient(t *testing.
 	require.Contains(t, err.Error(), "client")
 }
 
+// TestRepositoryTxCreate_NilEntityReturnsError verifies that RepositoryTx Create returns an error for nil entity.
 func TestRepositoryTxCreate_NilEntityReturnsError(t *testing.T) {
 	t.Parallel()
 
@@ -60,6 +61,7 @@ func TestRepositoryTxCreate_NilEntityReturnsError(t *testing.T) {
 	require.ErrorIs(t, err, sqlr.ErrNilEntity)
 }
 
+// TestRepositoryTxUpdate_NilEntityReturnsError verifies that RepositoryTx Update returns an error for nil entity.
 func TestRepositoryTxUpdate_NilEntityReturnsError(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +73,7 @@ func TestRepositoryTxUpdate_NilEntityReturnsError(t *testing.T) {
 	require.Nil(t, result)
 }
 
+// TestRepositoryTxCreate_NilAssociationEntityReturnsError verifies that RepositoryTx Create returns an error for nil association entity.
 func TestRepositoryTxCreate_NilAssociationEntityReturnsError(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +84,7 @@ func TestRepositoryTxCreate_NilAssociationEntityReturnsError(t *testing.T) {
 	require.ErrorIs(t, err, sqlr.ErrNilEntity)
 }
 
+// TestRepositoryTxUpdate_NilAssociationEntityReturnsError verifies that RepositoryTx Update returns an error for nil association entity.
 func TestRepositoryTxUpdate_NilAssociationEntityReturnsError(t *testing.T) {
 	t.Parallel()
 
@@ -92,6 +96,7 @@ func TestRepositoryTxUpdate_NilAssociationEntityReturnsError(t *testing.T) {
 	require.Nil(t, result)
 }
 
+// TestRepositoryTxCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId verifies that RepositoryTx Create uses reflection without SetId for auto-increment primary keys.
 func TestRepositoryTxCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId(t *testing.T) {
 	client, mock := newTestClient(t)
 
@@ -118,6 +123,7 @@ func TestRepositoryTxCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId(t
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestRepositoryTxCreate_Error_RestoresInMemoryState verifies that RepositoryTx Create restores in-memory state for error.
 func TestRepositoryTxCreate_Error_RestoresInMemoryState(t *testing.T) {
 	client, mock := newTestClient(t)
 
@@ -149,6 +155,7 @@ func TestRepositoryTxCreate_Error_RestoresInMemoryState(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestRepositoryTxCreate_DisableAutoUpdates_UsesPresetValues verifies that RepositoryTx Create uses preset values when auto-updates are disabled.
 func TestRepositoryTxCreate_DisableAutoUpdates_UsesPresetValues(t *testing.T) {
 	client, mock := newTestClient(t)
 	repo := mustNewTxRepo[int64, testUser](t, client)
@@ -192,6 +199,7 @@ type RepositoryTxCrudTestSuite struct {
 	preparedCtx context.Context
 }
 
+// TestRepositoryTxCrudTestSuite runs the repository tx crud test suite.
 func TestRepositoryTxCrudTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryTxCrudTestSuite))
 }
@@ -209,6 +217,7 @@ func (s *RepositoryTxCrudTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+// TestCreate_Success verifies that Create succeeds for the basic case.
 func (s *RepositoryTxCrudTestSuite) TestCreate_Success() {
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
@@ -229,6 +238,7 @@ func (s *RepositoryTxCrudTestSuite) TestCreate_Success() {
 	s.Equal(int64(1), entity.GetId())
 }
 
+// TestRead_Success verifies that Read succeeds for the basic case.
 func (s *RepositoryTxCrudTestSuite) TestRead_Success() {
 	now := time.Now()
 
@@ -254,6 +264,7 @@ func (s *RepositoryTxCrudTestSuite) TestRead_Success() {
 	s.Equal("alice@test.com", result.Email)
 }
 
+// TestRead_NotFound verifies that Read returns ErrNotFound for missing rows.
 func (s *RepositoryTxCrudTestSuite) TestRead_NotFound() {
 	s.mock.ExpectBegin()
 	s.mock.ExpectQuery(regexp.QuoteMeta(
@@ -275,6 +286,7 @@ func (s *RepositoryTxCrudTestSuite) TestRead_NotFound() {
 	s.Contains(err.Error(), "entity id=999")
 }
 
+// TestRead_WithPreload verifies that Read with preload.
 func (s *RepositoryTxCrudTestSuite) TestRead_WithPreload() {
 	now := time.Now()
 
@@ -311,6 +323,7 @@ func (s *RepositoryTxCrudTestSuite) TestRead_WithPreload() {
 	})
 }
 
+// TestQuery_Success verifies that Query succeeds for the basic case.
 func (s *RepositoryTxCrudTestSuite) TestQuery_Success() {
 	now := time.Now()
 
@@ -340,6 +353,7 @@ func (s *RepositoryTxCrudTestSuite) TestQuery_Success() {
 	s.Equal("alice2@test.com", results[1].Email)
 }
 
+// TestUpdate_Success verifies that Update succeeds for the basic case.
 func (s *RepositoryTxCrudTestSuite) TestUpdate_Success() {
 	now := time.Now()
 	entity := testUser{
@@ -372,6 +386,7 @@ func (s *RepositoryTxCrudTestSuite) TestUpdate_Success() {
 	s.Equal("alice-updated@test.com", result.Email)
 }
 
+// TestUpdate_NotFound verifies that Update returns ErrNotFound for missing rows.
 func (s *RepositoryTxCrudTestSuite) TestUpdate_NotFound() {
 	now := time.Now()
 	entity := testUser{
@@ -404,6 +419,7 @@ func (s *RepositoryTxCrudTestSuite) TestUpdate_NotFound() {
 	s.Contains(err.Error(), "entity id=99")
 }
 
+// TestDelete_Success verifies that Delete succeeds for the basic case.
 func (s *RepositoryTxCrudTestSuite) TestDelete_Success() {
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
@@ -418,6 +434,7 @@ func (s *RepositoryTxCrudTestSuite) TestDelete_Success() {
 	s.Require().NoError(err)
 }
 
+// TestDelete_NotFound verifies that Delete returns ErrNotFound for missing rows.
 func (s *RepositoryTxCrudTestSuite) TestDelete_NotFound() {
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
@@ -441,6 +458,7 @@ type RepositoryTxPreparedTestSuite struct {
 	repo   sqlr.RepositoryTx[int64, testUser]
 }
 
+// TestRepositoryTxPreparedTestSuite runs the repository tx prepared test suite.
 func TestRepositoryTxPreparedTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryTxPreparedTestSuite))
 }
@@ -457,6 +475,7 @@ func (s *RepositoryTxPreparedTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+// TestRead_PreparedStatement_ReusedAcrossTransactions verifies that Read reused across transactions in prepared-statement mode.
 func (s *RepositoryTxPreparedTestSuite) TestRead_PreparedStatement_ReusedAcrossTransactions() {
 	now := time.Now()
 	readSQL := "SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"

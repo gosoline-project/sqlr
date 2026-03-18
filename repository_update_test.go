@@ -27,6 +27,7 @@ type RepositoryUpdateTestSuite struct {
 	pointerTimeRepo sqlr.Repository[int64, testPointerTimestampUser]
 }
 
+// TestRepositoryUpdateTestSuite runs the repository update test suite.
 func TestRepositoryUpdateTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryUpdateTestSuite))
 }
@@ -52,6 +53,7 @@ func (s *RepositoryUpdateTestSuite) TearDownTest() {
 // Success Cases
 // ==========================================================================
 
+// TestUpdate_Success verifies that Update succeeds for the basic case.
 func (s *RepositoryUpdateTestSuite) TestUpdate_Success() {
 	now := time.Now()
 
@@ -79,6 +81,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_Success() {
 	s.Equal("alice-updated@test.com", result.Email)
 }
 
+// TestUpdate_Error verifies that Update propagates execution errors.
 func (s *RepositoryUpdateTestSuite) TestUpdate_Error() {
 	now := time.Now()
 
@@ -105,6 +108,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_Error() {
 	s.Equal(now, entity.UpdatedAt)
 }
 
+// TestUpdate_NilEntityReturnsError verifies that Update returns an error for nil entity.
 func (s *RepositoryUpdateTestSuite) TestUpdate_NilEntityReturnsError() {
 	result, err := s.repo.Update(context.Background(), nil)
 
@@ -113,6 +117,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_NilEntityReturnsError() {
 	s.Nil(result)
 }
 
+// TestUpdate_NotFound verifies that Update returns ErrNotFound for missing rows.
 func (s *RepositoryUpdateTestSuite) TestUpdate_NotFound() {
 	now := time.Now()
 
@@ -138,6 +143,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_NotFound() {
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
+// TestUpdate_RowsAffectedError verifies that Update surfaces rows-affected errors.
 func (s *RepositoryUpdateTestSuite) TestUpdate_RowsAffectedError() {
 	now := time.Now()
 
@@ -167,6 +173,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_RowsAffectedError() {
 // Key Type Variations
 // ==========================================================================
 
+// TestUpdate_CustomPrimaryKey verifies that Update custom primary key.
 func (s *RepositoryUpdateTestSuite) TestUpdate_CustomPrimaryKey() {
 	now := time.Now()
 
@@ -190,6 +197,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_CustomPrimaryKey() {
 	s.Equal("Custom PK", result.Name)
 }
 
+// TestUpdate_StringPrimaryKey verifies that Update string primary key.
 func (s *RepositoryUpdateTestSuite) TestUpdate_StringPrimaryKey() {
 	now := time.Now()
 
@@ -214,6 +222,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_StringPrimaryKey() {
 	s.Equal("user-1", result.GetId())
 }
 
+// TestUpdate_BoolPrimaryKey verifies that Update bool primary key.
 func (s *RepositoryUpdateTestSuite) TestUpdate_BoolPrimaryKey() {
 	now := time.Now()
 
@@ -238,6 +247,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_BoolPrimaryKey() {
 	s.True(result.GetId())
 }
 
+// TestUpdate_FloatPrimaryKey verifies that Update float primary key.
 func (s *RepositoryUpdateTestSuite) TestUpdate_FloatPrimaryKey() {
 	now := time.Now()
 
@@ -262,6 +272,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_FloatPrimaryKey() {
 	s.Equal(float64(5), result.GetId())
 }
 
+// TestUpdate_PointerTimestamps_AreSet verifies that Update sets the expected values for pointer timestamps.
 func (s *RepositoryUpdateTestSuite) TestUpdate_PointerTimestamps_AreSet() {
 	createdAt := time.Now().Add(-time.Hour)
 	updatedAt := time.Now().Add(-30 * time.Minute)
@@ -289,6 +300,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_PointerTimestamps_AreSet() {
 	s.False(result.UpdatedAt.IsZero())
 }
 
+// TestUpdate_DisableAutoUpdates_UsesPresetValues verifies that Update uses preset values when auto-updates are disabled.
 func (s *RepositoryUpdateTestSuite) TestUpdate_DisableAutoUpdates_UsesPresetValues() {
 	createdAt := time.Now().Add(-2 * time.Hour)
 	updatedAt := time.Now().Add(-time.Hour)
@@ -331,6 +343,7 @@ type RepositoryUpdatePreparedTestSuite struct {
 	repo   sqlr.Repository[int64, testUser]
 }
 
+// TestRepositoryUpdatePreparedTestSuite runs the repository update prepared test suite.
 func TestRepositoryUpdatePreparedTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryUpdatePreparedTestSuite))
 }
@@ -349,6 +362,7 @@ func (s *RepositoryUpdatePreparedTestSuite) TearDownTest() {
 	s.Require().NoError(s.mock.ExpectationsWereMet())
 }
 
+// TestUpdate_PreparedStatement_Success verifies that Update succeeds for the basic case in prepared-statement mode.
 func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_Success() {
 	now := time.Now()
 	updateSQL := "UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"
@@ -396,6 +410,7 @@ func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_Success
 	s.Equal("Bob Updated", result2.Name)
 }
 
+// TestUpdate_PreparedStatement_Error verifies that Update propagates execution errors in prepared-statement mode.
 func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_Error() {
 	now := time.Now()
 	updateSQL := "UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"
@@ -422,6 +437,7 @@ func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_Error()
 	s.Contains(err.Error(), "failed to update entity")
 }
 
+// TestUpdate_PreparedStatement_NotFound verifies that Update returns ErrNotFound for missing rows in prepared-statement mode.
 func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_NotFound() {
 	now := time.Now()
 	updateSQL := "UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"
@@ -449,6 +465,7 @@ func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_NotFoun
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
+// TestUpdate_PreparedStatement_PrepareError verifies that Update surfaces statement preparation errors in prepared-statement mode.
 func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_PrepareError() {
 	now := time.Now()
 	updateSQL := "UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"
@@ -472,6 +489,7 @@ func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_Prepare
 	s.Require().EqualError(err, "failed to update entity: failed to prepare statement: prepare failed")
 }
 
+// TestUpdate_PreparedStatement_CloseError verifies that Update surfaces statement close errors in prepared-statement mode.
 func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_CloseError() {
 	client, mock := newTestClient(s.T())
 	repo := mustNewRepoWithSettings[int64, testUser](s.T(), client, sqlr.Settings{PreparedStatements: true})

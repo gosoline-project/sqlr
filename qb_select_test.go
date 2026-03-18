@@ -11,6 +11,7 @@ import (
 
 // ========== Where Tests ==========
 
+// TestQueryBuilderSelectWhereWithStringCondition verifies that QueryBuilderSelect supports `Where` with string condition.
 func TestQueryBuilderSelectWhereWithStringCondition(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where("status = ?", "active")
@@ -22,6 +23,7 @@ func TestQueryBuilderSelectWhereWithStringCondition(t *testing.T) {
 	assert.Equal(t, []any{"active"}, params)
 }
 
+// TestQueryBuilderSelectWhereWithMultipleStringConditions verifies that QueryBuilderSelect supports `Where` with multiple string conditions.
 func TestQueryBuilderSelectWhereWithMultipleStringConditions(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where("status = ?", "active").
@@ -34,6 +36,7 @@ func TestQueryBuilderSelectWhereWithMultipleStringConditions(t *testing.T) {
 	assert.Equal(t, []any{"active", 18}, params)
 }
 
+// TestQueryBuilderSelectWhereWithExpression verifies that QueryBuilderSelect supports `Where` with expression.
 func TestQueryBuilderSelectWhereWithExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("age").Gt(18))
@@ -45,6 +48,7 @@ func TestQueryBuilderSelectWhereWithExpression(t *testing.T) {
 	assert.Equal(t, []any{18}, params)
 }
 
+// TestQueryBuilderSelectWhereWithMultipleExpressions verifies that QueryBuilderSelect supports `Where` with multiple expressions.
 func TestQueryBuilderSelectWhereWithMultipleExpressions(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("age").Gt(18)).
@@ -57,6 +61,7 @@ func TestQueryBuilderSelectWhereWithMultipleExpressions(t *testing.T) {
 	assert.Equal(t, []any{18, "active"}, params)
 }
 
+// TestQueryBuilderSelectWhereWithEqMap verifies that QueryBuilderSelect supports `Where` with equality maps.
 func TestQueryBuilderSelectWhereWithEqMap(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Eq{"status": "active", "role": "admin"})
@@ -68,6 +73,7 @@ func TestQueryBuilderSelectWhereWithEqMap(t *testing.T) {
 	assert.Equal(t, []any{"admin", "active"}, params)
 }
 
+// TestQueryBuilderSelectWhereWithAndExpression verifies that QueryBuilderSelect supports `Where` with AND expressions.
 func TestQueryBuilderSelectWhereWithAndExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.And(
@@ -82,6 +88,7 @@ func TestQueryBuilderSelectWhereWithAndExpression(t *testing.T) {
 	assert.Equal(t, []any{18, "active"}, params)
 }
 
+// TestQueryBuilderSelectWhereWithOrExpression verifies that QueryBuilderSelect supports `Where` with OR expressions.
 func TestQueryBuilderSelectWhereWithOrExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Or(
@@ -96,6 +103,7 @@ func TestQueryBuilderSelectWhereWithOrExpression(t *testing.T) {
 	assert.Equal(t, []any{"active", "pending"}, params)
 }
 
+// TestQueryBuilderSelectWhereWithInExpression verifies that QueryBuilderSelect supports `Where` with in expression.
 func TestQueryBuilderSelectWhereWithInExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").In("active", "pending", "approved"))
@@ -107,6 +115,7 @@ func TestQueryBuilderSelectWhereWithInExpression(t *testing.T) {
 	assert.Equal(t, []any{"active", "pending", "approved"}, params)
 }
 
+// TestQueryBuilderSelectWhereEmpty verifies that QueryBuilderSelect omits `Where` when no conditions are configured.
 func TestQueryBuilderSelectWhereEmpty(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 
@@ -119,6 +128,7 @@ func TestQueryBuilderSelectWhereEmpty(t *testing.T) {
 
 // ========== GroupBy Tests ==========
 
+// TestQueryBuilderSelectGroupByWithSingleColumn verifies that QueryBuilderSelect supports `GroupBy` with single column.
 func TestQueryBuilderSelectGroupByWithSingleColumn(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.GroupBy("status")
@@ -130,6 +140,7 @@ func TestQueryBuilderSelectGroupByWithSingleColumn(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectGroupByWithMultipleColumns verifies that QueryBuilderSelect supports `GroupBy` with multiple columns.
 func TestQueryBuilderSelectGroupByWithMultipleColumns(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.GroupBy("status", "country", "city")
@@ -141,6 +152,7 @@ func TestQueryBuilderSelectGroupByWithMultipleColumns(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectGroupByWithExpression verifies that QueryBuilderSelect supports `GroupBy` with expression.
 func TestQueryBuilderSelectGroupByWithExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.GroupBy(sqlc.Col("DATE(created_at)"))
@@ -152,6 +164,7 @@ func TestQueryBuilderSelectGroupByWithExpression(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectGroupByEmpty verifies that QueryBuilderSelect omits `GroupBy` when no columns are configured.
 func TestQueryBuilderSelectGroupByEmpty(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 
@@ -164,6 +177,7 @@ func TestQueryBuilderSelectGroupByEmpty(t *testing.T) {
 
 // ========== Having Tests ==========
 
+// TestQueryBuilderSelectHavingWithStringCondition verifies that QueryBuilderSelect supports `Having` with string condition.
 func TestQueryBuilderSelectHavingWithStringCondition(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Having("COUNT(*) > ?", 10)
@@ -175,6 +189,7 @@ func TestQueryBuilderSelectHavingWithStringCondition(t *testing.T) {
 	assert.Equal(t, []any{10}, params)
 }
 
+// TestQueryBuilderSelectHavingWithMultipleStringConditions verifies that QueryBuilderSelect supports `Having` with multiple string conditions.
 func TestQueryBuilderSelectHavingWithMultipleStringConditions(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Having("COUNT(*) > ?", 10).
@@ -187,6 +202,7 @@ func TestQueryBuilderSelectHavingWithMultipleStringConditions(t *testing.T) {
 	assert.Equal(t, []any{10, 1000}, params)
 }
 
+// TestQueryBuilderSelectHavingWithExpression verifies that QueryBuilderSelect supports `Having` with expression.
 func TestQueryBuilderSelectHavingWithExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Having(sqlc.Col("*").Count().Gt(10))
@@ -198,6 +214,7 @@ func TestQueryBuilderSelectHavingWithExpression(t *testing.T) {
 	assert.Equal(t, []any{10}, params)
 }
 
+// TestQueryBuilderSelectHavingWithMultipleExpressions verifies that QueryBuilderSelect supports `Having` with multiple expressions.
 func TestQueryBuilderSelectHavingWithMultipleExpressions(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Having(sqlc.Col("*").Count().Gt(10)).
@@ -210,6 +227,7 @@ func TestQueryBuilderSelectHavingWithMultipleExpressions(t *testing.T) {
 	assert.Equal(t, []any{10, 1000}, params)
 }
 
+// TestQueryBuilderSelectHavingWithAndExpression verifies that QueryBuilderSelect supports `Having` with AND expressions.
 func TestQueryBuilderSelectHavingWithAndExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Having(sqlc.And(
@@ -224,6 +242,7 @@ func TestQueryBuilderSelectHavingWithAndExpression(t *testing.T) {
 	assert.Equal(t, []any{10, 1000}, params)
 }
 
+// TestQueryBuilderSelectHavingWithOrExpression verifies that QueryBuilderSelect supports `Having` with OR expressions.
 func TestQueryBuilderSelectHavingWithOrExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Having(sqlc.Or(
@@ -238,6 +257,7 @@ func TestQueryBuilderSelectHavingWithOrExpression(t *testing.T) {
 	assert.Equal(t, []any{1000, 50}, params)
 }
 
+// TestQueryBuilderSelectHavingEmpty verifies that QueryBuilderSelect omits `Having` when no conditions are configured.
 func TestQueryBuilderSelectHavingEmpty(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 
@@ -308,6 +328,7 @@ func TestQueryBuilderSelectHavingProperAggregateUsage(t *testing.T) {
 
 // ========== OrderBy Tests ==========
 
+// TestQueryBuilderSelectOrderByWithSingleColumn verifies that QueryBuilderSelect supports `OrderBy` with single column.
 func TestQueryBuilderSelectOrderByWithSingleColumn(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.OrderBy("created_at DESC")
@@ -319,6 +340,7 @@ func TestQueryBuilderSelectOrderByWithSingleColumn(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectOrderByWithMultipleColumns verifies that QueryBuilderSelect supports `OrderBy` with multiple columns.
 func TestQueryBuilderSelectOrderByWithMultipleColumns(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.OrderBy("name ASC", "created_at DESC")
@@ -330,6 +352,7 @@ func TestQueryBuilderSelectOrderByWithMultipleColumns(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectOrderByWithExpression verifies that QueryBuilderSelect supports `OrderBy` with expression.
 func TestQueryBuilderSelectOrderByWithExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.OrderBy(sqlc.Col("price").Desc())
@@ -341,6 +364,7 @@ func TestQueryBuilderSelectOrderByWithExpression(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectOrderByWithMultipleExpressions verifies that QueryBuilderSelect supports `OrderBy` with multiple expressions.
 func TestQueryBuilderSelectOrderByWithMultipleExpressions(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.OrderBy(sqlc.Col("name").Asc(), sqlc.Col("id").Desc())
@@ -352,6 +376,7 @@ func TestQueryBuilderSelectOrderByWithMultipleExpressions(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectOrderByEmpty verifies that QueryBuilderSelect omits `OrderBy` when no ordering is configured.
 func TestQueryBuilderSelectOrderByEmpty(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 
@@ -364,6 +389,7 @@ func TestQueryBuilderSelectOrderByEmpty(t *testing.T) {
 
 // ========== Limit Tests ==========
 
+// TestQueryBuilderSelectLimit verifies that QueryBuilderSelect renders configured `Limit` values.
 func TestQueryBuilderSelectLimit(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Limit(10)
@@ -375,6 +401,7 @@ func TestQueryBuilderSelectLimit(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectLimitZero verifies that QueryBuilderSelect handles zero for `Limit`.
 func TestQueryBuilderSelectLimitZero(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Limit(0)
@@ -386,6 +413,7 @@ func TestQueryBuilderSelectLimitZero(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectLimitEmpty verifies that QueryBuilderSelect omits `Limit` when it is unset.
 func TestQueryBuilderSelectLimitEmpty(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 
@@ -398,6 +426,7 @@ func TestQueryBuilderSelectLimitEmpty(t *testing.T) {
 
 // ========== Offset Tests ==========
 
+// TestQueryBuilderSelectOffset verifies that QueryBuilderSelect renders configured `Offset` values.
 func TestQueryBuilderSelectOffset(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Offset(20)
@@ -409,6 +438,7 @@ func TestQueryBuilderSelectOffset(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectOffsetZero verifies that QueryBuilderSelect handles zero for `Offset`.
 func TestQueryBuilderSelectOffsetZero(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Offset(0)
@@ -420,6 +450,7 @@ func TestQueryBuilderSelectOffsetZero(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectOffsetEmpty verifies that QueryBuilderSelect omits `Offset` when it is unset.
 func TestQueryBuilderSelectOffsetEmpty(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 
@@ -432,6 +463,7 @@ func TestQueryBuilderSelectOffsetEmpty(t *testing.T) {
 
 // ========== Combined Tests ==========
 
+// TestQueryBuilderSelectCombinedWhereAndGroupBy verifies that QueryBuilderSelect composes where and group by correctly.
 func TestQueryBuilderSelectCombinedWhereAndGroupBy(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").Eq("active")).
@@ -444,6 +476,7 @@ func TestQueryBuilderSelectCombinedWhereAndGroupBy(t *testing.T) {
 	assert.Equal(t, []any{"active"}, params)
 }
 
+// TestQueryBuilderSelectCombinedWhereGroupByAndHaving verifies that QueryBuilderSelect composes where group by and having correctly.
 func TestQueryBuilderSelectCombinedWhereGroupByAndHaving(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").Eq("active")).
@@ -457,6 +490,7 @@ func TestQueryBuilderSelectCombinedWhereGroupByAndHaving(t *testing.T) {
 	assert.Equal(t, []any{"active", 10}, params)
 }
 
+// TestQueryBuilderSelectCombinedWhereGroupByHavingAndOrderBy verifies that QueryBuilderSelect composes where group by having and order by correctly.
 func TestQueryBuilderSelectCombinedWhereGroupByHavingAndOrderBy(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").Eq("active")).
@@ -471,6 +505,7 @@ func TestQueryBuilderSelectCombinedWhereGroupByHavingAndOrderBy(t *testing.T) {
 	assert.Equal(t, []any{"active", 10}, params)
 }
 
+// TestQueryBuilderSelectCombinedWhereOrderByAndLimit verifies that QueryBuilderSelect composes where order by and limit correctly.
 func TestQueryBuilderSelectCombinedWhereOrderByAndLimit(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").Eq("active")).
@@ -484,6 +519,7 @@ func TestQueryBuilderSelectCombinedWhereOrderByAndLimit(t *testing.T) {
 	assert.Equal(t, []any{"active"}, params)
 }
 
+// TestQueryBuilderSelectCombinedWhereOrderByLimitAndOffset verifies that QueryBuilderSelect composes where order by limit and offset correctly.
 func TestQueryBuilderSelectCombinedWhereOrderByLimitAndOffset(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").Eq("active")).
@@ -498,6 +534,7 @@ func TestQueryBuilderSelectCombinedWhereOrderByLimitAndOffset(t *testing.T) {
 	assert.Equal(t, []any{"active"}, params)
 }
 
+// TestQueryBuilderSelectCombinedAllClauses verifies that QueryBuilderSelect composes all clauses correctly.
 func TestQueryBuilderSelectCombinedAllClauses(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").Eq("active")).
@@ -516,6 +553,7 @@ func TestQueryBuilderSelectCombinedAllClauses(t *testing.T) {
 	assert.Equal(t, []any{"active", 18, 5, 1000}, params)
 }
 
+// TestQueryBuilderSelectCombinedComplexExpressions verifies that QueryBuilderSelect composes complex expressions correctly.
 func TestQueryBuilderSelectCombinedComplexExpressions(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Or(
@@ -544,6 +582,7 @@ func TestQueryBuilderSelectCombinedComplexExpressions(t *testing.T) {
 
 // ========== Method Chaining Tests ==========
 
+// TestQueryBuilderSelectMethodChainingReturnsInstance verifies that QueryBuilderSelect returns the same builder instance for chaining.
 func TestQueryBuilderSelectMethodChainingReturnsInstance(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 
@@ -571,6 +610,7 @@ func TestQueryBuilderSelectMethodChainingReturnsInstance(t *testing.T) {
 
 // ========== Edge Cases ==========
 
+// TestQueryBuilderSelectWithNilExpression verifies that QueryBuilderSelect ignores nil expressions safely.
 func TestQueryBuilderSelectWithNilExpression(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	var nilExpr *sqlc.Expression = nil
@@ -583,6 +623,7 @@ func TestQueryBuilderSelectWithNilExpression(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectWithEmptyEqMap verifies that QueryBuilderSelect ignores empty equality maps.
 func TestQueryBuilderSelectWithEmptyEqMap(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Eq{})
@@ -594,6 +635,7 @@ func TestQueryBuilderSelectWithEmptyEqMap(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectMultipleGroupByReplacesExisting verifies that QueryBuilderSelect replaces earlier values on repeated calls.
 func TestQueryBuilderSelectMultipleGroupByReplacesExisting(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.GroupBy("status")
@@ -606,6 +648,7 @@ func TestQueryBuilderSelectMultipleGroupByReplacesExisting(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectMultipleOrderByReplacesExisting verifies that QueryBuilderSelect replaces earlier values on repeated calls.
 func TestQueryBuilderSelectMultipleOrderByReplacesExisting(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.OrderBy("name ASC")
@@ -618,6 +661,7 @@ func TestQueryBuilderSelectMultipleOrderByReplacesExisting(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectMultipleLimitsReplacesExisting verifies that QueryBuilderSelect replaces earlier values on repeated calls.
 func TestQueryBuilderSelectMultipleLimitsReplacesExisting(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Limit(10)
@@ -630,6 +674,7 @@ func TestQueryBuilderSelectMultipleLimitsReplacesExisting(t *testing.T) {
 	assert.Empty(t, params)
 }
 
+// TestQueryBuilderSelectMultipleOffsetsReplacesExisting verifies that QueryBuilderSelect replaces earlier values on repeated calls.
 func TestQueryBuilderSelectMultipleOffsetsReplacesExisting(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Offset(10)
@@ -644,6 +689,7 @@ func TestQueryBuilderSelectMultipleOffsetsReplacesExisting(t *testing.T) {
 
 // ========== Real World Usage Examples ==========
 
+// TestQueryBuilderSelectRealWorldPaginationQuery verifies that QueryBuilderSelect builds a pagination query shape correctly.
 func TestQueryBuilderSelectRealWorldPaginationQuery(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("status").In("active", "pending")).
@@ -659,6 +705,7 @@ func TestQueryBuilderSelectRealWorldPaginationQuery(t *testing.T) {
 	assert.Equal(t, []any{"active", "pending", "2024-01-01"}, params)
 }
 
+// TestQueryBuilderSelectRealWorldAggregationQuery verifies that QueryBuilderSelect builds a real-world aggregation query shape correctly.
 func TestQueryBuilderSelectRealWorldAggregationQuery(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("created_at").Between("2024-01-01", "2024-12-31")).
@@ -674,6 +721,7 @@ func TestQueryBuilderSelectRealWorldAggregationQuery(t *testing.T) {
 	assert.Equal(t, []any{"2024-01-01", "2024-12-31", 5, 10000}, params)
 }
 
+// TestQueryBuilderSelectRealWorldSearchQuery verifies that QueryBuilderSelect builds a search query shape correctly.
 func TestQueryBuilderSelectRealWorldSearchQuery(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Or(
@@ -691,6 +739,7 @@ func TestQueryBuilderSelectRealWorldSearchQuery(t *testing.T) {
 	assert.Equal(t, []any{"%john%", "%john%"}, params)
 }
 
+// TestQueryBuilderSelectRealWorldReportQuery verifies that QueryBuilderSelect builds a report query shape correctly.
 func TestQueryBuilderSelectRealWorldReportQuery(t *testing.T) {
 	qb := sqlr.NewQueryBuilderSelect()
 	qb.Where(sqlc.Col("order_date").Between("2024-01-01", "2024-03-31")).

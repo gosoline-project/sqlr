@@ -21,6 +21,7 @@ type RepositoryAssociationUpdateTestSuite struct {
 	mock   sqlmock.Sqlmock
 }
 
+// TestRepositoryAssociationUpdateTestSuite runs the repository association update test suite.
 func TestRepositoryAssociationUpdateTestSuite(t *testing.T) {
 	suite.Run(t, new(RepositoryAssociationUpdateTestSuite))
 }
@@ -53,6 +54,7 @@ func syncAllAssociationsWithManyToManyEntities(qb *sqlr.QueryBuilderUpdate) {
 	qb.SyncAllAssociations().SyncManyToManyEntities("Tags")
 }
 
+// TestUpdate_Default_DoesNotSynchronizePopulatedAssociations verifies that Update does not synchronize populated associations by default.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_Default_DoesNotSynchronizePopulatedAssociations() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -83,6 +85,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_Default_DoesNotSynchro
 	s.Equal(int64(0), result.Posts[0].GetId())
 }
 
+// TestUpdate_NilEntity_WithAssociationOptionsReturnsError verifies that Update returns an error for nil entities even when association sync is configured.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_NilEntity_WithAssociationOptionsReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 
@@ -93,6 +96,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_NilEntity_WithAssociat
 	s.Nil(result)
 }
 
+// TestUpdate_HasMany_NilSlice_UntouchedNoTransaction verifies that Update leaves nil has-many slices untouched without starting a transaction.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_NilSlice_UntouchedNoTransaction() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -118,6 +122,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_NilSlice_Untou
 	s.Nil(result.Posts)
 }
 
+// TestUpdate_BelongsTo_UpdatesRelatedAndParentFK verifies that Update syncs belongs-to entities and the parent foreign key together.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsTo_UpdatesRelatedAndParentFK() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 	now := time.Now()
@@ -162,6 +167,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsTo_UpdatesRelat
 	s.Equal("Alice Updated", result.Author.Name)
 }
 
+// TestUpdate_BelongsToPointer_UpdatesRelatedAndParentFK verifies that Update syncs pointer belongs-to entities and the parent foreign key together.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsToPointer_UpdatesRelatedAndParentFK() {
 	repo := mustNewRepo[int64, assocPostWithPointerAuthor](s.T(), s.client)
 	now := time.Now()
@@ -204,6 +210,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsToPointer_Updat
 	s.Equal("Alice Updated", result.Author.Name)
 }
 
+// TestUpdate_DisableAutoUpdates_UsesPresetValuesAcrossGraph verifies that Update uses preset values across graph when auto-updates are disabled.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_UsesPresetValuesAcrossGraph() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 	postCreatedAt := time.Now().Add(-4 * time.Hour)
@@ -248,6 +255,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_Use
 	s.Equal(int64(7), result.AuthorID)
 }
 
+// TestUpdate_DisableAutoUpdates_FKMismatchReturnsError verifies that Update returns an error for foreign key mismatch when auto-updates are disabled.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_FKMismatchReturnsError() {
 	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
 	authorCreatedAt := time.Now().Add(-2 * time.Hour)
@@ -285,6 +293,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_FKM
 	s.ErrorContains(err, "field assoc_post_with_authors.author_id value 99 does not match associated primary key 7")
 }
 
+// TestUpdate_HasMany_SynchronizesAndDeletesMissingChildren verifies that Update synchronizes and deletes missing children for has-many relations.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAndDeletesMissingChildren() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -352,6 +361,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 	s.Equal(int64(12), result.Posts[1].GetId())
 }
 
+// TestUpdate_ManyToMany_DefaultSync_SynchronizesLinksWithoutUpdatingExistingRows verifies that Update synchronizes links without updating existing rows for many-to-many default sync.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync_SynchronizesLinksWithoutUpdatingExistingRows() {
 	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
 	now := time.Now()
@@ -424,6 +434,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync
 	s.Equal(tagNow, result.Tags[0].UpdatedAt)
 }
 
+// TestUpdate_ManyToMany_FullEntitySync_UpdatesExistingRowsWhenOptedIn verifies that Update updates existing rows when opted in for many-to-many full entity sync.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_FullEntitySync_UpdatesExistingRowsWhenOptedIn() {
 	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
 	now := time.Now()
@@ -494,6 +505,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_FullEntityS
 	s.Equal(int64(102), result.Tags[1].GetId())
 }
 
+// TestUpdate_ManyToMany_DefaultSync_MissingRelatedEntityReturnsNotFound verifies that Update returns ErrNotFound for missing related entity for many-to-many default sync.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync_MissingRelatedEntityReturnsNotFound() {
 	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
 	now := time.Now()
@@ -537,6 +549,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
+// TestUpdate_ManyToMany_EmptySlice_RemovesAllLinks verifies that Update removes all links for many-to-many empty slice.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_EmptySlice_RemovesAllLinks() {
 	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
 	now := time.Now()
@@ -584,6 +597,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_EmptySlice_
 	s.Empty(result.Tags)
 }
 
+// TestUpdate_HasManyPointerElements_RejectsNilElement verifies that Update rejects nil element for pointer-based has-many collections.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasManyPointerElements_RejectsNilElement() {
 	repo := mustNewRepo[int64, assocAuthorWithPointerPosts](s.T(), s.client)
 	now := time.Now()
@@ -617,6 +631,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasManyPointerElements
 	s.ErrorContains(err, "HasMany relation \"Posts\"[0] is nil")
 }
 
+// TestUpdate_ManyToManyPointerElements_RejectsNilElement verifies that Update rejects nil element for pointer-based many-to-many collections.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToManyPointerElements_RejectsNilElement() {
 	repo := mustNewRepo[int64, assocArticleWithPointerTags](s.T(), s.client)
 	now := time.Now()
@@ -645,6 +660,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToManyPointerEleme
 	s.Equal(now, entity.UpdatedAt)
 }
 
+// TestUpdate_HasMany_RollbackRestoresParentAndChildState verifies that Update rollback restores parent and child state for has-many relations.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_RollbackRestoresParentAndChildState() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -694,6 +710,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_RollbackRestor
 	s.Equal(int64(0), entity.Posts[0].AuthorID)
 }
 
+// TestUpdate_SyncAllAssociations_BelongsToWithNullableFK verifies that Update syncs belongs-to relations with nullable foreign keys when all associations are enabled.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_BelongsToWithNullableFK() {
 	repo := mustNewRepo[int64, testPostWithNullableAuthor](s.T(), s.client)
 	now := time.Now()
@@ -739,6 +756,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_Be
 	s.Equal("Alice Updated", result.Author.Name)
 }
 
+// TestUpdate_SyncAssociation_OnlySynchronizesSelectedRelation verifies that Update only synchronizes selected relation for explicit association sync.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_OnlySynchronizesSelectedRelation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -789,6 +807,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_OnlySy
 	s.Equal(int64(0), result.Profile.AuthorID)
 }
 
+// TestUpdate_SyncAllAssociations_OmitAssociation_SkipsOmittedRelation verifies that Update skips omitted relations even when syncing all associations.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_OmitAssociation_SkipsOmittedRelation() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -819,6 +838,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_Om
 	s.Equal(int64(0), result.Posts[0].AuthorID)
 }
 
+// TestUpdate_SyncAssociation_InvalidPathReturnsError verifies that Update returns an error for invalid path for explicit association sync.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_InvalidPathReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -840,6 +860,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_Invali
 	s.ErrorContains(err, "invalid sync association path \"Unknown\"")
 }
 
+// TestUpdate_SyncManyToManyEntities_InvalidPathReturnsError verifies that Update rejects invalid many-to-many entity sync paths.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities_InvalidPathReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -861,6 +882,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities
 	s.ErrorContains(err, "invalid many-to-many sync association path \"Unknown\"")
 }
 
+// TestUpdate_SyncManyToManyEntities_NonManyToManyPathReturnsError verifies that Update rejects many-to-many entity sync paths for non-many-to-many relations.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities_NonManyToManyPathReturnsError() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
@@ -882,6 +904,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities
 	s.ErrorContains(err, "invalid many-to-many sync association path \"Posts\": relation is not many-to-many")
 }
 
+// TestUpdate_SyncAllAssociations_MissingParentReturnsNotFound verifies that Update returns ErrNotFound for missing parent with sync-all-associations enabled.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_MissingParentReturnsNotFound() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
 	now := time.Now()
