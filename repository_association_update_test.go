@@ -2,6 +2,7 @@ package sqlr_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"regexp"
 	"testing"
@@ -46,6 +47,10 @@ func syncAllAssociationsOmitPosts(qb *sqlr.QueryBuilderUpdate) {
 
 func syncAllAssociationsDisableAutoUpdates(qb *sqlr.QueryBuilderUpdate) {
 	qb.SyncAllAssociations().DisableAutoUpdates()
+}
+
+func syncAllAssociationsWithManyToManyEntities(qb *sqlr.QueryBuilderUpdate) {
+	qb.SyncAllAssociations().SyncManyToManyEntities("Tags")
 }
 
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_Default_DoesNotSynchronizePopulatedAssociations() {
@@ -347,7 +352,79 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 	s.Equal(int64(12), result.Posts[1].GetId())
 }
 
-func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_SynchronizesLinksAndRelatedRows() {
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync_SynchronizesLinksWithoutUpdatingExistingRows() {
+	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
+	now := time.Now()
+	tagNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `assoc_tags` WHERE `id` = ? LIMIT ?")).
+		WithArgs(int64(100), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).
+			AddRow(int64(100)))
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "new-tag").
+		WillReturnResult(sqlmock.NewResult(102, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` = ?")).
+		WithArgs(int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_id", "assoc_tag_id"}).
+			AddRow(int64(2), int64(100)).
+			AddRow(int64(2), int64(101)))
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?")).
+		WithArgs(int64(2), int64(101)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?)")).
+		WithArgs(int64(2), int64(102)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectCommit()
+
+	entity := assocArticle{
+		Entity: sqlr.Entity[int64]{
+			Id:        2,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Title: "Go Tips Updated",
+		Tags: []assocTag{
+			{
+				Entity: sqlr.Entity[int64]{
+					Id:        100,
+					CreatedAt: tagNow,
+					UpdatedAt: tagNow,
+				},
+				Name: "golang-updated",
+			},
+			{Name: "new-tag"},
+		},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociations)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Len(result.Tags, 2)
+	s.Equal(int64(100), result.Tags[0].GetId())
+	s.Equal(int64(102), result.Tags[1].GetId())
+	s.Equal(tagNow, result.Tags[0].UpdatedAt)
+}
+
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_FullEntitySync_UpdatesExistingRowsWhenOptedIn() {
 	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
 	now := time.Now()
 	tagNow := now.Add(-time.Hour)
@@ -408,13 +485,56 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_Synchronize
 		},
 	}
 
-	result, err := repo.Update(context.Background(), &entity, syncAllAssociations)
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociationsWithManyToManyEntities)
 
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
 	s.Require().Len(result.Tags, 2)
 	s.Equal(int64(100), result.Tags[0].GetId())
 	s.Equal(int64(102), result.Tags[1].GetId())
+}
+
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync_MissingRelatedEntityReturnsNotFound() {
+	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
+	now := time.Now()
+	tagNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `assoc_tags` WHERE `id` = ? LIMIT ?")).
+		WithArgs(int64(100), 1).
+		WillReturnError(sql.ErrNoRows)
+
+	s.mock.ExpectRollback()
+
+	entity := assocArticle{
+		Entity: sqlr.Entity[int64]{
+			Id:        2,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Title: "Go Tips Updated",
+		Tags: []assocTag{{
+			Entity: sqlr.Entity[int64]{
+				Id:        100,
+				CreatedAt: tagNow,
+				UpdatedAt: tagNow,
+			},
+			Name: "ignored",
+		}},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociations)
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.True(errors.Is(err, sqlr.ErrNotFound))
 }
 
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_EmptySlice_RemovesAllLinks() {
@@ -718,6 +838,48 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_Invali
 	s.Require().Error(err)
 	s.Nil(result)
 	s.ErrorContains(err, "invalid sync association path \"Unknown\"")
+}
+
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities_InvalidPathReturnsError() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	now := time.Now()
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+	}
+
+	result, err := repo.Update(context.Background(), &entity, func(qb *sqlr.QueryBuilderUpdate) {
+		qb.SyncManyToManyEntities("Unknown")
+	})
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.ErrorContains(err, "invalid many-to-many sync association path \"Unknown\"")
+}
+
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncManyToManyEntities_NonManyToManyPathReturnsError() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	now := time.Now()
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+	}
+
+	result, err := repo.Update(context.Background(), &entity, func(qb *sqlr.QueryBuilderUpdate) {
+		qb.SyncManyToManyEntities("Posts")
+	})
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.ErrorContains(err, "invalid many-to-many sync association path \"Posts\": relation is not many-to-many")
 }
 
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_MissingParentReturnsNotFound() {

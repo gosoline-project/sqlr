@@ -2,6 +2,8 @@ package sqlr
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -111,6 +113,28 @@ func (c *associationMutationContext) updateStoredEntityForeignKey(ctx context.Co
 
 	if err := errNoRowsAffected(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (c *associationCallContext) ensureEntityExists(ctx context.Context, schema *EntitySchema, pkValue any) error {
+	if schema.PrimaryKey == nil {
+		return fmt.Errorf("primary key not defined for %s", schema.TableName)
+	}
+
+	sqler := sqlc.From(schema.TableName).
+		Columns(schema.PrimaryKey.Name).
+		Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue)).
+		Limit(1)
+
+	var existingPK any
+	if err := c.cache.Get(ctx, sqler, c.q, &existingPK); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)
+		}
+
+		return fmt.Errorf("failed to read entity %s: %w", schema.TableName, err)
 	}
 
 	return nil

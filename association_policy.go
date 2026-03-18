@@ -15,9 +15,11 @@ const (
 )
 
 type associationSyncPolicy struct {
-	mode      associationPolicyMode
-	syncPaths []string
-	omitPaths []string
+	mode                    associationPolicyMode
+	selectedPaths           []string
+	syncPaths               []string
+	omitPaths               []string
+	fullSyncManyToManyPaths []string
 }
 
 func newCreateAssociationSyncPolicy(schema *EntitySchema, qb *QueryBuilderCreate) (*associationSyncPolicy, error) {
@@ -41,7 +43,7 @@ func newUpdateAssociationSyncPolicy(schema *EntitySchema, qb *QueryBuilderUpdate
 
 	mode := associationPolicyModeNone
 	switch {
-	case len(qb.associationOptions.syncPaths) > 0:
+	case len(qb.associationOptions.syncPaths) > 0 || len(qb.associationOptions.fullSyncManyToManyPaths) > 0:
 		mode = associationPolicyModeSelected
 	case qb.shouldSyncAllAssociations():
 		mode = associationPolicyModeAll
@@ -61,10 +63,17 @@ func newAssociationSyncPolicy(schema *EntitySchema, mode associationPolicyMode, 
 		return nil, err
 	}
 
+	fullSyncManyToManyPaths, err := normalizeAssociationPaths(options.fullSyncManyToManyPaths)
+	if err != nil {
+		return nil, err
+	}
+
 	policy := &associationSyncPolicy{
-		mode:      mode,
-		syncPaths: syncPaths,
-		omitPaths: omitPaths,
+		mode:                    mode,
+		selectedPaths:           mergeAssociationPaths(syncPaths, fullSyncManyToManyPaths),
+		syncPaths:               syncPaths,
+		omitPaths:               omitPaths,
+		fullSyncManyToManyPaths: fullSyncManyToManyPaths,
 	}
 
 	if err := policy.validate(schema); err != nil {
@@ -91,12 +100,31 @@ func (p *associationSyncPolicy) validate(schema *EntitySchema) error {
 		}
 	}
 
+	for _, path := range p.fullSyncManyToManyPaths {
+		if err := validateManyToManyAssociationPath(schema, path, "invalid many-to-many sync association path"); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func validateAssociationPath(schema *EntitySchema, path string, context string) error {
 	if err := schema.ValidateRelationPath(path); err != nil {
 		return fmt.Errorf("%s %q: %w", context, path, err)
+	}
+
+	return nil
+}
+
+func validateManyToManyAssociationPath(schema *EntitySchema, path string, context string) error {
+	rel, _, err := schema.ResolveRelationPath(path)
+	if err != nil {
+		return fmt.Errorf("%s %q: %w", context, path, err)
+	}
+
+	if rel.Type != ManyToMany {
+		return fmt.Errorf("%s %q: relation is not many-to-many", context, path)
 	}
 
 	return nil
@@ -153,12 +181,26 @@ func (p *associationSyncPolicy) shouldSyncPath(path string) bool {
 }
 
 func (p *associationSyncPolicy) isSelected(path string) bool {
-	if len(p.syncPaths) == 0 {
+	if len(p.selectedPaths) == 0 {
 		return false
 	}
 
-	for _, syncPath := range p.syncPaths {
+	for _, syncPath := range p.selectedPaths {
 		if path == syncPath || strings.HasPrefix(path, syncPath+".") || strings.HasPrefix(syncPath, path+".") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *associationSyncPolicy) shouldFullSyncManyToManyPath(path string) bool {
+	if p == nil || path == "" {
+		return false
+	}
+
+	for _, syncPath := range p.fullSyncManyToManyPaths {
+		if path == syncPath {
 			return true
 		}
 	}
@@ -186,4 +228,28 @@ func joinAssociationPath(parentPath string, relName string) string {
 	}
 
 	return parentPath + "." + relName
+}
+
+func mergeAssociationPaths(paths ...[]string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	merged := make([]string, 0)
+	seen := make(map[string]struct{})
+
+	for _, group := range paths {
+		for _, path := range group {
+			if _, ok := seen[path]; ok {
+				continue
+			}
+
+			seen[path] = struct{}{}
+			merged = append(merged, path)
+		}
+	}
+
+	sort.Strings(merged)
+
+	return merged
 }

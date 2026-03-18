@@ -20,7 +20,8 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)) ([]E, error)
 	// Update updates the base entity row. Optional functions receive a
 	// QueryBuilderUpdate to enable or restrict association synchronization for
-	// this call.
+	// this call. Many-to-many updates reconcile join-table membership by default;
+	// related many-to-many rows are only updated when explicitly opted in per path.
 	Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	Delete(ttx TTx, id K) error
 	// Close releases resources held by the repository, including prepared statements

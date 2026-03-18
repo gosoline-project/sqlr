@@ -37,7 +37,8 @@ type Repository[K KeyTypes, E Entitier[K]] interface {
 	Query(ctx context.Context, opts ...func(qb *QueryBuilderSelect)) ([]E, error)
 	// Update updates the base entity row. Optional functions receive a
 	// QueryBuilderUpdate to enable or restrict association synchronization for
-	// this call.
+	// this call. Many-to-many updates reconcile join-table membership by default;
+	// related many-to-many rows are only updated when explicitly opted in per path.
 	Update(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	// Delete removes the base entity row only; related entities are not cascaded.
 	Delete(ctx context.Context, id K) error
