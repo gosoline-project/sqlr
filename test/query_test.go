@@ -28,6 +28,7 @@ func (s *QueryTestSuite) SetupSuite() []suite.Option {
 	return []suite.Option{
 		suite.WithLogLevel("debug"),
 		suite.WithConfigFile("config.yml"),
+		suite.WithFixtureSetFactory(Fixtures()),
 		suite.WithClockProvider(clock.NewRealClock()),
 	}
 }
