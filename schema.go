@@ -201,7 +201,7 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 // ParseSchema parses the entity type E using reflection to build an EntitySchema.
 // It reads the `db` tag for an optional column name override and the `sqlr` tag
 // for field behaviour metadata. The db tag accepts only a column name or "-".
-// The sqlr tag accepts comma-separated options including primaryKey,
+// The sqlr tag accepts semicolon-separated options including primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
 // many2many:<table>, preload, syncCreate, syncUpdate, and syncMany2many.
 //
@@ -435,6 +435,7 @@ type schemaFieldTags struct {
 }
 
 func parseSchemaFieldTags(field reflect.StructField) (schemaFieldTags, error) {
+	var err error
 	var tags schemaFieldTags
 
 	if dbTag, ok := field.Tag.Lookup("db"); ok {
@@ -449,18 +450,24 @@ func parseSchemaFieldTags(field reflect.StructField) (schemaFieldTags, error) {
 		}
 	}
 
-	tags.sqlrOptions = splitTagOptions(field.Tag.Get("sqlr"))
+	if tags.sqlrOptions, err = splitTagOptions(field.Tag.Get("sqlr")); err != nil {
+		return schemaFieldTags{}, err
+	}
 
 	return tags, nil
 }
 
-func splitTagOptions(tagValue string) []string {
+func splitTagOptions(tagValue string) ([]string, error) {
 	tagValue = strings.TrimSpace(tagValue)
 	if tagValue == "" {
-		return nil
+		return nil, nil
 	}
 
-	parts := strings.Split(tagValue, ",")
+	if strings.Contains(tagValue, ",") {
+		return nil, fmt.Errorf("sqlr tag options must be separated with \";\", not \",\"")
+	}
+
+	parts := strings.Split(tagValue, ";")
 	options := make([]string, 0, len(parts))
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -471,7 +478,7 @@ func splitTagOptions(tagValue string) []string {
 		options = append(options, part)
 	}
 
-	return options
+	return options, nil
 }
 
 // parseFieldTag parses a single struct field's db/sqlr tags and adds it to the
@@ -928,7 +935,12 @@ func typeHasPrimaryKey(t reflect.Type) bool {
 			return true
 		}
 
-		for _, opt := range splitTagOptions(field.Tag.Get("sqlr")) {
+		options, err := splitTagOptions(field.Tag.Get("sqlr"))
+		if err != nil {
+			continue
+		}
+
+		for _, opt := range options {
 			if strings.TrimSpace(opt) == "primaryKey" {
 				return true
 			}
@@ -957,7 +969,10 @@ func typeDefinesColumn(t reflect.Type, columnName string) bool {
 		}
 
 		dbTag := strings.TrimSpace(field.Tag.Get("db"))
-		sqlrOptions := splitTagOptions(field.Tag.Get("sqlr"))
+		sqlrOptions, err := splitTagOptions(field.Tag.Get("sqlr"))
+		if err != nil {
+			continue
+		}
 		if dbTag != "" {
 			if !strings.Contains(dbTag, ",") && dbTag == columnName && !hasRelationshipMetadataOption(sqlrOptions) && dbTag != "-" {
 				return true

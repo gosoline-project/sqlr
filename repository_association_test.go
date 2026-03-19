@@ -29,7 +29,7 @@ type assocAuthor struct {
 type assocAuthorSyncCreateDefaults struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Posts   []assocPost  `sqlr:"foreignKey:author_id,syncCreate"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id;syncCreate"`
 	Profile assocProfile `sqlr:"foreignKey:author_id"`
 }
 
@@ -38,7 +38,7 @@ func (assocAuthorSyncCreateDefaults) TableName() string { return "assoc_author_s
 type assocAuthorSyncUpdateDefaults struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Posts   []assocPost  `sqlr:"foreignKey:author_id,syncUpdate"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id;syncUpdate"`
 	Profile assocProfile `sqlr:"foreignKey:author_id"`
 }
 
@@ -89,7 +89,7 @@ type assocArticle struct {
 type assocArticleSyncUpdateDefaults struct {
 	sqlr.Entity[int64]
 	Title string     `db:"title"`
-	Tags  []assocTag `sqlr:"many2many:assoc_article_sync_update_default_tags,syncUpdate,syncMany2many"`
+	Tags  []assocTag `sqlr:"many2many:assoc_article_sync_update_default_tags;syncUpdate;syncMany2many"`
 }
 
 func (assocArticleSyncUpdateDefaults) TableName() string { return "assoc_article_sync_update_defaults" }

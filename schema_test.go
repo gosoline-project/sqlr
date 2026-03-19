@@ -57,8 +57,8 @@ type schemaCachePost struct {
 type schemaCacheAuthor struct {
 	ID       int64                `db:"id" sqlr:"primaryKey"`
 	Name     string               `db:"name"`
-	Posts    []schemaCachePost    `sqlr:"foreignKey:author_id,preload"`
-	Comments []schemaCacheComment `sqlr:"foreignKey:author_id,preload"`
+	Posts    []schemaCachePost    `sqlr:"foreignKey:author_id;preload"`
+	Comments []schemaCacheComment `sqlr:"foreignKey:author_id;preload"`
 }
 
 type schemaSyncDefaultsComment struct {
@@ -71,7 +71,7 @@ type schemaSyncDefaultsPost struct {
 	ID       int64                       `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                       `db:"author_id"`
 	Title    string                      `db:"title"`
-	Comments []schemaSyncDefaultsComment `sqlr:"foreignKey:post_id,syncUpdate"`
+	Comments []schemaSyncDefaultsComment `sqlr:"foreignKey:post_id;syncUpdate"`
 }
 
 type schemaSyncDefaultsTag struct {
@@ -82,14 +82,14 @@ type schemaSyncDefaultsTag struct {
 type schemaSyncDefaultsAuthor struct {
 	ID    int64                    `db:"id" sqlr:"primaryKey"`
 	Name  string                   `db:"name"`
-	Posts []schemaSyncDefaultsPost `sqlr:"foreignKey:author_id,syncCreate,syncUpdate"`
-	Tags  []schemaSyncDefaultsTag  `sqlr:"many2many:author_tags,syncUpdate,syncMany2many"`
+	Posts []schemaSyncDefaultsPost `sqlr:"foreignKey:author_id;syncCreate;syncUpdate"`
+	Tags  []schemaSyncDefaultsTag  `sqlr:"many2many:author_tags;syncUpdate;syncMany2many"`
 }
 
 type schemaInvalidSyncMany2manyRelation struct {
 	ID    int64                 `db:"id" sqlr:"primaryKey"`
 	Name  string                `db:"name"`
-	Posts []schemaBelongsToPost `sqlr:"foreignKey:author_id,syncMany2many"`
+	Posts []schemaBelongsToPost `sqlr:"foreignKey:author_id;syncMany2many"`
 }
 
 // schemaTableNamerRelated is used by the ResolveRelatedSchema TableNamer test
@@ -124,7 +124,7 @@ type schemaM2MColOverrideTag struct {
 type schemaM2MColOverrideArticle struct {
 	ID   int64                     `db:"id" sqlr:"primaryKey"`
 	Name string                    `db:"name"`
-	Tags []schemaM2MColOverrideTag `sqlr:"many2many:override_table,parentKey:art_id,relatedKey:tag_id"`
+	Tags []schemaM2MColOverrideTag `sqlr:"many2many:override_table;parentKey:art_id;relatedKey:tag_id"`
 }
 
 // ============================================================
@@ -143,7 +143,7 @@ type schemaAutoPreloadChildNoPrimaryKey struct {
 
 type schemaAutoPreloadParentWithInvalidChild struct {
 	ID       int64                                `db:"id" sqlr:"primaryKey"`
-	Children []schemaAutoPreloadChildNoPrimaryKey `sqlr:"foreignKey:parent_id,preload"`
+	Children []schemaAutoPreloadChildNoPrimaryKey `sqlr:"foreignKey:parent_id;preload"`
 }
 
 // TestParseSchema_PrimaryKeyPointsToColumnsEntry verifies that schema.PrimaryKey
@@ -732,7 +732,7 @@ type schemaMixedPreloadComment struct {
 type schemaMixedPreloadAuthor struct {
 	ID       int64                       `db:"id" sqlr:"primaryKey"`
 	Name     string                      `db:"name"`
-	Posts    []schemaMixedPreloadPost    `sqlr:"foreignKey:author_id,preload"`
+	Posts    []schemaMixedPreloadPost    `sqlr:"foreignKey:author_id;preload"`
 	Comments []schemaMixedPreloadComment `sqlr:"foreignKey:author_id"`
 }
 
@@ -746,26 +746,26 @@ type schemaNestedAutoPost struct {
 	ID       int64                     `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                     `db:"author_id"`
 	Title    string                    `db:"title"`
-	Comments []schemaNestedAutoComment `sqlr:"foreignKey:post_id,preload"`
+	Comments []schemaNestedAutoComment `sqlr:"foreignKey:post_id;preload"`
 }
 
 type schemaNestedAutoAuthor struct {
 	ID    int64                  `db:"id" sqlr:"primaryKey"`
 	Name  string                 `db:"name"`
-	Posts []schemaNestedAutoPost `sqlr:"foreignKey:author_id,preload"`
+	Posts []schemaNestedAutoPost `sqlr:"foreignKey:author_id;preload"`
 }
 
 type schemaCircularAutoParent struct {
 	ID       int64                     `db:"id" sqlr:"primaryKey"`
 	Name     string                    `db:"name"`
-	Children []schemaCircularAutoChild `sqlr:"foreignKey:parent_id,preload"`
+	Children []schemaCircularAutoChild `sqlr:"foreignKey:parent_id;preload"`
 }
 
 type schemaCircularAutoChild struct {
 	ID       int64                     `db:"id" sqlr:"primaryKey"`
 	ParentID int64                     `db:"parent_id"`
 	Body     string                    `db:"body"`
-	Parent   *schemaCircularAutoParent `sqlr:"belongsTo:parent_id,preload"`
+	Parent   *schemaCircularAutoParent `sqlr:"belongsTo:parent_id;preload"`
 }
 
 // TestParseSchema_MixedPreloadAndNonPreload_AutoPreloads verifies that only
@@ -1138,6 +1138,11 @@ type schemaLegacyCombinedDBTag struct {
 	ID int64 `db:"id,primaryKey"`
 }
 
+type schemaLegacyCommaDelimitedRelation struct {
+	ID    int64             `db:"id" sqlr:"primaryKey"`
+	Posts []schemaCachePost `sqlr:"foreignKey:author_id,preload"`
+}
+
 // TestParseSchema_NonStructType_ReturnsError verifies that passing a primitive
 // type (e.g. int) to ParseSchema fails with an error indicating it is not a struct.
 func TestParseSchema_NonStructType_ReturnsError(t *testing.T) {
@@ -1186,6 +1191,30 @@ func TestParseSchema_LegacyCombinedDBTagRejected(t *testing.T) {
 	_, err := ParseSchema[schemaLegacyCombinedDBTag]()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "db tag must contain only a column name or \"-\"")
+}
+
+// TestSplitTagOptions_SemicolonSeparated verifies that sqlr tag options are
+// parsed when separated by semicolons.
+func TestSplitTagOptions_SemicolonSeparated(t *testing.T) {
+	options, err := splitTagOptions("foreignKey:author_id;preload;syncUpdate")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"foreignKey:author_id", "preload", "syncUpdate"}, options)
+}
+
+// TestSplitTagOptions_CommaSeparatedRejected verifies that legacy comma-delimited
+// sqlr tag options are rejected with a migration hint.
+func TestSplitTagOptions_CommaSeparatedRejected(t *testing.T) {
+	_, err := splitTagOptions("foreignKey:author_id,preload")
+	require.Error(t, err)
+	require.ErrorContains(t, err, `must be separated with ";"`)
+}
+
+// TestParseSchema_CommaDelimitedSQLROptionsRejected verifies that ParseSchema
+// rejects legacy comma-delimited sqlr tag options.
+func TestParseSchema_CommaDelimitedSQLROptionsRejected(t *testing.T) {
+	_, err := ParseSchema[schemaLegacyCommaDelimitedRelation]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, `must be separated with ";"`)
 }
 
 // ============================================================
@@ -1505,7 +1534,7 @@ func (schemaTableNamerAutoPreloadChild) TableName() string { return "custom_chil
 type schemaTableNamerAutoPreloadParent struct {
 	ID       int64                              `db:"id" sqlr:"primaryKey"`
 	Name     string                             `db:"name"`
-	Children []schemaTableNamerAutoPreloadChild `sqlr:"foreignKey:parent_id,preload"`
+	Children []schemaTableNamerAutoPreloadChild `sqlr:"foreignKey:parent_id;preload"`
 }
 
 // TestParseRelatedSchemaForAutoPreload_HonoursTableNamer verifies that when a

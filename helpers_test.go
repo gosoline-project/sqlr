@@ -296,7 +296,7 @@ type testPostWithAuthorAutoPreload struct {
 	sqlr.Entity[int64]
 	AuthorID int64      `db:"author_id"`
 	Title    string     `db:"title"`
-	Author   testAuthor `sqlr:"belongsTo:author_id,preload"`
+	Author   testAuthor `sqlr:"belongsTo:author_id;preload"`
 }
 
 type testPostWithoutPrimaryKey struct {
@@ -349,7 +349,7 @@ type testAuthorWithProfilePointer struct {
 type testAuthorWithProfileAutoPreload struct {
 	sqlr.Entity[int64]
 	Name    string      `db:"name"`
-	Profile testProfile `sqlr:"foreignKey:author_id,preload"`
+	Profile testProfile `sqlr:"foreignKey:author_id;preload"`
 }
 
 type testAuthorWithPostWithoutPrimaryKey struct {
@@ -391,7 +391,7 @@ type testPostWithAuthorPointer struct {
 type testAuthorAutoPreload struct {
 	sqlr.Entity[int64]
 	Name     string        `db:"name"`
-	Posts    []testPost    `sqlr:"foreignKey:author_id,preload"`
+	Posts    []testPost    `sqlr:"foreignKey:author_id;preload"`
 	Comments []testComment `sqlr:"foreignKey:author_id"`
 }
 
@@ -399,13 +399,13 @@ type testPostWithCommentsAutoPreload struct {
 	sqlr.Entity[int64]
 	AuthorID int64         `db:"author_id"`
 	Title    string        `db:"title"`
-	Comments []testComment `sqlr:"foreignKey:post_id,preload"`
+	Comments []testComment `sqlr:"foreignKey:post_id;preload"`
 }
 
 type testAuthorDeepAutoPreload struct {
 	sqlr.Entity[int64]
 	Name  string                            `db:"name"`
-	Posts []testPostWithCommentsAutoPreload `sqlr:"foreignKey:author_id,preload"`
+	Posts []testPostWithCommentsAutoPreload `sqlr:"foreignKey:author_id;preload"`
 }
 
 // testArticleAutoPreload is an entity with a many-to-many preload tag.
@@ -413,7 +413,7 @@ type testAuthorDeepAutoPreload struct {
 type testArticleAutoPreload struct {
 	sqlr.Entity[int64]
 	Title string    `db:"title"`
-	Tags  []testTag `sqlr:"many2many:article_tags,preload"`
+	Tags  []testTag `sqlr:"many2many:article_tags;preload"`
 }
 
 type testBrokenPost struct {

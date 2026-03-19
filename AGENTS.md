@@ -173,7 +173,7 @@ Column names are expressed via the `db` struct tag, while sqlr metadata is expre
   - `sqlr:"foreignKey:column_name"` for HasOne/HasMany (non-slice field => HasOne, slice field => HasMany). The foreign key column lives on the related table.
   - `sqlr:"belongsTo:column_name"` for BelongsTo. The foreign key column lives on the current entity table.
   - `sqlr:"many2many:join_table_name"` for ManyToMany
-  - Add `preload` to any relationship tag option list for auto-preloading (for example: `sqlr:"foreignKey:author_id,preload"`).
+  - Add `preload` to any relationship tag option list for auto-preloading (for example: `sqlr:"foreignKey:author_id;preload"`).
 - **Loading strategies**:
   - `Preload("Posts")` loads a single relation
   - `Preload("Posts.Comments")` loads nested relations; optional conditions apply to the leaf relation (`Comments` in this example)
