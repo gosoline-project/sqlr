@@ -35,7 +35,7 @@ type ColumnInfo struct {
 	// via reflect.Value.FieldByIndex. For embedded struct fields this may be
 	// multiple levels deep (e.g., [0, 1] for the second field of the first embedded struct).
 	FieldIndex []int
-	// IsPrimaryKey is true if the field is tagged with the "primaryKey" db tag option.
+	// IsPrimaryKey is true if the field is tagged with the "primaryKey" sqlr tag option.
 	IsPrimaryKey bool
 	// AutoIncrement is true when a primary key field's runtime type is an integer kind.
 	// This is inferred from the field type during schema parsing, not from a struct tag.
@@ -199,8 +199,9 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 }
 
 // ParseSchema parses the entity type E using reflection to build an EntitySchema.
-// It reads `db` tags for column mappings and field behaviour metadata. The db tag
-// format is "column_name[,option1][,option2]..." where options include primaryKey,
+// It reads the `db` tag for an optional column name override and the `sqlr` tag
+// for field behaviour metadata. The db tag accepts only a column name or "-".
+// The sqlr tag accepts comma-separated options including primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
 // many2many:<table>, preload, syncCreate, syncUpdate, and syncMany2many.
 //
@@ -210,19 +211,19 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 // relationships when sqlr finds stronger evidence that they represent entities:
 // the related type must declare a primary key, and the conventional inferred
 // foreign key must exist on the parent or related type. Otherwise the field is
-// treated like any other untagged field. Unexported fields with no db tag are
-// silently ignored. To explicitly exclude a public field from mapping, use
+// treated like any other untagged field. Unexported fields with no db or sqlr
+// tag are silently ignored. To explicitly exclude a public field from mapping, use
 // db:"-".
 //
 // Relationship examples:
 //
-//	// Explicit db tag (all options provided):
+//	// Explicit relation metadata (db:"-" is optional for relationships):
 //	type Author struct {
 //		Entity[int64]
-//		Posts []Post `db:"-,foreignKey:author_id"`
+//		Posts []Post `sqlr:"foreignKey:author_id"`
 //	}
 //
-//	// Auto-detected relationship (no db tag):
+//	// Auto-detected relationship (no db or sqlr tag):
 //	type Post struct {
 //		Entity[int64]
 //		AuthorID int64  // column "author_id" via SchemaNameTransformer
@@ -238,13 +239,13 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 //	type PostWithAuthor struct {
 //		Entity[int64]
 //		AuthorID int64  `db:"author_id"`
-//		AuthorRef Author `db:"-,belongsTo:author_id"`
+//		AuthorRef Author `sqlr:"belongsTo:author_id"`
 //	}
 //
-//	// ManyToMany (always requires explicit db tag):
+//	// ManyToMany (always requires explicit sqlr metadata):
 //	type Article struct {
 //		Entity[int64]
-//		Tags []Tag `db:"-,many2many:article_tags"`
+//		Tags []Tag `sqlr:"many2many:article_tags"`
 //	}
 //
 // The schema is used at query time for SQL generation, relationship validation,
@@ -254,7 +255,7 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 //   - Scalar HasOne and BelongsTo relations may be declared as either T or *T.
 //   - Collection HasMany and ManyToMany relations may be declared as either []T
 //     or []*T.
-//   - Relationship kind is determined by db tag options or field shape, not by
+//   - Relationship kind is determined by sqlr tag options or field shape, not by
 //     pointer usage.
 //   - Missing related rows keep the field at its natural zero value: nil for
 //     pointer scalars, zero struct for value scalars, and empty or nil slices
@@ -287,7 +288,7 @@ func defaultSchemaParseOptions() schemaParseOptions {
 	return schemaParseOptions{
 		parseFieldsErrorFormat:       "failed to parse schema for %s: %w",
 		cacheDerivedValues:           true,
-		missingPrimaryKeyErrorFormat: "entity type %s has no primary key (tag with db:\"...,primaryKey\")",
+		missingPrimaryKeyErrorFormat: "entity type %s has no primary key (tag with sqlr:\"primaryKey\")",
 	}
 }
 
@@ -427,24 +428,83 @@ func tryParseEmbeddedField(field reflect.StructField, fieldIndex []int, schema *
 	return true, nil
 }
 
-// parseFieldTag parses a single struct field's db tag and adds it to the schema
-// as either a relationship or a column. When no db tag is present on a public
-// field, the field name is passed through SchemaNameTransformer to derive the
-// column name. Untagged struct fields are only auto-detected as relationships
-// when the related type looks like an entity and the inferred conventional
-// foreign key can be found on the parent or related type.
-func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySchema) error {
-	dbTag := field.Tag.Get("db")
-	if dbTag == "" {
-		return parseUntaggedField(field, fieldIndex, schema)
+type schemaFieldTags struct {
+	hasDBTag    bool
+	columnName  string
+	sqlrOptions []string
+}
+
+func parseSchemaFieldTags(field reflect.StructField) (schemaFieldTags, error) {
+	var tags schemaFieldTags
+
+	if dbTag, ok := field.Tag.Lookup("db"); ok {
+		dbTag = strings.TrimSpace(dbTag)
+		if dbTag != "" {
+			if strings.Contains(dbTag, ",") {
+				return schemaFieldTags{}, fmt.Errorf("db tag must contain only a column name or \"-\"")
+			}
+
+			tags.hasDBTag = true
+			tags.columnName = dbTag
+		}
 	}
 
-	parts := strings.Split(dbTag, ",")
-	colName := parts[0]
-	options := parts[1:]
+	tags.sqlrOptions = splitTagOptions(field.Tag.Get("sqlr"))
 
-	if isRelationshipField(options) {
-		rel, err := parseRelationship(field, options, fieldIndex, schema.entityType)
+	return tags, nil
+}
+
+func splitTagOptions(tagValue string) []string {
+	tagValue = strings.TrimSpace(tagValue)
+	if tagValue == "" {
+		return nil
+	}
+
+	parts := strings.Split(tagValue, ",")
+	options := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		options = append(options, part)
+	}
+
+	return options
+}
+
+// parseFieldTag parses a single struct field's db/sqlr tags and adds it to the
+// schema as either a relationship or a column. When no db tag is present on a
+// public field, the field name is passed through SchemaNameTransformer to
+// derive the column name. Untagged struct fields are only auto-detected as
+// relationships when the related type looks like an entity and the inferred
+// conventional foreign key can be found on the parent or related type.
+func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySchema) error {
+	tags, err := parseSchemaFieldTags(field)
+	if err != nil {
+		return fmt.Errorf("field %s: %w", field.Name, err)
+	}
+
+	hasRelationshipDefinition := isRelationshipField(tags.sqlrOptions)
+	hasRelationshipMetadata := hasRelationshipMetadataOption(tags.sqlrOptions)
+	hasColumnMetadata := hasColumnMetadataOption(tags.sqlrOptions)
+
+	if hasColumnMetadata && hasRelationshipMetadata {
+		return fmt.Errorf("field %s: sqlr column metadata cannot be combined with relationship metadata", field.Name)
+	}
+
+	if hasRelationshipMetadata {
+		if tags.hasDBTag && tags.columnName != "-" {
+			return fmt.Errorf("field %s: relationship metadata cannot be combined with a db column name", field.Name)
+		}
+
+		autoDetected := !hasRelationshipDefinition
+		if autoDetected && !shouldAutoDetectRelationship(field, schema.entityType) {
+			return fmt.Errorf("field %s: relationship-only sqlr options require an auto-detected relationship or explicit relation metadata", field.Name)
+		}
+
+		rel, err := parseRelationship(field, tags.sqlrOptions, fieldIndex, schema.entityType, autoDetected)
 		if err != nil {
 			return fmt.Errorf("field %s: %w", field.Name, err)
 		}
@@ -454,18 +514,35 @@ func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySc
 		return nil
 	}
 
-	if colName == "-" {
+	if tags.hasDBTag && tags.columnName == "-" {
+		if hasColumnMetadata {
+			return fmt.Errorf("field %s: db:\"-\" cannot be combined with column metadata", field.Name)
+		}
+
 		return nil
 	}
 
-	col := parseColumnInfo(field, colName, fieldIndex, options)
+	if !tags.hasDBTag && len(tags.sqlrOptions) == 0 {
+		return parseUntaggedField(field, fieldIndex, schema)
+	}
+
+	colName := tags.columnName
+	if colName == "" {
+		if !isPublicField(field) {
+			return nil
+		}
+
+		colName = SchemaNameTransformer(field.Name)
+	}
+
+	col := parseColumnInfo(field, colName, fieldIndex, tags.sqlrOptions)
 	schema.Columns = append(schema.Columns, col)
 
 	return nil
 }
 
-// parseUntaggedField handles a struct field that has no db tag. Unexported fields
-// are silently skipped. Public struct and slice-of-struct fields are only
+// parseUntaggedField handles a struct field that has no db or sqlr tag.
+// Unexported fields are silently skipped. Public struct and slice-of-struct fields are only
 // auto-detected as relationships when sqlr can validate conventional entity
 // evidence for them; all other public fields are mapped to a column whose name is
 // derived by applying SchemaNameTransformer to the Go field name.
@@ -475,7 +552,7 @@ func parseUntaggedField(field reflect.StructField, fieldIndex []int, schema *Ent
 	}
 
 	if shouldAutoDetectRelationship(field, schema.entityType) {
-		rel, err := parseRelationship(field, nil, fieldIndex, schema.entityType)
+		rel, err := parseRelationship(field, nil, fieldIndex, schema.entityType, true)
 		if err != nil {
 			return fmt.Errorf("field %s: %w", field.Name, err)
 		}
@@ -491,7 +568,7 @@ func parseUntaggedField(field reflect.StructField, fieldIndex []int, schema *Ent
 	return nil
 }
 
-// parseColumnInfo builds a ColumnInfo from a struct field, column name, and db
+// parseColumnInfo builds a ColumnInfo from a struct field, column name, and sqlr
 // tag options.
 func parseColumnInfo(field reflect.StructField, colName string, fieldIndex []int, options []string) ColumnInfo {
 	col := ColumnInfo{
@@ -794,7 +871,7 @@ func isPublicField(field reflect.StructField) bool {
 // valueTypePackages lists standard-library packages whose struct types are
 // scalar value types and must never be auto-detected as entity relationships.
 // Fields with types from these packages (e.g. time.Time, sql.NullString) are
-// treated as plain database columns even when they carry no db tag.
+// treated as plain database columns even when they carry no explicit tags.
 //
 // This set can be extended at program startup if additional packages need to be
 // excluded from auto-relationship detection.
@@ -851,13 +928,7 @@ func typeHasPrimaryKey(t reflect.Type) bool {
 			return true
 		}
 
-		dbTag := field.Tag.Get("db")
-		if dbTag == "" {
-			continue
-		}
-
-		parts := strings.Split(dbTag, ",")
-		for _, opt := range parts[1:] {
+		for _, opt := range splitTagOptions(field.Tag.Get("sqlr")) {
 			if strings.TrimSpace(opt) == "primaryKey" {
 				return true
 			}
@@ -885,13 +956,17 @@ func typeDefinesColumn(t reflect.Type, columnName string) bool {
 			continue
 		}
 
-		dbTag := field.Tag.Get("db")
+		dbTag := strings.TrimSpace(field.Tag.Get("db"))
+		sqlrOptions := splitTagOptions(field.Tag.Get("sqlr"))
 		if dbTag != "" {
-			parts := strings.Split(dbTag, ",")
-			if parts[0] == columnName && !isRelationshipField(parts[1:]) && parts[0] != "-" {
+			if !strings.Contains(dbTag, ",") && dbTag == columnName && !hasRelationshipMetadataOption(sqlrOptions) && dbTag != "-" {
 				return true
 			}
 
+			continue
+		}
+
+		if hasRelationshipMetadataOption(sqlrOptions) {
 			continue
 		}
 
@@ -929,16 +1004,53 @@ func isIntegerKind(k reflect.Kind) bool {
 	}
 }
 
-// isRelationshipField returns true if the db tag options indicate a relationship
-// (containing foreignKey:, belongsTo:, or many2many: options).
+// isRelationshipField returns true if the sqlr tag options explicitly define a
+// relationship (containing foreignKey:, belongsTo:, or many2many: options).
 func isRelationshipField(options []string) bool {
 	for _, opt := range options {
-		if strings.HasPrefix(opt, "foreignKey:") || strings.HasPrefix(opt, "belongsTo:") || strings.HasPrefix(opt, "many2many:") {
+		if isRelationshipDefiningOption(opt) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func hasRelationshipMetadataOption(options []string) bool {
+	for _, opt := range options {
+		if isRelationshipMetadataOption(opt) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasColumnMetadataOption(options []string) bool {
+	for _, opt := range options {
+		if isColumnMetadataOption(opt) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isRelationshipDefiningOption(opt string) bool {
+	return strings.HasPrefix(opt, "foreignKey:") || strings.HasPrefix(opt, "belongsTo:") || strings.HasPrefix(opt, "many2many:")
+}
+
+func isRelationshipMetadataOption(opt string) bool {
+	return isRelationshipDefiningOption(opt) || strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == "preload" || opt == "syncCreate" || opt == "syncUpdate" || opt == "syncMany2many"
+}
+
+func isColumnMetadataOption(opt string) bool {
+	switch opt {
+	case "primaryKey", "autoCreateTime", "autoUpdateTime":
+		return true
+	default:
+		return false
+	}
 }
 
 // hasExplicitFKOption returns true when options contain an explicit foreignKey:
@@ -956,11 +1068,11 @@ func hasExplicitFKOption(options []string) bool {
 	return false
 }
 
-// parseRelationship parses a struct field's db tag options to create a Relationship.
+// parseRelationship parses a struct field's sqlr tag options to create a Relationship.
 // parentEntityType is the reflect.Type of the entity being parsed; its Name() is used
 // to derive a default foreign key for HasOne/HasMany relationships, and its derived
 // table name is used when auto-detecting the ManyToMany join table name.
-func parseRelationship(field reflect.StructField, options []string, fieldIndex []int, parentEntityType reflect.Type) (*Relationship, error) {
+func parseRelationship(field reflect.StructField, options []string, fieldIndex []int, parentEntityType reflect.Type, autoDetected bool) (*Relationship, error) {
 	var ft reflect.Type
 	var isSlice bool
 
@@ -975,12 +1087,11 @@ func parseRelationship(field reflect.StructField, options []string, fieldIndex [
 		RelatedType: ft,
 	}
 
-	autoDetected := len(options) == 0
 	applyRelationshipOptions(rel, options)
 
 	// Only derive a default FK when the caller did not supply any explicit
 	// foreignKey:/belongsTo: option (even an empty one). An explicit but empty
-	// option (e.g. `db:"-,foreignKey:"`) must still be caught by the validator.
+	// option (e.g. `sqlr:"foreignKey:"`) must still be caught by the validator.
 	hasFKOption := hasExplicitFKOption(options)
 	applyDefaultForeignKey(rel, field.Name, parentEntityType.Name(), isSlice, autoDetected && !hasFKOption)
 
@@ -993,8 +1104,8 @@ func parseRelationship(field reflect.StructField, options []string, fieldIndex [
 	return rel, validateRelationshipType(rel, isSlice)
 }
 
-// applyDefaultForeignKey derives a foreign key name when none was set by the db
-// tag. The convention mirrors ActiveRecord / GORM defaults:
+// applyDefaultForeignKey derives a foreign key name when none was set by the
+// sqlr tag. The convention mirrors ActiveRecord / GORM defaults:
 //
 //   - BelongsTo (non-slice): FK = SchemaNameTransformer(fieldName) + "_id"
 //     e.g. field "Author Author" → FK "author_id" on the current entity table.
@@ -1002,8 +1113,9 @@ func parseRelationship(field reflect.StructField, options []string, fieldIndex [
 //     e.g. field "Posts []Post" on "Author" → FK "author_id" on the Posts table.
 //
 // autoDetected must be true for defaults to be applied. It is false when the
-// caller supplied explicit db tag options (even with an empty foreignKey: value),
-// so that validation errors for missing FK values are preserved.
+// caller supplied explicit relation-defining sqlr tag options (even with an
+// empty foreignKey: value), so that validation errors for missing FK values are
+// preserved.
 func applyDefaultForeignKey(rel *Relationship, fieldName, parentEntityTypeName string, isSlice, autoDetected bool) {
 	if !autoDetected || rel.Type == ManyToMany {
 		return
@@ -1019,9 +1131,10 @@ func applyDefaultForeignKey(rel *Relationship, fieldName, parentEntityTypeName s
 		}
 	}
 
-	// For auto-detected relationships (no db tag at all) set the relationship
-	// type from the field shape: slice → HasMany, non-slice → BelongsTo.
-	// This must not override an explicitly-set type from a db tag option.
+	// For auto-detected relationships (no explicit relation-defining sqlr option)
+	// set the relationship type from the field shape: slice → HasMany, non-slice
+	// → BelongsTo. This must not override an explicitly-set type from a sqlr tag
+	// option.
 	if isSlice {
 		rel.Type = HasMany
 	} else {
@@ -1030,7 +1143,7 @@ func applyDefaultForeignKey(rel *Relationship, fieldName, parentEntityTypeName s
 }
 
 // applyDefaultJoinTable derives a join table name for a ManyToMany relationship
-// when none was supplied via the many2many: tag option. The convention is:
+// when none was supplied via the many2many: sqlr tag option. The convention is:
 //
 //  1. Derive the table name for each side using tableNameForType (which honours
 //     the TableNamer interface and applies inflection.Plural).
@@ -1068,7 +1181,7 @@ func unwrapRelatedType(ft reflect.Type) (reflect.Type, bool) {
 	return ft, isSlice
 }
 
-// applyRelationshipOptions processes db tag options and sets the appropriate
+// applyRelationshipOptions processes sqlr tag options and sets the appropriate
 // fields on the Relationship.
 func applyRelationshipOptions(rel *Relationship, options []string) {
 	for _, opt := range options {
@@ -1116,7 +1229,7 @@ func validateRelationshipType(rel *Relationship, isSlice bool) error {
 	}
 
 	if rel.Type != ManyToMany && rel.ForeignKey == "" {
-		return fmt.Errorf("relationship %s requires a foreignKey option in the db tag", rel.Name)
+		return fmt.Errorf("relationship %s requires a foreignKey option in the sqlr tag", rel.Name)
 	}
 
 	return nil

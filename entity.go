@@ -23,9 +23,9 @@ type setIdAware[K KeyTypes] interface {
 var _ Entitier[string] = (*Entity[string])(nil)
 
 type Entity[K KeyTypes] struct {
-	Id        K         `db:"id,primaryKey"`
-	CreatedAt time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Id        K         `db:"id" sqlr:"primaryKey"`
+	CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 }
 
 func (e *Entity[K]) SetId(id K) {

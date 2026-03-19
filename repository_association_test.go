@@ -22,15 +22,15 @@ import (
 type assocAuthor struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Posts   []assocPost  `db:"-,foreignKey:author_id"`
-	Profile assocProfile `db:"-,foreignKey:author_id"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id"`
+	Profile assocProfile `sqlr:"foreignKey:author_id"`
 }
 
 type assocAuthorSyncCreateDefaults struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Posts   []assocPost  `db:"-,foreignKey:author_id,syncCreate"`
-	Profile assocProfile `db:"-,foreignKey:author_id"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id,syncCreate"`
+	Profile assocProfile `sqlr:"foreignKey:author_id"`
 }
 
 func (assocAuthorSyncCreateDefaults) TableName() string { return "assoc_author_sync_create_defaults" }
@@ -38,8 +38,8 @@ func (assocAuthorSyncCreateDefaults) TableName() string { return "assoc_author_s
 type assocAuthorSyncUpdateDefaults struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Posts   []assocPost  `db:"-,foreignKey:author_id,syncUpdate"`
-	Profile assocProfile `db:"-,foreignKey:author_id"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id,syncUpdate"`
+	Profile assocProfile `sqlr:"foreignKey:author_id"`
 }
 
 func (assocAuthorSyncUpdateDefaults) TableName() string { return "assoc_author_sync_update_defaults" }
@@ -47,7 +47,7 @@ func (assocAuthorSyncUpdateDefaults) TableName() string { return "assoc_author_s
 type assocAuthorWithPointerProfile struct {
 	sqlr.Entity[int64]
 	Name    string        `db:"name"`
-	Profile *assocProfile `db:"-,foreignKey:author_id"`
+	Profile *assocProfile `sqlr:"foreignKey:author_id"`
 }
 
 // assocPost is a post belonging to an author. Table: "assoc_posts".
@@ -69,27 +69,27 @@ type assocPostWithAuthor struct {
 	sqlr.Entity[int64]
 	AuthorID int64       `db:"author_id"`
 	Title    string      `db:"title"`
-	Author   assocAuthor `db:"-,belongsTo:author_id"`
+	Author   assocAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type assocPostWithPointerAuthor struct {
 	sqlr.Entity[int64]
 	AuthorID int64        `db:"author_id"`
 	Title    string       `db:"title"`
-	Author   *assocAuthor `db:"-,belongsTo:author_id"`
+	Author   *assocAuthor `sqlr:"belongsTo:author_id"`
 }
 
 // assocArticle has a ManyToMany relationship with assocTag. Table: "assoc_articles".
 type assocArticle struct {
 	sqlr.Entity[int64]
 	Title string     `db:"title"`
-	Tags  []assocTag `db:"-,many2many:assoc_article_tags"`
+	Tags  []assocTag `sqlr:"many2many:assoc_article_tags"`
 }
 
 type assocArticleSyncUpdateDefaults struct {
 	sqlr.Entity[int64]
 	Title string     `db:"title"`
-	Tags  []assocTag `db:"-,many2many:assoc_article_sync_update_default_tags,syncUpdate,syncMany2many"`
+	Tags  []assocTag `sqlr:"many2many:assoc_article_sync_update_default_tags,syncUpdate,syncMany2many"`
 }
 
 func (assocArticleSyncUpdateDefaults) TableName() string { return "assoc_article_sync_update_defaults" }
@@ -97,13 +97,13 @@ func (assocArticleSyncUpdateDefaults) TableName() string { return "assoc_article
 type assocArticleWithPointerTags struct {
 	sqlr.Entity[int64]
 	Title string      `db:"title"`
-	Tags  []*assocTag `db:"-,many2many:assoc_article_tags"`
+	Tags  []*assocTag `sqlr:"many2many:assoc_article_tags"`
 }
 
 type assocAuthorWithPointerPosts struct {
 	sqlr.Entity[int64]
 	Name  string       `db:"name"`
-	Posts []*assocPost `db:"-,foreignKey:author_id"`
+	Posts []*assocPost `sqlr:"foreignKey:author_id"`
 }
 
 // assocTag is a tag used in many-to-many tests. Table: "assoc_tags".
@@ -118,8 +118,8 @@ type assocPostWithAll struct {
 	sqlr.Entity[int64]
 	AuthorID int64          `db:"author_id"`
 	Title    string         `db:"title"`
-	Author   assocAuthor    `db:"-,belongsTo:author_id"`
-	Comments []assocComment `db:"-,foreignKey:post_id"`
+	Author   assocAuthor    `sqlr:"belongsTo:author_id"`
+	Comments []assocComment `sqlr:"foreignKey:post_id"`
 }
 
 // assocComment is a comment on a post. Table: "assoc_comments".
@@ -138,7 +138,7 @@ type assocComment struct {
 type deepAuthor struct {
 	sqlr.Entity[int64]
 	Name  string     `db:"name"`
-	Posts []deepPost `db:"-,foreignKey:author_id"`
+	Posts []deepPost `sqlr:"foreignKey:author_id"`
 }
 
 // deepPost belongs to deepAuthor and has many deepComments.
@@ -147,7 +147,7 @@ type deepPost struct {
 	sqlr.Entity[int64]
 	AuthorID int64         `db:"author_id"`
 	Title    string        `db:"title"`
-	Comments []deepComment `db:"-,foreignKey:post_id"`
+	Comments []deepComment `sqlr:"foreignKey:post_id"`
 }
 
 // deepComment belongs to deepPost. Table: "deep_comments".
@@ -161,7 +161,7 @@ type deepComment struct {
 type deepTag struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	SubTags []deepSubTag `db:"-,foreignKey:tag_id"`
+	SubTags []deepSubTag `sqlr:"foreignKey:tag_id"`
 }
 
 // deepSubTag belongs to deepTag. Table: "deep_sub_tags".
@@ -176,7 +176,7 @@ type deepSubTag struct {
 type deepArticle struct {
 	sqlr.Entity[int64]
 	Title string    `db:"title"`
-	Tags  []deepTag `db:"-,many2many:deep_article_tags"`
+	Tags  []deepTag `sqlr:"many2many:deep_article_tags"`
 }
 
 // deepLeafComment is used for a recursive BelongsTo chain test.
@@ -186,7 +186,7 @@ type deepLeafComment struct {
 	sqlr.Entity[int64]
 	PostID int64        `db:"post_id"`
 	Body   string       `db:"body"`
-	Post   deepLeafPost `db:"-,belongsTo:post_id"`
+	Post   deepLeafPost `sqlr:"belongsTo:post_id"`
 }
 
 // deepLeafPost belongs to deepLeafAuthor. Table: "deep_leaf_posts".
@@ -194,7 +194,7 @@ type deepLeafPost struct {
 	sqlr.Entity[int64]
 	AuthorID int64          `db:"author_id"`
 	Title    string         `db:"title"`
-	Author   deepLeafAuthor `db:"-,belongsTo:author_id"`
+	Author   deepLeafAuthor `sqlr:"belongsTo:author_id"`
 }
 
 // deepLeafAuthor is the leaf of the BelongsTo chain. Table: "deep_leaf_authors".

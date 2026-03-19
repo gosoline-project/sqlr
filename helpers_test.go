@@ -61,16 +61,16 @@ type testFloatKeyUser struct {
 // testCustomPkUser uses a non-standard primary key column name.
 // Table name "test_custom_pk_users" is derived from the type name.
 type testCustomPkUser struct {
-	Id        int64     `db:"user_id,primaryKey"`
-	CreatedAt time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Id        int64     `db:"user_id" sqlr:"primaryKey"`
+	CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 	Name      string    `db:"name"`
 }
 
 type testNoSetterUser struct {
-	Id        int64     `db:"id,primaryKey"`
-	CreatedAt time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Id        int64     `db:"id" sqlr:"primaryKey"`
+	CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 	Name      string    `db:"name"`
 }
 
@@ -87,9 +87,9 @@ func (u testNoSetterUser) GetCreatedAt() time.Time {
 }
 
 type testNoSetterCustomPkUser struct {
-	Id        int64     `db:"user_id,primaryKey"`
-	CreatedAt time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Id        int64     `db:"user_id" sqlr:"primaryKey"`
+	CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 	Name      string    `db:"name"`
 }
 
@@ -127,23 +127,23 @@ type testPost struct {
 	AuthorID int64         `db:"author_id"`
 	Title    string        `db:"title"`
 	Status   string        `db:"status"`
-	Author   testAuthor    `db:"-,belongsTo:author_id"`
-	Comments []testComment `db:"-,foreignKey:post_id"`
-	Tags     []testTag     `db:"-,many2many:post_tags"`
+	Author   testAuthor    `sqlr:"belongsTo:author_id"`
+	Comments []testComment `sqlr:"foreignKey:post_id"`
+	Tags     []testTag     `sqlr:"many2many:post_tags"`
 }
 
 type testPostWithAuthor struct {
 	sqlr.Entity[int64]
 	AuthorID int64      `db:"author_id"`
 	Title    string     `db:"title"`
-	Author   testAuthor `db:"-,belongsTo:author_id"`
+	Author   testAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type testPostWithNullableAuthor struct {
 	sqlr.Entity[int64]
 	AuthorID *int64     `db:"author_id"`
 	Title    string     `db:"title"`
-	Author   testAuthor `db:"-,belongsTo:author_id"`
+	Author   testAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type testBoolAuthor struct {
@@ -155,7 +155,7 @@ type testPostWithBoolAuthor struct {
 	sqlr.Entity[int64]
 	AuthorID bool           `db:"author_id"`
 	Title    string         `db:"title"`
-	Author   testBoolAuthor `db:"-,belongsTo:author_id"`
+	Author   testBoolAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type testStringAuthor struct {
@@ -167,7 +167,7 @@ type testPostWithStringAuthor struct {
 	sqlr.Entity[int64]
 	AuthorID string           `db:"author_id"`
 	Title    string           `db:"title"`
-	Author   testStringAuthor `db:"-,belongsTo:author_id"`
+	Author   testStringAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type testFloatAuthor struct {
@@ -179,20 +179,20 @@ type testPostWithFloatAuthor struct {
 	sqlr.Entity[int64]
 	AuthorID float64         `db:"author_id"`
 	Title    string          `db:"title"`
-	Author   testFloatAuthor `db:"-,belongsTo:author_id"`
+	Author   testFloatAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type testPointerKeyUser struct {
-	Id        *int64    `db:"id,primaryKey"`
-	CreatedAt time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Id        *int64    `db:"id" sqlr:"primaryKey"`
+	CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 	Name      string    `db:"name"`
 }
 
 type testNoSetterPointerKeyUser struct {
-	Id        *int64    `db:"id,primaryKey"`
-	CreatedAt time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	Id        *int64    `db:"id" sqlr:"primaryKey"`
+	CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 	Name      string    `db:"name"`
 }
 
@@ -225,9 +225,9 @@ func (u testPointerKeyUser) GetCreatedAt() time.Time {
 }
 
 type testPointerTimestampUser struct {
-	Id        int64      `db:"id,primaryKey"`
-	CreatedAt *time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt *time.Time `db:"updated_at,autoUpdateTime"`
+	Id        int64      `db:"id" sqlr:"primaryKey"`
+	CreatedAt *time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt *time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 	Name      string     `db:"name"`
 }
 
@@ -259,15 +259,15 @@ type testPostWithPointerAuthorID struct {
 	sqlr.Entity[int64]
 	AuthorID *int64     `db:"author_id"`
 	Title    string     `db:"title"`
-	Author   testAuthor `db:"-,belongsTo:author_id"`
+	Author   testAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type testAuthorWithPointerKeyProfile struct {
-	Id        *int64             `db:"id,primaryKey"`
-	CreatedAt time.Time          `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time          `db:"updated_at,autoUpdateTime"`
+	Id        *int64             `db:"id" sqlr:"primaryKey"`
+	CreatedAt time.Time          `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time          `db:"updated_at" sqlr:"autoUpdateTime"`
 	Name      string             `db:"name"`
-	Profiles  []testPointerChild `db:"-,foreignKey:author_id"`
+	Profiles  []testPointerChild `sqlr:"foreignKey:author_id"`
 }
 
 func (u *testAuthorWithPointerKeyProfile) SetId(id *int64) {
@@ -296,7 +296,7 @@ type testPostWithAuthorAutoPreload struct {
 	sqlr.Entity[int64]
 	AuthorID int64      `db:"author_id"`
 	Title    string     `db:"title"`
-	Author   testAuthor `db:"-,belongsTo:author_id,preload"`
+	Author   testAuthor `sqlr:"belongsTo:author_id,preload"`
 }
 
 type testPostWithoutPrimaryKey struct {
@@ -310,7 +310,7 @@ type testComment struct {
 	AuthorID  int64          `db:"author_id"`
 	PostID    int64          `db:"post_id"`
 	Body      string         `db:"body"`
-	Reactions []testReaction `db:"-,foreignKey:comment_id"`
+	Reactions []testReaction `sqlr:"foreignKey:comment_id"`
 }
 
 type testReaction struct {
@@ -324,8 +324,8 @@ type testReaction struct {
 type testAuthor struct {
 	sqlr.Entity[int64]
 	Name     string        `db:"name"`
-	Posts    []testPost    `db:"-,foreignKey:author_id"`
-	Comments []testComment `db:"-,foreignKey:author_id"`
+	Posts    []testPost    `sqlr:"foreignKey:author_id"`
+	Comments []testComment `sqlr:"foreignKey:author_id"`
 }
 
 type testProfile struct {
@@ -337,25 +337,25 @@ type testProfile struct {
 type testAuthorWithProfile struct {
 	sqlr.Entity[int64]
 	Name    string      `db:"name"`
-	Profile testProfile `db:"-,foreignKey:author_id"`
+	Profile testProfile `sqlr:"foreignKey:author_id"`
 }
 
 type testAuthorWithProfilePointer struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Profile *testProfile `db:"-,foreignKey:author_id"`
+	Profile *testProfile `sqlr:"foreignKey:author_id"`
 }
 
 type testAuthorWithProfileAutoPreload struct {
 	sqlr.Entity[int64]
 	Name    string      `db:"name"`
-	Profile testProfile `db:"-,foreignKey:author_id,preload"`
+	Profile testProfile `sqlr:"foreignKey:author_id,preload"`
 }
 
 type testAuthorWithPostWithoutPrimaryKey struct {
 	sqlr.Entity[int64]
 	Name  string                      `db:"name"`
-	Posts []testPostWithoutPrimaryKey `db:"-,foreignKey:author_id"`
+	Posts []testPostWithoutPrimaryKey `sqlr:"foreignKey:author_id"`
 }
 
 // testTag is used for many-to-many relationship tests. Table: "test_tags".
@@ -369,20 +369,20 @@ type testTag struct {
 type testArticle struct {
 	sqlr.Entity[int64]
 	Title string    `db:"title"`
-	Tags  []testTag `db:"-,many2many:article_tags"`
+	Tags  []testTag `sqlr:"many2many:article_tags"`
 }
 
 type testArticleWithPointerTags struct {
 	sqlr.Entity[int64]
 	Title string     `db:"title"`
-	Tags  []*testTag `db:"-,many2many:article_tags"`
+	Tags  []*testTag `sqlr:"many2many:article_tags"`
 }
 
 type testPostWithAuthorPointer struct {
 	sqlr.Entity[int64]
 	AuthorID int64       `db:"author_id"`
 	Title    string      `db:"title"`
-	Author   *testAuthor `db:"-,belongsTo:author_id"`
+	Author   *testAuthor `sqlr:"belongsTo:author_id"`
 }
 
 // testAuthorAutoPreload is an entity where Posts are automatically preloaded via
@@ -391,21 +391,21 @@ type testPostWithAuthorPointer struct {
 type testAuthorAutoPreload struct {
 	sqlr.Entity[int64]
 	Name     string        `db:"name"`
-	Posts    []testPost    `db:"-,foreignKey:author_id,preload"`
-	Comments []testComment `db:"-,foreignKey:author_id"`
+	Posts    []testPost    `sqlr:"foreignKey:author_id,preload"`
+	Comments []testComment `sqlr:"foreignKey:author_id"`
 }
 
 type testPostWithCommentsAutoPreload struct {
 	sqlr.Entity[int64]
 	AuthorID int64         `db:"author_id"`
 	Title    string        `db:"title"`
-	Comments []testComment `db:"-,foreignKey:post_id,preload"`
+	Comments []testComment `sqlr:"foreignKey:post_id,preload"`
 }
 
 type testAuthorDeepAutoPreload struct {
 	sqlr.Entity[int64]
 	Name  string                            `db:"name"`
-	Posts []testPostWithCommentsAutoPreload `db:"-,foreignKey:author_id,preload"`
+	Posts []testPostWithCommentsAutoPreload `sqlr:"foreignKey:author_id,preload"`
 }
 
 // testArticleAutoPreload is an entity with a many-to-many preload tag.
@@ -413,7 +413,7 @@ type testAuthorDeepAutoPreload struct {
 type testArticleAutoPreload struct {
 	sqlr.Entity[int64]
 	Title string    `db:"title"`
-	Tags  []testTag `db:"-,many2many:article_tags,preload"`
+	Tags  []testTag `sqlr:"many2many:article_tags,preload"`
 }
 
 type testBrokenPost struct {
@@ -424,7 +424,7 @@ type testBrokenPost struct {
 type testBrokenAuthor struct {
 	sqlr.Entity[int64]
 	Name  string           `db:"name"`
-	Posts []testBrokenPost `db:"-,foreignKey:author_id"`
+	Posts []testBrokenPost `sqlr:"foreignKey:author_id"`
 }
 
 type testUint64Tag struct {
@@ -435,7 +435,7 @@ type testUint64Tag struct {
 type testUint64Article struct {
 	sqlr.Entity[uint64]
 	Title string          `db:"title"`
-	Tags  []testUint64Tag `db:"-,many2many:uint64_article_tags"`
+	Tags  []testUint64Tag `sqlr:"many2many:uint64_article_tags"`
 }
 
 type testStringTag struct {
@@ -446,7 +446,7 @@ type testStringTag struct {
 type testStringArticle struct {
 	sqlr.Entity[string]
 	Title string          `db:"title"`
-	Tags  []testStringTag `db:"-,many2many:string_article_tags"`
+	Tags  []testStringTag `sqlr:"many2many:string_article_tags"`
 }
 
 // ==========================================================================

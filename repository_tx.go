@@ -12,7 +12,7 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
 	// Optional functions receive a QueryBuilderCreate to restrict or omit
 	// association synchronization for this call, in addition to any schema-level
-	// defaults declared via relationship db tags.
+	// defaults declared via relationship sqlr tags.
 	Create(ttx TTx, entity *E, opts ...func(qb *QueryBuilderCreate)) error
 	// Read loads one entity by primary key. Optional functions receive a
 	// QueryBuilderRead to configure joins and preloads for eager-loading
@@ -22,7 +22,7 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// Update updates the base entity row. Optional functions receive a
 	// QueryBuilderUpdate to enable or restrict association synchronization for
 	// this call, in addition to any schema-level defaults declared via
-	// relationship db tags. Many-to-many updates reconcile join-table membership
+	// relationship sqlr tags. Many-to-many updates reconcile join-table membership
 	// by default; related many-to-many rows are only updated when explicitly
 	// opted in per path.
 	Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)

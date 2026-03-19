@@ -10,7 +10,7 @@ import (
 
 // SchemaNameTransformer is the function used to convert a Go identifier (struct
 // type name or field name) to a database identifier (table or column name) when
-// no db tag is present. The default is toSnakeCase. It can be replaced at
+// no db tag column override is present. The default is toSnakeCase. It can be replaced at
 // program startup to apply a different naming convention (e.g., lowercase-only,
 // camelCase). It is applied to column names, table names, and M2M join-column
 // name derivation.

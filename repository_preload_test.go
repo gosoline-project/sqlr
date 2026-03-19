@@ -603,7 +603,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithRelatedEntityWithoutPr
 
 // TestQuery_PreloadWithForeignKeyNotMappedInRelatedStruct verifies that when the
 // foreign key column declared in the relation tag is absent from the related
-// struct's db tags, a descriptive mapping error is returned.
+// struct's mapped columns, a descriptive mapping error is returned.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadWithForeignKeyNotMappedInRelatedStruct() {
 	now := time.Now()
 

@@ -163,16 +163,17 @@ func NewRepository[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Co
 
 ### Struct Tags
 
-All metadata is expressed via the `db` struct tag using comma-separated options after the column name:
+Column names are expressed via the `db` struct tag, while sqlr metadata is expressed via the `sqlr` struct tag:
 - **DB column**: `db:"column_name"`
-- **Primary key**: `db:"column_name,primaryKey"`
+- **Ignored field**: `db:"-"`
+- **Primary key**: `db:"column_name" sqlr:"primaryKey"`
 - **Auto-increment inference**: integer primary key field types (`int*`/`uint*`, including pointers) are treated as auto-increment at runtime; non-integer primary keys are inserted as provided
-- **Auto timestamps**: `db:"column_name,autoCreateTime"` or `db:"column_name,autoUpdateTime"`
-- **Relationships** (use `-` as the column name since these are not direct columns):
-  - `db:"-,foreignKey:column_name"` for HasOne/HasMany (non-slice field => HasOne, slice field => HasMany). The foreign key column lives on the related table.
-  - `db:"-,belongsTo:column_name"` for BelongsTo. The foreign key column lives on the current entity table.
-  - `db:"-,many2many:join_table_name"` for ManyToMany
-  - Add `preload` to any relationship tag option list for auto-preloading (for example: `db:"-,foreignKey:author_id,preload"`).
+- **Auto timestamps**: `db:"column_name" sqlr:"autoCreateTime"` or `db:"column_name" sqlr:"autoUpdateTime"`
+- **Relationships**:
+  - `sqlr:"foreignKey:column_name"` for HasOne/HasMany (non-slice field => HasOne, slice field => HasMany). The foreign key column lives on the related table.
+  - `sqlr:"belongsTo:column_name"` for BelongsTo. The foreign key column lives on the current entity table.
+  - `sqlr:"many2many:join_table_name"` for ManyToMany
+  - Add `preload` to any relationship tag option list for auto-preloading (for example: `sqlr:"foreignKey:author_id,preload"`).
 - **Loading strategies**:
   - `Preload("Posts")` loads a single relation
   - `Preload("Posts.Comments")` loads nested relations; optional conditions apply to the leaf relation (`Comments` in this example)
@@ -183,27 +184,27 @@ All metadata is expressed via the `db` struct tag using comma-separated options 
 Example:
 ```go
 type Entity[K KeyTypes] struct {
-    Id        K         `db:"id,primaryKey"`
-    CreatedAt time.Time `db:"created_at,autoCreateTime"`
-    UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+    Id        K         `db:"id" sqlr:"primaryKey"`
+    CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+    UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 }
 
 type Author struct {
     Entity[int64]
     Name  string    `db:"name"`
-    Posts []Post    `db:"-,foreignKey:author_id"`
-    Profile Profile `db:"-,foreignKey:author_id"`
+    Posts []Post    `sqlr:"foreignKey:author_id"`
+    Profile Profile `sqlr:"foreignKey:author_id"`
 }
 
 type Post struct {
     Entity[int64]
     AuthorID int64  `db:"author_id"`
-    Author   Author `db:"-,belongsTo:author_id"`
+    Author   Author `sqlr:"belongsTo:author_id"`
 }
 
 type Article struct {
     Entity[int64]
-    Tags  []Tag     `db:"-,many2many:article_tags"`
+    Tags  []Tag     `sqlr:"many2many:article_tags"`
 }
 ```
 

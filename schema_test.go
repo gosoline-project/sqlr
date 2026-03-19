@@ -25,7 +25,7 @@ type schemaNoPrimaryKey struct {
 // schemaPrimaryKeyEmbedded / schemaPrimaryKeyEntityWithEmbedded are used by
 // the primary key tests and the column-indexing test.
 type schemaPrimaryKeyEmbedded struct {
-	ID int64 `db:"id,primaryKey"`
+	ID int64 `db:"id" sqlr:"primaryKey"`
 }
 
 type schemaPrimaryKeyEntityWithEmbedded struct {
@@ -36,66 +36,66 @@ type schemaPrimaryKeyEntityWithEmbedded struct {
 // schemaPrimaryKeyEntityWithDirectField is used by the primary key tests
 // (pointer-to-struct unwrap, string PK, and PrimaryKeyPointsToColumnsEntry).
 type schemaPrimaryKeyEntityWithDirectField struct {
-	Key   string `db:"key,primaryKey"`
+	Key   string `db:"key" sqlr:"primaryKey"`
 	Value string `db:"value"`
 }
 
 // schemaCacheComment / schemaCachePost / schemaCacheAuthor are used by the
 // schema caching tests and the ResolveRelatedSchema concurrency test.
 type schemaCacheComment struct {
-	ID       int64  `db:"id,primaryKey"`
+	ID       int64  `db:"id" sqlr:"primaryKey"`
 	AuthorID int64  `db:"author_id"`
 	Body     string `db:"body"`
 }
 
 type schemaCachePost struct {
-	ID       int64  `db:"id,primaryKey"`
+	ID       int64  `db:"id" sqlr:"primaryKey"`
 	AuthorID int64  `db:"author_id"`
 	Title    string `db:"title"`
 }
 
 type schemaCacheAuthor struct {
-	ID       int64                `db:"id,primaryKey"`
+	ID       int64                `db:"id" sqlr:"primaryKey"`
 	Name     string               `db:"name"`
-	Posts    []schemaCachePost    `db:"-,foreignKey:author_id,preload"`
-	Comments []schemaCacheComment `db:"-,foreignKey:author_id,preload"`
+	Posts    []schemaCachePost    `sqlr:"foreignKey:author_id,preload"`
+	Comments []schemaCacheComment `sqlr:"foreignKey:author_id,preload"`
 }
 
 type schemaSyncDefaultsComment struct {
-	ID     int64  `db:"id,primaryKey"`
+	ID     int64  `db:"id" sqlr:"primaryKey"`
 	PostID int64  `db:"post_id"`
 	Body   string `db:"body"`
 }
 
 type schemaSyncDefaultsPost struct {
-	ID       int64                       `db:"id,primaryKey"`
+	ID       int64                       `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                       `db:"author_id"`
 	Title    string                      `db:"title"`
-	Comments []schemaSyncDefaultsComment `db:"-,foreignKey:post_id,syncUpdate"`
+	Comments []schemaSyncDefaultsComment `sqlr:"foreignKey:post_id,syncUpdate"`
 }
 
 type schemaSyncDefaultsTag struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
 type schemaSyncDefaultsAuthor struct {
-	ID    int64                    `db:"id,primaryKey"`
+	ID    int64                    `db:"id" sqlr:"primaryKey"`
 	Name  string                   `db:"name"`
-	Posts []schemaSyncDefaultsPost `db:"-,foreignKey:author_id,syncCreate,syncUpdate"`
-	Tags  []schemaSyncDefaultsTag  `db:"-,many2many:author_tags,syncUpdate,syncMany2many"`
+	Posts []schemaSyncDefaultsPost `sqlr:"foreignKey:author_id,syncCreate,syncUpdate"`
+	Tags  []schemaSyncDefaultsTag  `sqlr:"many2many:author_tags,syncUpdate,syncMany2many"`
 }
 
 type schemaInvalidSyncMany2manyRelation struct {
-	ID    int64                 `db:"id,primaryKey"`
+	ID    int64                 `db:"id" sqlr:"primaryKey"`
 	Name  string                `db:"name"`
-	Posts []schemaBelongsToPost `db:"-,foreignKey:author_id,syncMany2many"`
+	Posts []schemaBelongsToPost `sqlr:"foreignKey:author_id,syncMany2many"`
 }
 
 // schemaTableNamerRelated is used by the ResolveRelatedSchema TableNamer test
 // and as a field type in schemaInvalidBelongsToRelated.
 type schemaTableNamerRelated struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
@@ -104,27 +104,27 @@ func (schemaTableNamerRelated) TableName() string { return "custom_related_table
 // schemaM2MAutoTag / schemaM2MAutoArticle are used by the M2M relationship test
 // and the resolveM2MColumnNames derivation tests.
 type schemaM2MAutoTag struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
 type schemaM2MAutoArticle struct {
-	ID   int64              `db:"id,primaryKey"`
+	ID   int64              `db:"id" sqlr:"primaryKey"`
 	Name string             `db:"name"`
-	Tags []schemaM2MAutoTag `db:"-,many2many:"`
+	Tags []schemaM2MAutoTag `sqlr:"many2many:"`
 }
 
 // schemaM2MColOverrideTag / schemaM2MColOverrideArticle are used by the M2M
 // column-override test and the resolveM2MColumnNames override tests.
 type schemaM2MColOverrideTag struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
 type schemaM2MColOverrideArticle struct {
-	ID   int64                     `db:"id,primaryKey"`
+	ID   int64                     `db:"id" sqlr:"primaryKey"`
 	Name string                    `db:"name"`
-	Tags []schemaM2MColOverrideTag `db:"-,many2many:override_table,parentKey:art_id,relatedKey:tag_id"`
+	Tags []schemaM2MColOverrideTag `sqlr:"many2many:override_table,parentKey:art_id,relatedKey:tag_id"`
 }
 
 // ============================================================
@@ -132,7 +132,7 @@ type schemaM2MColOverrideArticle struct {
 // ============================================================
 
 type schemaPointerIntPK struct {
-	ID   *int64 `db:"id,primaryKey"`
+	ID   *int64 `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
@@ -142,8 +142,8 @@ type schemaAutoPreloadChildNoPrimaryKey struct {
 }
 
 type schemaAutoPreloadParentWithInvalidChild struct {
-	ID       int64                                `db:"id,primaryKey"`
-	Children []schemaAutoPreloadChildNoPrimaryKey `db:"-,foreignKey:parent_id,preload"`
+	ID       int64                                `db:"id" sqlr:"primaryKey"`
+	Children []schemaAutoPreloadChildNoPrimaryKey `sqlr:"foreignKey:parent_id,preload"`
 }
 
 // TestParseSchema_PrimaryKeyPointsToColumnsEntry verifies that schema.PrimaryKey
@@ -274,7 +274,7 @@ func TestParseSchemaType_NilType_ReturnsError(t *testing.T) {
 // rejects unnamed struct types because sqlr cannot derive a stable schema name.
 func TestParseSchemaType_UnnamedStruct_ReturnsError(t *testing.T) {
 	unnamedType := reflect.TypeOf(struct {
-		ID int64 `db:"id,primaryKey"`
+		ID int64 `db:"id" sqlr:"primaryKey"`
 	}{})
 
 	_, err := ParseSchemaType(unnamedType)
@@ -326,28 +326,28 @@ func TestParseSchemaType_MatchesGenericParserValidation(t *testing.T) {
 // ============================================================
 
 type schemaAutoTimestamps struct {
-	ID        int64     `db:"id,primaryKey"`
+	ID        int64     `db:"id" sqlr:"primaryKey"`
 	Name      string    `db:"name"`
-	CreatedAt time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt time.Time `db:"updated_at,autoUpdateTime"`
+	CreatedAt time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 }
 
 type schemaPointerAutoTimestamps struct {
-	ID        int64      `db:"id,primaryKey"`
+	ID        int64      `db:"id" sqlr:"primaryKey"`
 	Name      string     `db:"name"`
-	CreatedAt *time.Time `db:"created_at,autoCreateTime"`
-	UpdatedAt *time.Time `db:"updated_at,autoUpdateTime"`
+	CreatedAt *time.Time `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt *time.Time `db:"updated_at" sqlr:"autoUpdateTime"`
 }
 
 type schemaInvalidAutoTimestamps struct {
-	ID        int64  `db:"id,primaryKey"`
+	ID        int64  `db:"id" sqlr:"primaryKey"`
 	Name      string `db:"name"`
-	CreatedAt string `db:"created_at,autoCreateTime"`
-	UpdatedAt string `db:"updated_at,autoUpdateTime"`
+	CreatedAt string `db:"created_at" sqlr:"autoCreateTime"`
+	UpdatedAt string `db:"updated_at" sqlr:"autoUpdateTime"`
 }
 
 type schemaDashField struct {
-	ID      int64  `db:"id,primaryKey"`
+	ID      int64  `db:"id" sqlr:"primaryKey"`
 	Name    string `db:"name"`
 	Ignored string `db:"-"`
 }
@@ -412,7 +412,7 @@ func TestParseSchema_AutoTimestampWrongType_ReturnsError(t *testing.T) {
 // TestParseSchema_DuplicateColumnNames_ReturnsError verifies that ParseSchema returns an error for  for duplicate column names.
 func TestParseSchema_DuplicateColumnNames_ReturnsError(t *testing.T) {
 	type duplicateColumns struct {
-		ID    int64  `db:"id,primaryKey"`
+		ID    int64  `db:"id" sqlr:"primaryKey"`
 		Name1 string `db:"name"`
 		Name2 string `db:"name"`
 	}
@@ -425,8 +425,8 @@ func TestParseSchema_DuplicateColumnNames_ReturnsError(t *testing.T) {
 // TestParseSchema_MultiplePrimaryKeys_ReturnsError verifies that ParseSchema returns an error for  for multipleprimary keys.
 func TestParseSchema_MultiplePrimaryKeys_ReturnsError(t *testing.T) {
 	type multiplePrimaryKeys struct {
-		ID    int64  `db:"id,primaryKey"`
-		AltID int64  `db:"alt_id,primaryKey"`
+		ID    int64  `db:"id" sqlr:"primaryKey"`
+		AltID int64  `db:"alt_id" sqlr:"primaryKey"`
 		Name  string `db:"name"`
 	}
 
@@ -496,15 +496,21 @@ func TestValidRelationNames_SortedOutput(t *testing.T) {
 // ============================================================
 
 type schemaHasOneProfile struct {
-	ID       int64  `db:"id,primaryKey"`
+	ID       int64  `db:"id" sqlr:"primaryKey"`
 	AuthorID int64  `db:"author_id"`
 	Bio      string `db:"bio"`
 }
 
 type schemaHasOneAuthor struct {
-	ID      int64               `db:"id,primaryKey"`
+	ID      int64               `db:"id" sqlr:"primaryKey"`
 	Name    string              `db:"name"`
-	Profile schemaHasOneProfile `db:"-,foreignKey:author_id"`
+	Profile schemaHasOneProfile `sqlr:"foreignKey:author_id"`
+}
+
+type schemaHasOneAuthorWithDbDash struct {
+	ID      int64               `db:"id" sqlr:"primaryKey"`
+	Name    string              `db:"name"`
+	Profile schemaHasOneProfile `db:"-" sqlr:"foreignKey:author_id"`
 }
 
 // TestParseSchema_HasOne_Relationship verifies that a non-slice struct field
@@ -520,40 +526,55 @@ func TestParseSchema_HasOne_Relationship(t *testing.T) {
 	assert.Equal(t, "author_id", rel.ForeignKey)
 }
 
+// TestParseSchema_HasOne_RelationshipDbDashOptional verifies that explicit
+// relationship metadata in the sqlr tag works the same with or without db:"-".
+func TestParseSchema_HasOne_RelationshipDbDashOptional(t *testing.T) {
+	withoutDash, err := ParseSchema[schemaHasOneAuthor]()
+	require.NoError(t, err)
+
+	withDash, err := ParseSchema[schemaHasOneAuthorWithDbDash]()
+	require.NoError(t, err)
+
+	require.Contains(t, withoutDash.Relationships, "Profile")
+	require.Contains(t, withDash.Relationships, "Profile")
+	assert.Equal(t, withoutDash.Relationships["Profile"].Type, withDash.Relationships["Profile"].Type)
+	assert.Equal(t, withoutDash.Relationships["Profile"].ForeignKey, withDash.Relationships["Profile"].ForeignKey)
+}
+
 // ============================================================
 // Relationship parsing: BelongsTo
 // ============================================================
 
 type schemaBelongsToAuthor struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
 type schemaBelongsToPost struct {
-	ID       int64                 `db:"id,primaryKey"`
+	ID       int64                 `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                 `db:"author_id"`
 	Title    string                `db:"title"`
-	Author   schemaBelongsToAuthor `db:"-,belongsTo:author_id"`
+	Author   schemaBelongsToAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type schemaBelongsToPointerPost struct {
-	ID       int64                  `db:"id,primaryKey"`
+	ID       int64                  `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                  `db:"author_id"`
 	Title    string                 `db:"title"`
-	Author   *schemaBelongsToAuthor `db:"-,belongsTo:author_id"`
+	Author   *schemaBelongsToAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type schemaBelongsToPostInvalidSlice struct {
-	ID       int64                   `db:"id,primaryKey"`
+	ID       int64                   `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                   `db:"author_id"`
 	Title    string                  `db:"title"`
-	Author   []schemaBelongsToAuthor `db:"-,belongsTo:author_id"`
+	Author   []schemaBelongsToAuthor `sqlr:"belongsTo:author_id"`
 }
 
 type schemaBelongsToPostMissingFK struct {
-	ID     int64                 `db:"id,primaryKey"`
+	ID     int64                 `db:"id" sqlr:"primaryKey"`
 	Title  string                `db:"title"`
-	Author schemaBelongsToAuthor `db:"-,belongsTo:author_id"`
+	Author schemaBelongsToAuthor `sqlr:"belongsTo:author_id"`
 }
 
 // TestParseSchema_BelongsTo verifies that a non-slice struct field tagged with
@@ -604,26 +625,26 @@ func TestParseSchema_BelongsToMissingForeignKeyColumnRejected(t *testing.T) {
 // ============================================================
 
 type schemaManyToManyTag struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
 type schemaManyToManyArticle struct {
-	ID   int64                 `db:"id,primaryKey"`
+	ID   int64                 `db:"id" sqlr:"primaryKey"`
 	Name string                `db:"name"`
-	Tags []schemaManyToManyTag `db:"-,many2many:article_tags"`
+	Tags []schemaManyToManyTag `sqlr:"many2many:article_tags"`
 }
 
 type schemaHasManyPointerAuthor struct {
-	ID    int64                  `db:"id,primaryKey"`
+	ID    int64                  `db:"id" sqlr:"primaryKey"`
 	Name  string                 `db:"name"`
-	Posts []*schemaBelongsToPost `db:"-,foreignKey:author_id"`
+	Posts []*schemaBelongsToPost `sqlr:"foreignKey:author_id"`
 }
 
 type schemaManyToManyPointerArticle struct {
-	ID   int64                  `db:"id,primaryKey"`
+	ID   int64                  `db:"id" sqlr:"primaryKey"`
 	Name string                 `db:"name"`
-	Tags []*schemaManyToManyTag `db:"-,many2many:article_tags"`
+	Tags []*schemaManyToManyTag `sqlr:"many2many:article_tags"`
 }
 
 // TestParseSchema_ManyToMany_Relationship verifies that a slice field tagged
@@ -699,52 +720,52 @@ func TestParseSchema_PointerCollectionRelationships(t *testing.T) {
 // ============================================================
 
 type schemaMixedPreloadPost struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Body string `db:"body"`
 }
 
 type schemaMixedPreloadComment struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Body string `db:"body"`
 }
 
 type schemaMixedPreloadAuthor struct {
-	ID       int64                       `db:"id,primaryKey"`
+	ID       int64                       `db:"id" sqlr:"primaryKey"`
 	Name     string                      `db:"name"`
-	Posts    []schemaMixedPreloadPost    `db:"-,foreignKey:author_id,preload"`
-	Comments []schemaMixedPreloadComment `db:"-,foreignKey:author_id"`
+	Posts    []schemaMixedPreloadPost    `sqlr:"foreignKey:author_id,preload"`
+	Comments []schemaMixedPreloadComment `sqlr:"foreignKey:author_id"`
 }
 
 type schemaNestedAutoComment struct {
-	ID     int64  `db:"id,primaryKey"`
+	ID     int64  `db:"id" sqlr:"primaryKey"`
 	PostID int64  `db:"post_id"`
 	Body   string `db:"body"`
 }
 
 type schemaNestedAutoPost struct {
-	ID       int64                     `db:"id,primaryKey"`
+	ID       int64                     `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                     `db:"author_id"`
 	Title    string                    `db:"title"`
-	Comments []schemaNestedAutoComment `db:"-,foreignKey:post_id,preload"`
+	Comments []schemaNestedAutoComment `sqlr:"foreignKey:post_id,preload"`
 }
 
 type schemaNestedAutoAuthor struct {
-	ID    int64                  `db:"id,primaryKey"`
+	ID    int64                  `db:"id" sqlr:"primaryKey"`
 	Name  string                 `db:"name"`
-	Posts []schemaNestedAutoPost `db:"-,foreignKey:author_id,preload"`
+	Posts []schemaNestedAutoPost `sqlr:"foreignKey:author_id,preload"`
 }
 
 type schemaCircularAutoParent struct {
-	ID       int64                     `db:"id,primaryKey"`
+	ID       int64                     `db:"id" sqlr:"primaryKey"`
 	Name     string                    `db:"name"`
-	Children []schemaCircularAutoChild `db:"-,foreignKey:parent_id,preload"`
+	Children []schemaCircularAutoChild `sqlr:"foreignKey:parent_id,preload"`
 }
 
 type schemaCircularAutoChild struct {
-	ID       int64                     `db:"id,primaryKey"`
+	ID       int64                     `db:"id" sqlr:"primaryKey"`
 	ParentID int64                     `db:"parent_id"`
 	Body     string                    `db:"body"`
-	Parent   *schemaCircularAutoParent `db:"-,belongsTo:parent_id,preload"`
+	Parent   *schemaCircularAutoParent `sqlr:"belongsTo:parent_id,preload"`
 }
 
 // TestParseSchema_MixedPreloadAndNonPreload_AutoPreloads verifies that only
@@ -901,16 +922,16 @@ func TestResolveRelatedSchema_RelatedTypeNoPrimaryKey_ReturnsError(t *testing.T)
 // schemaInvalidBelongsToRelated has a BelongsTo relationship where the declared
 // FK column ("nonexistent_id") is not present as a column on the struct.
 type schemaInvalidBelongsToRelated struct {
-	ID    int64                   `db:"id,primaryKey"`
+	ID    int64                   `db:"id" sqlr:"primaryKey"`
 	Name  string                  `db:"name"`
-	Owner schemaTableNamerRelated `db:"-,belongsTo:nonexistent_id"` // FK column missing
+	Owner schemaTableNamerRelated `sqlr:"belongsTo:nonexistent_id"` // FK column missing
 }
 
 // schemaInvalidBelongsToParent has a relationship to schemaInvalidBelongsToRelated,
 // so that ResolveRelatedSchema will attempt to parse schemaInvalidBelongsToRelated.
 type schemaInvalidBelongsToParent struct {
-	ID        int64                         `db:"id,primaryKey"`
-	Related   schemaInvalidBelongsToRelated `db:"-,belongsTo:related_id"`
+	ID        int64                         `db:"id" sqlr:"primaryKey"`
+	Related   schemaInvalidBelongsToRelated `sqlr:"belongsTo:related_id"`
 	RelatedID int64                         `db:"related_id"`
 }
 
@@ -933,8 +954,8 @@ func TestResolveRelatedSchema_ReturnsErrorForInvalidBelongsToFK(t *testing.T) {
 // schemaTableNamerParent has a relationship to schemaTableNamerRelated. When the
 // related schema is lazily resolved, it must use the custom TableName().
 type schemaTableNamerParent struct {
-	ID        int64                   `db:"id,primaryKey"`
-	Related   schemaTableNamerRelated `db:"-,belongsTo:related_id"`
+	ID        int64                   `db:"id" sqlr:"primaryKey"`
+	Related   schemaTableNamerRelated `sqlr:"belongsTo:related_id"`
 	RelatedID int64                   `db:"related_id"`
 }
 
@@ -1094,13 +1115,27 @@ func TestEntitySchemaResolveRelationPath_ManyToMany(t *testing.T) {
 // ============================================================
 
 type schemaMissingFKRelation struct {
-	ID    int64               `db:"id,primaryKey"`
-	Other schemaHasOneProfile `db:"-,foreignKey:"`
+	ID    int64               `db:"id" sqlr:"primaryKey"`
+	Other schemaHasOneProfile `sqlr:"foreignKey:"`
 }
 
 type schemaRelationNonStruct struct {
-	ID    int64  `db:"id,primaryKey"`
-	Other string `db:"-,foreignKey:other_id"`
+	ID    int64  `db:"id" sqlr:"primaryKey"`
+	Other string `sqlr:"foreignKey:other_id"`
+}
+
+type schemaRelationWithColumnName struct {
+	ID     int64                 `db:"id" sqlr:"primaryKey"`
+	Author schemaBelongsToAuthor `db:"author_id" sqlr:"belongsTo:author_id"`
+}
+
+type schemaPreloadOnlyScalarField struct {
+	ID   int64  `db:"id" sqlr:"primaryKey"`
+	Name string `sqlr:"preload"`
+}
+
+type schemaLegacyCombinedDBTag struct {
+	ID int64 `db:"id,primaryKey"`
 }
 
 // TestParseSchema_NonStructType_ReturnsError verifies that passing a primitive
@@ -1129,6 +1164,30 @@ func TestParseSchema_RelationshipOnNonStructField_ReturnsError(t *testing.T) {
 	require.ErrorContains(t, err, "must be a struct or slice of structs")
 }
 
+// TestParseSchema_RelationshipMetadataWithColumnNameRejected verifies that a
+// field cannot simultaneously declare a db column name and relationship metadata.
+func TestParseSchema_RelationshipMetadataWithColumnNameRejected(t *testing.T) {
+	_, err := ParseSchema[schemaRelationWithColumnName]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "relationship metadata cannot be combined with a db column name")
+}
+
+// TestParseSchema_PreloadOnlyScalarFieldRejected verifies that relationship-only
+// sqlr metadata is rejected on fields that cannot be auto-detected as relations.
+func TestParseSchema_PreloadOnlyScalarFieldRejected(t *testing.T) {
+	_, err := ParseSchema[schemaPreloadOnlyScalarField]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "relationship-only sqlr options require an auto-detected relationship or explicit relation metadata")
+}
+
+// TestParseSchema_LegacyCombinedDBTagRejected verifies that db tags may no
+// longer embed sqlr metadata options.
+func TestParseSchema_LegacyCombinedDBTagRejected(t *testing.T) {
+	_, err := ParseSchema[schemaLegacyCombinedDBTag]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "db tag must contain only a column name or \"-\"")
+}
+
 // ============================================================
 // Untagged fields / auto-detection
 // ============================================================
@@ -1137,7 +1196,7 @@ func TestParseSchema_RelationshipOnNonStructField_ReturnsError(t *testing.T) {
 // unexported field. The untagged public fields should be mapped to snake_case
 // column names; the unexported field should be silently skipped.
 type schemaUntaggedPublic struct {
-	ID        int64  `db:"id,primaryKey"`
+	ID        int64  `db:"id" sqlr:"primaryKey"`
 	FirstName string // → first_name
 	LastName  string // → last_name
 	userScore int    //nolint:unused // unexported — must be skipped
@@ -1146,7 +1205,7 @@ type schemaUntaggedPublic struct {
 // schemaUntaggedFieldNameVariants exercises the snake_case transformer on a
 // variety of field naming patterns including digit→uppercase transitions.
 type schemaUntaggedFieldNameVariants struct {
-	ID            int64  `db:"id,primaryKey"`
+	ID            int64  `db:"id" sqlr:"primaryKey"`
 	UserID        int64  // → user_id
 	HTTPCode      int    // → http_code
 	FullName      string // → full_name
@@ -1157,7 +1216,7 @@ type schemaUntaggedFieldNameVariants struct {
 
 // schemaAutoHasManyChild is the related entity for the HasMany auto-detection test.
 type schemaAutoHasManyChild struct {
-	ID                        int64  `db:"id,primaryKey"`
+	ID                        int64  `db:"id" sqlr:"primaryKey"`
 	SchemaAutoHasManyParentID int64  // → schema_auto_has_many_parent_id (auto-column)
 	Body                      string // → body (auto-column)
 }
@@ -1166,21 +1225,21 @@ type schemaAutoHasManyChild struct {
 // as HasMany with FK = "schema_auto_has_many_parent_id" because the inferred
 // foreign key column exists on the related entity.
 type schemaAutoHasManyParent struct {
-	ID       int64                    `db:"id,primaryKey"`
+	ID       int64                    `db:"id" sqlr:"primaryKey"`
 	Name     string                   // → name (auto-column)
 	Children []schemaAutoHasManyChild // HasMany, FK = "schema_auto_has_many_parent_id"
 }
 
 // schemaAutoBelongsToOwner is the related entity for the BelongsTo auto-detection test.
 type schemaAutoBelongsToOwner struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string // → name
 }
 
 // schemaAutoBelongsToItem has an untagged non-slice struct field — should be
 // auto-detected as BelongsTo with FK = "owner_id" (derived from field name "Owner").
 type schemaAutoBelongsToItem struct {
-	ID      int64                    `db:"id,primaryKey"`
+	ID      int64                    `db:"id" sqlr:"primaryKey"`
 	OwnerID int64                    // → owner_id (auto-column; also serves as the BelongsTo FK)
 	Owner   schemaAutoBelongsToOwner // BelongsTo, FK = "owner_id"
 }
@@ -1267,12 +1326,12 @@ type schemaCustomValueObject struct {
 }
 
 type schemaCustomValueObjectEntity struct {
-	ID    int64                   `db:"id,primaryKey"`
+	ID    int64                   `db:"id" sqlr:"primaryKey"`
 	Money schemaCustomValueObject // → money (column, NOT a relationship)
 }
 
 type schemaAutoBelongsToCandidateWithoutFK struct {
-	ID      int64                    `db:"id,primaryKey"`
+	ID      int64                    `db:"id" sqlr:"primaryKey"`
 	Related schemaAutoBelongsToOwner // → related (column, NOT a relationship)
 }
 
@@ -1309,7 +1368,7 @@ func TestParseSchema_UntaggedStructField_WithoutInferredFKMappedAsColumn(t *test
 // schemaValueTypeFields contains untagged fields of stdlib value-type structs
 // that must be mapped as columns, not auto-detected as relationships.
 type schemaValueTypeFields struct {
-	ID        int64          `db:"id,primaryKey"`
+	ID        int64          `db:"id" sqlr:"primaryKey"`
 	CreatedAt time.Time      // → created_at (column, NOT a relationship)
 	NullName  sql.NullString // → null_name (column, NOT a relationship)
 }
@@ -1369,7 +1428,7 @@ func TestSchemaNameTransformer_CanBeOverridden(t *testing.T) {
 	t.Cleanup(func() { SchemaNameTransformer = original })
 
 	type schemaIdentityTransform struct {
-		ID        int64  `db:"id,primaryKey"`
+		ID        int64  `db:"id" sqlr:"primaryKey"`
 		FirstName string // with identity transformer → column name "FirstName"
 	}
 
@@ -1413,7 +1472,7 @@ func TestSchemaNameTransformer_AffectsTableNameDerivation(t *testing.T) {
 	t.Cleanup(func() { SchemaNameTransformer = original })
 
 	type schemaTableNameTransformEntity struct {
-		ID   int64  `db:"id,primaryKey"`
+		ID   int64  `db:"id" sqlr:"primaryKey"`
 		Name string `db:"name"`
 	}
 
@@ -1434,7 +1493,7 @@ func TestSchemaNameTransformer_AffectsTableNameDerivation(t *testing.T) {
 // schemaTableNamerAutoPreloadChild implements TableNamer so that
 // parseRelatedSchemaForAutoPreload must honour it when building auto-preload paths.
 type schemaTableNamerAutoPreloadChild struct {
-	ID       int64  `db:"id,primaryKey"`
+	ID       int64  `db:"id" sqlr:"primaryKey"`
 	ParentID int64  `db:"parent_id"`
 	Body     string `db:"body"`
 }
@@ -1444,9 +1503,9 @@ func (schemaTableNamerAutoPreloadChild) TableName() string { return "custom_chil
 // schemaTableNamerAutoPreloadParent has an auto-preload to schemaTableNamerAutoPreloadChild.
 // collectAutoPreloads calls parseRelatedSchemaForAutoPreload for the child type.
 type schemaTableNamerAutoPreloadParent struct {
-	ID       int64                              `db:"id,primaryKey"`
+	ID       int64                              `db:"id" sqlr:"primaryKey"`
 	Name     string                             `db:"name"`
-	Children []schemaTableNamerAutoPreloadChild `db:"-,foreignKey:parent_id,preload"`
+	Children []schemaTableNamerAutoPreloadChild `sqlr:"foreignKey:parent_id,preload"`
 }
 
 // TestParseRelatedSchemaForAutoPreload_HonoursTableNamer verifies that when a
@@ -1475,16 +1534,16 @@ func TestParseRelatedSchemaForAutoPreload_HonoursTableNamer(t *testing.T) {
 
 // schemaM2MTableNamerSide implements TableNamer to customise its table name.
 type schemaM2MTableNamerSide struct {
-	ID   int64  `db:"id,primaryKey"`
+	ID   int64  `db:"id" sqlr:"primaryKey"`
 	Name string `db:"name"`
 }
 
 func (schemaM2MTableNamerSide) TableName() string { return "custom_sides" }
 
 type schemaM2MTableNamerOwner struct {
-	ID    int64                     `db:"id,primaryKey"`
+	ID    int64                     `db:"id" sqlr:"primaryKey"`
 	Name  string                    `db:"name"`
-	Sides []schemaM2MTableNamerSide `db:"-,many2many:"`
+	Sides []schemaM2MTableNamerSide `sqlr:"many2many:"`
 }
 
 // TestParseSchema_M2M_AutoDerived_HonoursTableNamer verifies that when the join
