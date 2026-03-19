@@ -808,7 +808,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_OnlySy
 }
 
 // TestUpdate_SyncUpdateTag_OnlySynchronizesTaggedRelation verifies that
-// syncUpdate tags enable association sync by default for tagged paths.
+// sync:update tags enable association sync by default for tagged paths.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncUpdateTag_OnlySynchronizesTaggedRelation() {
 	repo := mustNewRepo[int64, assocAuthorSyncUpdateDefaults](s.T(), s.client)
 	now := time.Now()
@@ -860,7 +860,7 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncUpdateTag_OnlySync
 }
 
 // TestUpdate_SyncUpdateTag_ManyToManyDefaultsFullEntitySync verifies that
-// syncUpdate and syncMany2many tags activate full many-to-many entity
+// sync:update and syncMode:many2many tags activate full many-to-many entity
 // synchronization without per-call query-builder options.
 func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncUpdateTag_ManyToManyDefaultsFullEntitySync() {
 	repo := mustNewRepo[int64, assocArticleSyncUpdateDefaults](s.T(), s.client)

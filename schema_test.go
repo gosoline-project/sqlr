@@ -71,7 +71,7 @@ type schemaSyncDefaultsPost struct {
 	ID       int64                       `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                       `db:"author_id"`
 	Title    string                      `db:"title"`
-	Comments []schemaSyncDefaultsComment `sqlr:"foreignKey:post_id;syncUpdate"`
+	Comments []schemaSyncDefaultsComment `sqlr:"foreignKey:post_id;sync:update"`
 }
 
 type schemaSyncDefaultsTag struct {
@@ -82,14 +82,19 @@ type schemaSyncDefaultsTag struct {
 type schemaSyncDefaultsAuthor struct {
 	ID    int64                    `db:"id" sqlr:"primaryKey"`
 	Name  string                   `db:"name"`
-	Posts []schemaSyncDefaultsPost `sqlr:"foreignKey:author_id;syncCreate;syncUpdate"`
-	Tags  []schemaSyncDefaultsTag  `sqlr:"many2many:author_tags;syncUpdate;syncMany2many"`
+	Posts []schemaSyncDefaultsPost `sqlr:"foreignKey:author_id;sync:create,update"`
+	Tags  []schemaSyncDefaultsTag  `sqlr:"many2many:author_tags;sync:update;syncMode:many2many"`
 }
 
 type schemaInvalidSyncMany2manyRelation struct {
 	ID    int64                 `db:"id" sqlr:"primaryKey"`
 	Name  string                `db:"name"`
-	Posts []schemaBelongsToPost `sqlr:"foreignKey:author_id;syncMany2many"`
+	Posts []schemaBelongsToPost `sqlr:"foreignKey:author_id;sync:update;syncMode:many2many"`
+}
+
+type schemaInvalidSyncModeWithoutUpdateRelation struct {
+	ID   int64                   `db:"id" sqlr:"primaryKey"`
+	Tags []schemaSyncDefaultsTag `sqlr:"many2many:author_tags;syncMode:many2many"`
 }
 
 // schemaTableNamerRelated is used by the ResolveRelatedSchema TableNamer test
@@ -661,8 +666,8 @@ func TestParseSchema_ManyToMany_Relationship(t *testing.T) {
 	assert.Equal(t, "", rel.ForeignKey)
 }
 
-// TestParseSchema_RelationshipSyncOptions verifies that relationship sync tag
-// options are parsed onto relationship metadata and cached schema defaults.
+// TestParseSchema_RelationshipSyncOptions verifies that grouped relationship sync
+// tag options are parsed onto relationship metadata and cached schema defaults.
 func TestParseSchema_RelationshipSyncOptions(t *testing.T) {
 	schema, err := ParseSchema[schemaSyncDefaultsAuthor]()
 	require.NoError(t, err)
@@ -684,12 +689,20 @@ func TestParseSchema_RelationshipSyncOptions(t *testing.T) {
 	assert.Equal(t, []string{"Tags"}, schema.AutoSyncMany2manyPaths())
 }
 
-// TestParseSchema_SyncMany2manyOnNonManyToManyRejected verifies that
-// syncMany2many may only be used on many-to-many relations.
-func TestParseSchema_SyncMany2manyOnNonManyToManyRejected(t *testing.T) {
+// TestParseSchema_SyncModeMany2manyOnNonManyToManyRejected verifies that
+// syncMode:many2many may only be used on many-to-many relations.
+func TestParseSchema_SyncModeMany2manyOnNonManyToManyRejected(t *testing.T) {
 	_, err := ParseSchema[schemaInvalidSyncMany2manyRelation]()
 	require.Error(t, err)
-	require.ErrorContains(t, err, "relationship Posts uses syncMany2many but is not many-to-many")
+	require.ErrorContains(t, err, "relationship Posts uses syncMode:many2many but is not many-to-many")
+}
+
+// TestParseSchema_SyncModeMany2manyRequiresSyncUpdate verifies that
+// syncMode:many2many is rejected unless sync:update is also present.
+func TestParseSchema_SyncModeMany2manyRequiresSyncUpdate(t *testing.T) {
+	_, err := ParseSchema[schemaInvalidSyncModeWithoutUpdateRelation]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "relationship Tags uses syncMode:many2many but is missing sync:update")
 }
 
 // TestParseSchema_PointerCollectionRelationships verifies that pointer-element
@@ -1196,9 +1209,9 @@ func TestParseSchema_LegacyCombinedDBTagRejected(t *testing.T) {
 // TestSplitTagOptions_SemicolonSeparated verifies that sqlr tag options are
 // parsed when separated by semicolons.
 func TestSplitTagOptions_SemicolonSeparated(t *testing.T) {
-	options, err := splitTagOptions("foreignKey:author_id;preload;syncUpdate")
+	options, err := splitTagOptions("foreignKey:author_id;preload;sync:update")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"foreignKey:author_id", "preload", "syncUpdate"}, options)
+	assert.Equal(t, []string{"foreignKey:author_id", "preload", "sync:update"}, options)
 }
 
 // TestSplitTagOptions_CommaSeparatedRejected verifies that legacy comma-delimited
@@ -1206,7 +1219,7 @@ func TestSplitTagOptions_SemicolonSeparated(t *testing.T) {
 func TestSplitTagOptions_CommaSeparatedRejected(t *testing.T) {
 	_, err := splitTagOptions("foreignKey:author_id,preload")
 	require.Error(t, err)
-	require.ErrorContains(t, err, `must be separated with ";"`)
+	require.ErrorContains(t, err, `must not contain ","`)
 }
 
 // TestParseSchema_CommaDelimitedSQLROptionsRejected verifies that ParseSchema
@@ -1214,7 +1227,34 @@ func TestSplitTagOptions_CommaSeparatedRejected(t *testing.T) {
 func TestParseSchema_CommaDelimitedSQLROptionsRejected(t *testing.T) {
 	_, err := ParseSchema[schemaLegacyCommaDelimitedRelation]()
 	require.Error(t, err)
-	require.ErrorContains(t, err, `must be separated with ";"`)
+	require.ErrorContains(t, err, `must not contain ","`)
+}
+
+// TestSplitTagOptions_SyncModes validates the new grouped sync syntax.
+func TestSplitTagOptions_SyncModes(t *testing.T) {
+	options, err := splitTagOptions("foreignKey:author_id;sync:create,update;syncMode:many2many")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"foreignKey:author_id", "sync:create,update", "syncMode:many2many"}, options)
+}
+
+// TestSplitTagOptions_InvalidSyncMode verifies unsupported grouped sync values.
+func TestSplitTagOptions_InvalidSyncMode(t *testing.T) {
+	_, err := splitTagOptions("foreignKey:author_id;sync:create,delete")
+	require.Error(t, err)
+	require.ErrorContains(t, err, `unsupported mode "delete"`)
+}
+
+type schemaUnknownSQLROptionRelation struct {
+	ID    int64             `db:"id" sqlr:"primaryKey"`
+	Posts []schemaCachePost `sqlr:"foreignKey:author_id;syncUpdate"`
+}
+
+// TestParseSchema_UnknownSQLROptionRejected verifies that unsupported sqlr
+// options fail with a generic unknown-option error.
+func TestParseSchema_UnknownSQLROptionRejected(t *testing.T) {
+	_, err := ParseSchema[schemaUnknownSQLROptionRelation]()
+	require.Error(t, err)
+	require.ErrorContains(t, err, `unknown sqlr option "syncUpdate"`)
 }
 
 // ============================================================

@@ -87,7 +87,7 @@ type Relationship struct {
 	Preload bool
 	// SyncCreate indicates that this relationship should be synchronized by
 	// default during Create. When at least one relationship on the schema tree is
-	// tagged with syncCreate, Create limits default synchronization to the tagged
+	// tagged with sync:create, Create limits default synchronization to the tagged
 	// relation paths unless the query builder overrides that behavior.
 	SyncCreate bool
 	// SyncUpdate indicates that this relationship should be synchronized by
@@ -95,8 +95,9 @@ type Relationship struct {
 	// QueryBuilderUpdate options.
 	SyncUpdate bool
 	// SyncMany2many indicates that this many-to-many relationship should
-	// perform full related-entity synchronization during Update by default,
-	// instead of the link-only reconciliation strategy.
+	// perform full related-entity synchronization during Update by default when
+	// tagged with syncMode:many2many, instead of the link-only reconciliation
+	// strategy.
 	SyncMany2many bool
 }
 
@@ -177,14 +178,14 @@ func (s *EntitySchema) AutoPreloads() []preloadEntry {
 	return s.autoPreloads
 }
 
-// AutoSyncCreatePaths returns relation paths that have the "syncCreate" tag
+// AutoSyncCreatePaths returns relation paths that have the "sync:create" tag
 // option set somewhere in the schema tree. These defaults are merged with
 // per-call Create association options.
 func (s *EntitySchema) AutoSyncCreatePaths() []string {
 	return s.autoSyncCreates
 }
 
-// AutoSyncUpdatePaths returns relation paths that have the "syncUpdate" tag
+// AutoSyncUpdatePaths returns relation paths that have the "sync:update" tag
 // option set somewhere in the schema tree. These defaults are merged with
 // per-call Update association options.
 func (s *EntitySchema) AutoSyncUpdatePaths() []string {
@@ -192,7 +193,7 @@ func (s *EntitySchema) AutoSyncUpdatePaths() []string {
 }
 
 // AutoSyncMany2manyPaths returns many-to-many relation paths that have the
-// "syncMany2many" tag option set somewhere in the schema tree.
+// "syncMode:many2many" tag option set somewhere in the schema tree.
 // These defaults opt tagged paths into full entity synchronization during Update.
 func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 	return s.autoSyncMany2many
@@ -203,7 +204,8 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 // for field behaviour metadata. The db tag accepts only a column name or "-".
 // The sqlr tag accepts semicolon-separated options including primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
-// many2many:<table>, preload, syncCreate, syncUpdate, and syncMany2many.
+// many2many:<table>, preload, sync:create, sync:update, and
+// syncMode:many2many.
 //
 // When a public field has no db tag, its name is transformed by
 // SchemaNameTransformer (default: toSnakeCase) to derive the column name.
@@ -463,10 +465,6 @@ func splitTagOptions(tagValue string) ([]string, error) {
 		return nil, nil
 	}
 
-	if strings.Contains(tagValue, ",") {
-		return nil, fmt.Errorf("sqlr tag options must be separated with \";\", not \",\"")
-	}
-
 	parts := strings.Split(tagValue, ";")
 	options := make([]string, 0, len(parts))
 	for _, part := range parts {
@@ -475,10 +473,42 @@ func splitTagOptions(tagValue string) ([]string, error) {
 			continue
 		}
 
+		if err := validateTagOption(part); err != nil {
+			return nil, err
+		}
+
 		options = append(options, part)
 	}
 
 	return options, nil
+}
+
+func validateTagOption(opt string) error {
+	if strings.Contains(opt, ",") && !strings.HasPrefix(opt, "sync:") {
+		return fmt.Errorf("sqlr tag option %q must not contain \",\"; use \";\" to separate options", opt)
+	}
+
+	if isColumnMetadataOption(opt) || isRelationshipDefiningOption(opt) {
+		return nil
+	}
+
+	if strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == "preload" {
+		return nil
+	}
+
+	if strings.HasPrefix(opt, "sync:") {
+		_, _, err := parseSyncOption(opt)
+
+		return err
+	}
+
+	if strings.HasPrefix(opt, "syncMode:") {
+		_, err := parseSyncModeOption(opt)
+
+		return err
+	}
+
+	return fmt.Errorf("unknown sqlr option %q", opt)
 }
 
 // parseFieldTag parses a single struct field's db/sqlr tags and adds it to the
@@ -668,7 +698,11 @@ func validateRelationships(schema *EntitySchema) error {
 		}
 
 		if rel.SyncMany2many && rel.Type != ManyToMany {
-			return fmt.Errorf("relationship %s uses syncMany2many but is not many-to-many", rel.Name)
+			return fmt.Errorf("relationship %s uses syncMode:many2many but is not many-to-many", rel.Name)
+		}
+
+		if rel.SyncMany2many && !rel.SyncUpdate {
+			return fmt.Errorf("relationship %s uses syncMode:many2many but is missing sync:update", rel.Name)
 		}
 
 		if rel.Type != BelongsTo {
@@ -1056,7 +1090,7 @@ func isRelationshipDefiningOption(opt string) bool {
 }
 
 func isRelationshipMetadataOption(opt string) bool {
-	return isRelationshipDefiningOption(opt) || strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == "preload" || opt == "syncCreate" || opt == "syncUpdate" || opt == "syncMany2many"
+	return isRelationshipDefiningOption(opt) || strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == "preload" || strings.HasPrefix(opt, "sync:") || strings.HasPrefix(opt, "syncMode:")
 }
 
 func isColumnMetadataOption(opt string) bool {
@@ -1102,7 +1136,9 @@ func parseRelationship(field reflect.StructField, options []string, fieldIndex [
 		RelatedType: ft,
 	}
 
-	applyRelationshipOptions(rel, options)
+	if err := applyRelationshipOptions(rel, options); err != nil {
+		return nil, err
+	}
 
 	// Only derive a default FK when the caller did not supply any explicit
 	// foreignKey:/belongsTo: option (even an empty one). An explicit but empty
@@ -1198,7 +1234,7 @@ func unwrapRelatedType(ft reflect.Type) (reflect.Type, bool) {
 
 // applyRelationshipOptions processes sqlr tag options and sets the appropriate
 // fields on the Relationship.
-func applyRelationshipOptions(rel *Relationship, options []string) {
+func applyRelationshipOptions(rel *Relationship, options []string) error {
 	for _, opt := range options {
 		opt = strings.TrimSpace(opt)
 		switch {
@@ -1218,14 +1254,67 @@ func applyRelationshipOptions(rel *Relationship, options []string) {
 			rel.Type = BelongsTo
 		case opt == "preload":
 			rel.Preload = true
-		case opt == "syncCreate":
-			rel.SyncCreate = true
-		case opt == "syncUpdate":
-			rel.SyncUpdate = true
-		case opt == "syncMany2many":
-			rel.SyncMany2many = true
+		case strings.HasPrefix(opt, "sync:"):
+			syncCreate, syncUpdate, err := parseSyncOption(opt)
+			if err != nil {
+				return err
+			}
+
+			rel.SyncCreate = rel.SyncCreate || syncCreate
+			rel.SyncUpdate = rel.SyncUpdate || syncUpdate
+		case strings.HasPrefix(opt, "syncMode:"):
+			syncMany2many, err := parseSyncModeOption(opt)
+			if err != nil {
+				return err
+			}
+
+			rel.SyncMany2many = rel.SyncMany2many || syncMany2many
 		}
 	}
+
+	return nil
+}
+
+func parseSyncOption(opt string) (bool, bool, error) {
+	value := strings.TrimSpace(strings.TrimPrefix(opt, "sync:"))
+	if value == "" {
+		return false, false, fmt.Errorf("sqlr sync option %q requires at least one mode", opt)
+	}
+
+	var syncCreate bool
+	var syncUpdate bool
+
+	parts := strings.Split(value, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return false, false, fmt.Errorf("sqlr sync option %q contains an empty mode", opt)
+		}
+
+		switch part {
+		case "create":
+			syncCreate = true
+		case "update":
+			syncUpdate = true
+		default:
+			return false, false, fmt.Errorf("sqlr sync option %q contains unsupported mode %q", opt, part)
+		}
+	}
+
+	return syncCreate, syncUpdate, nil
+}
+
+func parseSyncModeOption(opt string) (bool, error) {
+	value := strings.TrimSpace(strings.TrimPrefix(opt, "syncMode:"))
+	if value == "" {
+		return false, fmt.Errorf("sqlr syncMode option %q requires a mode", opt)
+	}
+
+	if value != "many2many" {
+		return false, fmt.Errorf("sqlr syncMode option %q contains unsupported mode %q", opt, value)
+	}
+
+	return true, nil
 }
 
 // validateRelationshipType determines the final relationship type if not already

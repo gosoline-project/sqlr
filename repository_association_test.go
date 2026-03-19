@@ -29,7 +29,7 @@ type assocAuthor struct {
 type assocAuthorSyncCreateDefaults struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Posts   []assocPost  `sqlr:"foreignKey:author_id;syncCreate"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id;sync:create"`
 	Profile assocProfile `sqlr:"foreignKey:author_id"`
 }
 
@@ -38,7 +38,7 @@ func (assocAuthorSyncCreateDefaults) TableName() string { return "assoc_author_s
 type assocAuthorSyncUpdateDefaults struct {
 	sqlr.Entity[int64]
 	Name    string       `db:"name"`
-	Posts   []assocPost  `sqlr:"foreignKey:author_id;syncUpdate"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id;sync:update"`
 	Profile assocProfile `sqlr:"foreignKey:author_id"`
 }
 
@@ -89,7 +89,7 @@ type assocArticle struct {
 type assocArticleSyncUpdateDefaults struct {
 	sqlr.Entity[int64]
 	Title string     `db:"title"`
-	Tags  []assocTag `sqlr:"many2many:assoc_article_sync_update_default_tags;syncUpdate;syncMany2many"`
+	Tags  []assocTag `sqlr:"many2many:assoc_article_sync_update_default_tags;sync:update;syncMode:many2many"`
 }
 
 func (assocArticleSyncUpdateDefaults) TableName() string { return "assoc_article_sync_update_defaults" }
@@ -441,7 +441,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_OnlyCr
 	s.Equal(int64(0), entity.Profile.AuthorID)
 }
 
-// TestCreate_SyncCreateTag_OnlyCreatesTaggedRelations verifies that syncCreate
+// TestCreate_SyncCreateTag_OnlyCreatesTaggedRelations verifies that sync:create
 // tags narrow Create's default association synchronization to tagged paths.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncCreateTag_OnlyCreatesTaggedRelations() {
 	repo := mustNewRepo[int64, assocAuthorSyncCreateDefaults](s.T(), s.client)
