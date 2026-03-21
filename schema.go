@@ -422,6 +422,10 @@ func tryParseEmbeddedField(field reflect.StructField, fieldIndex []int, schema *
 		return false, nil
 	}
 
+	if !isSchemaAccessibleField(field) {
+		return true, fmt.Errorf("field %s: anonymous embedded fields must be exported", field.Name)
+	}
+
 	err := parseFields(ft, fieldIndex, schema)
 	if err != nil {
 		return true, err
@@ -521,6 +525,18 @@ func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySc
 	tags, err := parseSchemaFieldTags(field)
 	if err != nil {
 		return fmt.Errorf("field %s: %w", field.Name, err)
+	}
+
+	if !isSchemaAccessibleField(field) {
+		if tags.hasDBTag && tags.columnName != "-" {
+			return fmt.Errorf("field %s: unexported fields cannot define db column mappings", field.Name)
+		}
+
+		if len(tags.sqlrOptions) > 0 {
+			return fmt.Errorf("field %s: unexported fields cannot define sqlr metadata", field.Name)
+		}
+
+		return nil
 	}
 
 	hasRelationshipDefinition := isRelationshipField(tags.sqlrOptions)
@@ -909,6 +925,10 @@ func isPublicField(field reflect.StructField) bool {
 	return field.PkgPath == ""
 }
 
+func isSchemaAccessibleField(field reflect.StructField) bool {
+	return isPublicField(field) || field.PkgPath == reflect.TypeOf(Entity[int64]{}).PkgPath()
+}
+
 // valueTypePackages lists standard-library packages whose struct types are
 // scalar value types and must never be auto-detected as entity relationships.
 // Fields with types from these packages (e.g. time.Time, sql.NullString) are
@@ -965,8 +985,12 @@ func typeHasPrimaryKey(t reflect.Type) bool {
 		field := t.Field(i)
 		fieldType := unwrapSchemaFieldType(field.Type)
 
-		if field.Anonymous && fieldType.Kind() == reflect.Struct && typeHasPrimaryKey(fieldType) {
+		if field.Anonymous && isSchemaAccessibleField(field) && fieldType.Kind() == reflect.Struct && typeHasPrimaryKey(fieldType) {
 			return true
+		}
+
+		if !isSchemaAccessibleField(field) {
+			continue
 		}
 
 		options, err := splitTagOptions(field.Tag.Get("sqlr"))
@@ -994,11 +1018,11 @@ func typeDefinesColumn(t reflect.Type, columnName string) bool {
 		field := t.Field(i)
 		fieldType := unwrapSchemaFieldType(field.Type)
 
-		if field.Anonymous && fieldType.Kind() == reflect.Struct && typeDefinesColumn(fieldType, columnName) {
+		if field.Anonymous && isSchemaAccessibleField(field) && fieldType.Kind() == reflect.Struct && typeDefinesColumn(fieldType, columnName) {
 			return true
 		}
 
-		if !isPublicField(field) {
+		if !isSchemaAccessibleField(field) {
 			continue
 		}
 
