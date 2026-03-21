@@ -135,6 +135,11 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsTo_UpdatesRelat
 		WithArgs(authorNow, "Alice Updated", isTimestamp{}, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
+
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"UPDATE `assoc_post_with_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(int64(7), now, "Updated Post", isTimestamp{}, int64(5)).
@@ -178,6 +183,10 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsToPointer_Updat
 		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(authorNow, "Alice Updated", isTimestamp{}, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"UPDATE `assoc_post_with_pointer_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(int64(7), now, "Updated Post", isTimestamp{}, int64(5)).
@@ -223,6 +232,10 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_Use
 		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(authorCreatedAt, "Alice Updated", authorUpdatedAt, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"UPDATE `assoc_post_with_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(int64(7), postCreatedAt, "Updated Post", postUpdatedAt, int64(5)).
@@ -266,6 +279,10 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_FKM
 		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(authorCreatedAt, "Alice Updated", authorUpdatedAt, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectRollback()
 
 	entity := assocPostWithAuthor{
@@ -328,6 +345,11 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 		WithArgs(int64(11)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
+
 	s.mock.ExpectCommit()
 
 	entity := assocAuthor{
@@ -359,6 +381,98 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 	s.Equal(int64(10), result.Posts[0].GetId())
 	s.Equal(int64(1), result.Posts[1].AuthorID)
 	s.Equal(int64(12), result.Posts[1].GetId())
+}
+
+// TestUpdate_HasOne_ZeroValueClearsExistingChild verifies that syncing a cleared
+// value-form HasOne relation deletes the existing related row instead of silently
+// leaving it linked.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasOne_ZeroValueClearsExistingChild() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	now := time.Now()
+	profileNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
+			AddRow(int64(10), profileNow, profileNow, int64(1), "Old Profile"))
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_profiles` WHERE `id` = ?")).
+		WithArgs(int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectCommit()
+
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:    "Alice Updated",
+		Profile: assocProfile{},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociations)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Equal(int64(0), result.Profile.GetId())
+	s.Equal(int64(0), result.Profile.AuthorID)
+	s.Equal("", result.Profile.Bio)
+}
+
+// TestUpdate_HasOne_NilPointerClearsExistingChild verifies that syncing a cleared
+// pointer-form HasOne relation deletes the existing related row instead of
+// silently leaving it linked.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasOne_NilPointerClearsExistingChild() {
+	repo := mustNewRepo[int64, assocAuthorWithPointerProfile](s.T(), s.client)
+	now := time.Now()
+	profileNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_author_with_pointer_profiles` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
+			AddRow(int64(10), profileNow, profileNow, int64(1), "Old Profile"))
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_profiles` WHERE `id` = ?")).
+		WithArgs(int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectCommit()
+
+	entity := assocAuthorWithPointerProfile{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:    "Alice Updated",
+		Profile: nil,
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociations)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Nil(result.Profile)
 }
 
 // TestUpdate_ManyToMany_DefaultSync_SynchronizesLinksWithoutUpdatingExistingRows verifies that Update synchronizes links without updating existing rows for many-to-many default sync.
@@ -935,6 +1049,10 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_Om
 		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectCommit()
 
 	entity := assocAuthor{

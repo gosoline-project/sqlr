@@ -182,7 +182,7 @@ func (c *associationSyncContext) syncForwardAssociation(ctx context.Context, sch
 	switch rel.Type {
 	case HasOne:
 		if field.IsZero() {
-			return nil
+			return c.clearHasOneAssociation(ctx, schema, entityValue, rel)
 		}
 
 		return c.syncHasOneAssociation(ctx, schema, entityValue, rel, relationPath)
@@ -250,6 +250,27 @@ func (c *associationSyncContext) syncHasOneAssociation(ctx context.Context, pare
 
 		if err := c.deleteEntityGraph(ctx, nestedSchema, current); err != nil {
 			return fmt.Errorf("failed to delete replaced HasOne relation %q: %w", rel.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (c *associationSyncContext) clearHasOneAssociation(ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship) error {
+	nestedSchema, err := rel.ResolveRelatedSchema()
+	if err != nil {
+		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
+	}
+
+	parentPK := parentValue.FieldByIndex(parentSchema.PrimaryKey.FieldIndex).Interface()
+	currentChildren, err := c.loadChildrenByForeignKey(ctx, nestedSchema, rel.ForeignKey, parentPK)
+	if err != nil {
+		return fmt.Errorf("failed to load existing HasOne relation %q: %w", rel.Name, err)
+	}
+
+	for _, current := range currentChildren {
+		if err := c.deleteEntityGraph(ctx, nestedSchema, current); err != nil {
+			return fmt.Errorf("failed to delete cleared HasOne relation %q: %w", rel.Name, err)
 		}
 	}
 

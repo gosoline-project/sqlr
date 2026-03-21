@@ -30,11 +30,13 @@ func (r *repositoryCommon[K, E]) createEntityWithAssociations(ctx context.Contex
 }
 
 // updateEntityWithAssociations synchronizes the entity graph rooted at entity.
-// It updates the parent row and all explicitly-present associations in one
+// It updates the parent row and all selected associations in one
 // transaction-aware operation after the caller opted into association sync via
 // QueryBuilderUpdate. BelongsTo relations are synchronized first so the parent's
 // foreign keys are current before the root row is updated. HasOne and HasMany
-// relations are fully synchronized afterwards, while ManyToMany relations
+// relations are fully synchronized afterwards, including deleting existing
+// HasOne rows when the caller clears the relation to its zero value or nil,
+// while ManyToMany relations
 // reconcile join-table membership by default unless explicitly opted into full
 // related-entity synchronization.
 func (r *repositoryCommon[K, E]) updateEntityWithAssociations(ctx context.Context, associationCtx *associationSyncContext, entity *E) (*E, error) {
