@@ -71,7 +71,7 @@ type schemaSyncDefaultsPost struct {
 	ID       int64                       `db:"id" sqlr:"primaryKey"`
 	AuthorID int64                       `db:"author_id"`
 	Title    string                      `db:"title"`
-	Comments []schemaSyncDefaultsComment `sqlr:"foreignKey:post_id;sync:update"`
+	Comments []schemaSyncDefaultsComment `sqlr:"foreignKey:post_id;sync:update,delete"`
 }
 
 type schemaSyncDefaultsTag struct {
@@ -82,7 +82,7 @@ type schemaSyncDefaultsTag struct {
 type schemaSyncDefaultsAuthor struct {
 	ID    int64                    `db:"id" sqlr:"primaryKey"`
 	Name  string                   `db:"name"`
-	Posts []schemaSyncDefaultsPost `sqlr:"foreignKey:author_id;sync:create,update"`
+	Posts []schemaSyncDefaultsPost `sqlr:"foreignKey:author_id;sync:create,update,delete"`
 	Tags  []schemaSyncDefaultsTag  `sqlr:"many2many:author_tags;sync:update;syncMode:many2many"`
 }
 
@@ -483,6 +483,7 @@ func TestParseSchema_CachesDerivedValues(t *testing.T) {
 	assert.Equal(t, schema.autoPreloads, schema.AutoPreloads())
 	assert.Equal(t, schema.autoSyncCreates, schema.AutoSyncCreatePaths())
 	assert.Equal(t, schema.autoSyncUpdates, schema.AutoSyncUpdatePaths())
+	assert.Equal(t, schema.autoSyncDeletes, schema.AutoSyncDeletePaths())
 	assert.Equal(t, schema.autoSyncMany2many, schema.AutoSyncMany2manyPaths())
 }
 
@@ -676,16 +677,28 @@ func TestParseSchema_RelationshipSyncOptions(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, postsRel.SyncCreate)
 	assert.True(t, postsRel.SyncUpdate)
+	assert.True(t, postsRel.SyncDelete)
 	assert.False(t, postsRel.SyncMany2many)
+
+	postsSchema, err := postsRel.ResolveRelatedSchema()
+	require.NoError(t, err)
+
+	commentsRel, ok := postsSchema.Relationships["Comments"]
+	require.True(t, ok)
+	assert.False(t, commentsRel.SyncCreate)
+	assert.True(t, commentsRel.SyncUpdate)
+	assert.True(t, commentsRel.SyncDelete)
 
 	tagsRel, ok := schema.Relationships["Tags"]
 	require.True(t, ok)
 	assert.False(t, tagsRel.SyncCreate)
 	assert.True(t, tagsRel.SyncUpdate)
+	assert.False(t, tagsRel.SyncDelete)
 	assert.True(t, tagsRel.SyncMany2many)
 
 	assert.Equal(t, []string{"Posts"}, schema.AutoSyncCreatePaths())
 	assert.Equal(t, []string{"Posts", "Posts.Comments", "Tags"}, schema.AutoSyncUpdatePaths())
+	assert.Equal(t, []string{"Posts", "Posts.Comments"}, schema.AutoSyncDeletePaths())
 	assert.Equal(t, []string{"Tags"}, schema.AutoSyncMany2manyPaths())
 }
 
@@ -1232,16 +1245,16 @@ func TestParseSchema_CommaDelimitedSQLROptionsRejected(t *testing.T) {
 
 // TestSplitTagOptions_SyncModes validates the new grouped sync syntax.
 func TestSplitTagOptions_SyncModes(t *testing.T) {
-	options, err := splitTagOptions("foreignKey:author_id;sync:create,update;syncMode:many2many")
+	options, err := splitTagOptions("foreignKey:author_id;sync:create,update,delete;syncMode:many2many")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"foreignKey:author_id", "sync:create,update", "syncMode:many2many"}, options)
+	assert.Equal(t, []string{"foreignKey:author_id", "sync:create,update,delete", "syncMode:many2many"}, options)
 }
 
 // TestSplitTagOptions_InvalidSyncMode verifies unsupported grouped sync values.
 func TestSplitTagOptions_InvalidSyncMode(t *testing.T) {
-	_, err := splitTagOptions("foreignKey:author_id;sync:create,delete")
+	_, err := splitTagOptions("foreignKey:author_id;sync:create,prune")
 	require.Error(t, err)
-	require.ErrorContains(t, err, `unsupported mode "delete"`)
+	require.ErrorContains(t, err, `unsupported mode "prune"`)
 }
 
 type schemaUnknownSQLROptionRelation struct {

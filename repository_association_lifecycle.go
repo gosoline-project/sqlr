@@ -52,6 +52,43 @@ func (r *repositoryCommon[K, E]) updateEntityWithAssociations(ctx context.Contex
 	return entity, nil
 }
 
+// deleteEntityWithAssociations synchronizes association cleanup for the entity
+// identified by id before deleting the root row. Delete selects this path when
+// owned associations are included by the active delete policy. It applies the
+// ownership model used by Update reconciliation: HasOne and HasMany relations
+// are recursively deleted, ManyToMany relations remove join-table rows, and
+// BelongsTo relations are left untouched.
+func (r *repositoryCommon[K, E]) deleteEntityWithAssociations(ctx context.Context, associationCtx *associationSyncContext, id K) error {
+	rootValue, err := associationCtx.loadEntityByPrimaryKey(ctx, r.schema, id)
+	if err != nil {
+		return err
+	}
+
+	return associationCtx.deleteEntityGraph(ctx, r.schema, rootValue, "", true)
+}
+
+func (r *repositoryCommon[K, E]) hasAssociationsToDelete(policy *associationSyncPolicy) bool {
+	if len(r.schema.Relationships) == 0 {
+		return false
+	}
+
+	if policy == nil || !policy.shouldSyncRootAssociations() {
+		return false
+	}
+
+	for _, rel := range r.schema.Relationships {
+		if rel.Type == BelongsTo {
+			continue
+		}
+
+		if policy.shouldSyncPath(rel.Name) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // hasAssociationsToSave returns true if any association field on the entity is non-zero.
 // This is used to decide whether to start a transaction for the create operation.
 func (r *repositoryCommon[K, E]) hasAssociationsToSave(entity *E, policy *associationSyncPolicy) bool {

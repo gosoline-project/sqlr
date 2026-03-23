@@ -94,6 +94,10 @@ type Relationship struct {
 	// default during Update. Tagged relation paths are merged with per-call
 	// QueryBuilderUpdate options.
 	SyncUpdate bool
+	// SyncDelete indicates that this relationship was tagged with sync:delete.
+	// The flag is retained in schema metadata, but Delete currently cascades owned
+	// associations by default and does not consult this flag at runtime.
+	SyncDelete bool
 	// SyncMany2many indicates that this many-to-many relationship should
 	// perform full related-entity synchronization during Update by default when
 	// tagged with syncMode:many2many, instead of the link-only reconciliation
@@ -125,6 +129,7 @@ type EntitySchema struct {
 	autoPreloads      []preloadEntry
 	autoSyncCreates   []string
 	autoSyncUpdates   []string
+	autoSyncDeletes   []string
 	autoSyncMany2many []string
 }
 
@@ -192,6 +197,13 @@ func (s *EntitySchema) AutoSyncUpdatePaths() []string {
 	return s.autoSyncUpdates
 }
 
+// AutoSyncDeletePaths returns relation paths that have the "sync:delete" tag
+// option set somewhere in the schema tree. These paths are retained as schema
+// metadata and are not currently consulted by Delete runtime behavior.
+func (s *EntitySchema) AutoSyncDeletePaths() []string {
+	return s.autoSyncDeletes
+}
+
 // AutoSyncMany2manyPaths returns many-to-many relation paths that have the
 // "syncMode:many2many" tag option set somewhere in the schema tree.
 // These defaults opt tagged paths into full entity synchronization during Update.
@@ -204,7 +216,7 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 // for field behaviour metadata. The db tag accepts only a column name or "-".
 // The sqlr tag accepts semicolon-separated options including primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
-// many2many:<table>, preload, sync:create, sync:update, and
+// many2many:<table>, preload, sync:create, sync:update, sync:delete, and
 // syncMode:many2many.
 //
 // When a public field has no db tag, its name is transformed by
@@ -501,7 +513,7 @@ func validateTagOption(opt string) error {
 	}
 
 	if strings.HasPrefix(opt, "sync:") {
-		_, _, err := parseSyncOption(opt)
+		_, _, _, err := parseSyncOption(opt)
 
 		return err
 	}
@@ -768,6 +780,13 @@ func cacheSchemaDerivedValues(schema *EntitySchema) error {
 		return fmt.Errorf("failed to collect syncUpdate defaults: %w", err)
 	}
 
+	autoSyncDeletes, err := collectTaggedRelationPaths(schema, func(rel *Relationship) bool {
+		return rel.SyncDelete
+	})
+	if err != nil {
+		return fmt.Errorf("failed to collect syncDelete defaults: %w", err)
+	}
+
 	autoSyncMany2many, err := collectTaggedRelationPaths(schema, func(rel *Relationship) bool {
 		return rel.SyncMany2many
 	})
@@ -782,6 +801,7 @@ func cacheSchemaDerivedValues(schema *EntitySchema) error {
 	schema.autoPreloads = autoPreloads
 	schema.autoSyncCreates = autoSyncCreates
 	schema.autoSyncUpdates = autoSyncUpdates
+	schema.autoSyncDeletes = autoSyncDeletes
 	schema.autoSyncMany2many = autoSyncMany2many
 
 	return nil
@@ -1279,13 +1299,14 @@ func applyRelationshipOptions(rel *Relationship, options []string) error {
 		case opt == "preload":
 			rel.Preload = true
 		case strings.HasPrefix(opt, "sync:"):
-			syncCreate, syncUpdate, err := parseSyncOption(opt)
+			syncCreate, syncUpdate, syncDelete, err := parseSyncOption(opt)
 			if err != nil {
 				return err
 			}
 
 			rel.SyncCreate = rel.SyncCreate || syncCreate
 			rel.SyncUpdate = rel.SyncUpdate || syncUpdate
+			rel.SyncDelete = rel.SyncDelete || syncDelete
 		case strings.HasPrefix(opt, "syncMode:"):
 			syncMany2many, err := parseSyncModeOption(opt)
 			if err != nil {
@@ -1299,20 +1320,17 @@ func applyRelationshipOptions(rel *Relationship, options []string) error {
 	return nil
 }
 
-func parseSyncOption(opt string) (bool, bool, error) {
+func parseSyncOption(opt string) (syncCreate bool, syncUpdate bool, syncDelete bool, err error) {
 	value := strings.TrimSpace(strings.TrimPrefix(opt, "sync:"))
 	if value == "" {
-		return false, false, fmt.Errorf("sqlr sync option %q requires at least one mode", opt)
+		return false, false, false, fmt.Errorf("sqlr sync option %q requires at least one mode", opt)
 	}
-
-	var syncCreate bool
-	var syncUpdate bool
 
 	parts := strings.Split(value, ",")
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
-			return false, false, fmt.Errorf("sqlr sync option %q contains an empty mode", opt)
+			return false, false, false, fmt.Errorf("sqlr sync option %q contains an empty mode", opt)
 		}
 
 		switch part {
@@ -1320,12 +1338,14 @@ func parseSyncOption(opt string) (bool, bool, error) {
 			syncCreate = true
 		case "update":
 			syncUpdate = true
+		case "delete":
+			syncDelete = true
 		default:
-			return false, false, fmt.Errorf("sqlr sync option %q contains unsupported mode %q", opt, part)
+			return false, false, false, fmt.Errorf("sqlr sync option %q contains unsupported mode %q", opt, part)
 		}
 	}
 
-	return syncCreate, syncUpdate, nil
+	return syncCreate, syncUpdate, syncDelete, nil
 }
 
 func parseSyncModeOption(opt string) (bool, error) {

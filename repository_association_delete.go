@@ -6,7 +6,7 @@ import (
 	"reflect"
 )
 
-func (c *associationSyncContext) deleteEntityGraph(ctx context.Context, schema *EntitySchema, entityValue reflect.Value) error {
+func (c *associationSyncContext) deleteEntityGraph(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, parentPath string, applyPolicy bool) error {
 	entityValue = unwrapEntityValue(entityValue)
 	if !entityValue.IsValid() {
 		return nil
@@ -26,7 +26,7 @@ func (c *associationSyncContext) deleteEntityGraph(ctx context.Context, schema *
 	}
 
 	parentPK := entityValue.FieldByIndex(schema.PrimaryKey.FieldIndex).Interface()
-	if err := c.deleteEntityAssociations(ctx, schema, parentPK); err != nil {
+	if err := c.deleteEntityAssociations(ctx, schema, parentPK, parentPath, applyPolicy); err != nil {
 		return err
 	}
 
@@ -37,9 +37,10 @@ func (c *associationSyncContext) deleteEntityGraph(ctx context.Context, schema *
 	return nil
 }
 
-func (c *associationSyncContext) deleteEntityAssociations(ctx context.Context, schema *EntitySchema, parentPK any) error {
-	for _, rel := range schema.Relationships {
-		if err := c.deleteAssociationForEntity(ctx, schema, rel, parentPK); err != nil {
+func (c *associationSyncContext) deleteEntityAssociations(ctx context.Context, schema *EntitySchema, parentPK any, parentPath string, applyPolicy bool) error {
+	for _, name := range schema.ValidRelationNames() {
+		rel := schema.Relationships[name]
+		if err := c.deleteAssociationForEntity(ctx, schema, rel, parentPK, parentPath, applyPolicy); err != nil {
 			return err
 		}
 	}
@@ -47,10 +48,15 @@ func (c *associationSyncContext) deleteEntityAssociations(ctx context.Context, s
 	return nil
 }
 
-func (c *associationSyncContext) deleteAssociationForEntity(ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any) error {
+func (c *associationSyncContext) deleteAssociationForEntity(ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any, parentPath string, applyPolicy bool) error {
+	relationPath := joinAssociationPath(parentPath, rel.Name)
+	if applyPolicy && c.policy != nil && !c.policy.shouldSyncPath(relationPath) {
+		return nil
+	}
+
 	switch rel.Type {
 	case HasOne, HasMany:
-		return c.deleteChildAssociation(ctx, schema, rel, parentPK)
+		return c.deleteChildAssociation(ctx, schema, rel, parentPK, relationPath)
 	case ManyToMany:
 		return c.deleteManyToManyAssociation(ctx, schema, rel, parentPK)
 	case BelongsTo:
@@ -60,7 +66,7 @@ func (c *associationSyncContext) deleteAssociationForEntity(ctx context.Context,
 	}
 }
 
-func (c *associationSyncContext) deleteChildAssociation(ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any) error {
+func (c *associationSyncContext) deleteChildAssociation(ctx context.Context, schema *EntitySchema, rel *Relationship, parentPK any, relationPath string) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for delete relation %q: %w", rel.Name, err)
@@ -72,7 +78,7 @@ func (c *associationSyncContext) deleteChildAssociation(ctx context.Context, sch
 	}
 
 	for _, child := range children {
-		if err := c.deleteEntityGraph(ctx, nestedSchema, child); err != nil {
+		if err := c.deleteEntityGraph(ctx, nestedSchema, child, relationPath, false); err != nil {
 			return fmt.Errorf("failed to cascade delete relation %q: %w", rel.Name, err)
 		}
 	}

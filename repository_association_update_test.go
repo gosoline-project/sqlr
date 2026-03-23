@@ -786,6 +786,10 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_RollbackRestor
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).

@@ -62,6 +62,24 @@ func newUpdateAssociationSyncPolicy(schema *EntitySchema, qb *QueryBuilderUpdate
 	return newAssociationSyncPolicy(schema, mode, options)
 }
 
+func newDeleteAssociationSyncPolicy(schema *EntitySchema, qb *QueryBuilderDelete) (*associationSyncPolicy, error) {
+	options := associationSyncOptions{}
+	if qb != nil {
+		options = qb.associationOptions
+	}
+
+	mode := associationPolicyModeAll
+
+	switch {
+	case qb != nil && qb.shouldOmitAllAssociations():
+		mode = associationPolicyModeNone
+	case len(options.syncPaths) > 0:
+		mode = associationPolicyModeSelected
+	}
+
+	return newAssociationSyncPolicy(schema, mode, options)
+}
+
 func newAssociationSyncPolicy(schema *EntitySchema, mode associationPolicyMode, options associationSyncOptions) (*associationSyncPolicy, error) {
 	syncPaths, err := normalizeAssociationPaths(options.syncPaths)
 	if err != nil {

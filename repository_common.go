@@ -232,8 +232,8 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 }
 
 // deleteEntity removes the entity with the given id from the database. Returns an
-// error if no entity with that id exists. Related rows are not cascade-deleted by
-// this method.
+// error if no entity with that id exists. Association-aware delete flows should
+// use deleteEntityWithAssociations instead.
 func (r *repositoryCommon[K, E]) deleteEntity(q sqlc.Querier, ctx context.Context, id K) error {
 	if r.schema.PrimaryKey == nil {
 		return fmt.Errorf("primary key not defined for %s", r.schema.TableName)

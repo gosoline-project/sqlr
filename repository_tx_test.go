@@ -96,6 +96,20 @@ func TestRepositoryTxUpdate_NilAssociationEntityReturnsError(t *testing.T) {
 	require.Nil(t, result)
 }
 
+// TestRepositoryTxDelete_InvalidAssociationPathReturnsError verifies that
+// RepositoryTx Delete validates association paths before executing SQL.
+func TestRepositoryTxDelete_InvalidAssociationPathReturnsError(t *testing.T) {
+	t.Parallel()
+
+	repo, err := sqlr.NewRepositoryTxWithSettings[int64, assocAuthor](nil, sqlr.DefaultSettings())
+	require.NoError(t, err)
+
+	err = repo.Delete(sqlr.TTx{}, 1, func(qb *sqlr.QueryBuilderDelete) {
+		qb.SyncAssociation("Unknown")
+	})
+	require.ErrorContains(t, err, `invalid sync association path "Unknown"`)
+}
+
 // TestRepositoryTxCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId verifies that RepositoryTx Create uses reflection without SetId for auto-increment primary keys.
 func TestRepositoryTxCreate_AutoIncrementPrimaryKey_UsesReflectionWithoutSetId(t *testing.T) {
 	client, mock := newTestClient(t)
@@ -449,6 +463,49 @@ func (s *RepositoryTxCrudTestSuite) TestDelete_NotFound() {
 	s.Require().Error(err)
 	s.True(errors.Is(err, sqlr.ErrNotFound))
 	s.Contains(err.Error(), "entity id=999")
+}
+
+// TestDelete_CascadesOwnedRelationsByDefault verifies that transactional Delete
+// cascades owned relations inside the provided transaction.
+func (s *RepositoryTxCrudTestSuite) TestDelete_CascadesOwnedRelationsByDefault() {
+	repo := mustNewTxRepo[int64, assocAuthor](s.T(), s.client)
+	now := time.Now()
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_authors` WHERE `id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), now, now, int64(1), "Post A"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_posts` WHERE `id` = ?")).
+		WithArgs(int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
+			AddRow(int64(20), now, now, int64(1), "bio"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_profiles` WHERE `id` = ?")).
+		WithArgs(int64(20)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_authors` WHERE `id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectCommit()
+
+	err := runWithTx(s.preparedCtx, s.client, func(ttx sqlr.TTx) error {
+		return repo.Delete(ttx, 1)
+	})
+
+	s.Require().NoError(err)
 }
 
 type RepositoryTxPreparedTestSuite struct {

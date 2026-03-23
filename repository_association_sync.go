@@ -182,7 +182,7 @@ func (c *associationSyncContext) syncForwardAssociation(ctx context.Context, sch
 	switch rel.Type {
 	case HasOne:
 		if field.IsZero() {
-			return c.clearHasOneAssociation(ctx, schema, entityValue, rel)
+			return c.clearHasOneAssociation(ctx, schema, entityValue, rel, relationPath)
 		}
 
 		return c.syncHasOneAssociation(ctx, schema, entityValue, rel, relationPath)
@@ -248,7 +248,7 @@ func (c *associationSyncContext) syncHasOneAssociation(ctx context.Context, pare
 			continue
 		}
 
-		if err := c.deleteEntityGraph(ctx, nestedSchema, current); err != nil {
+		if err := c.deleteEntityGraph(ctx, nestedSchema, current, relationPath, false); err != nil {
 			return fmt.Errorf("failed to delete replaced HasOne relation %q: %w", rel.Name, err)
 		}
 	}
@@ -256,7 +256,7 @@ func (c *associationSyncContext) syncHasOneAssociation(ctx context.Context, pare
 	return nil
 }
 
-func (c *associationSyncContext) clearHasOneAssociation(ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship) error {
+func (c *associationSyncContext) clearHasOneAssociation(ctx context.Context, parentSchema *EntitySchema, parentValue reflect.Value, rel *Relationship, relationPath string) error {
 	nestedSchema, err := rel.ResolveRelatedSchema()
 	if err != nil {
 		return fmt.Errorf("failed to resolve schema for HasOne relation %q: %w", rel.Name, err)
@@ -269,7 +269,7 @@ func (c *associationSyncContext) clearHasOneAssociation(ctx context.Context, par
 	}
 
 	for _, current := range currentChildren {
-		if err := c.deleteEntityGraph(ctx, nestedSchema, current); err != nil {
+		if err := c.deleteEntityGraph(ctx, nestedSchema, current, relationPath, false); err != nil {
 			return fmt.Errorf("failed to delete cleared HasOne relation %q: %w", rel.Name, err)
 		}
 	}
@@ -325,7 +325,7 @@ func (c *associationSyncContext) syncHasManyAssociation(ctx context.Context, par
 			continue
 		}
 
-		if err := c.deleteEntityGraph(ctx, nestedSchema, current); err != nil {
+		if err := c.deleteEntityGraph(ctx, nestedSchema, current, relationPath, false); err != nil {
 			return fmt.Errorf("failed to delete orphaned HasMany relation %q: %w", rel.Name, err)
 		}
 	}

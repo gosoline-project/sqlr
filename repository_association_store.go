@@ -140,6 +140,23 @@ func (c *associationCallContext) ensureEntityExists(ctx context.Context, schema 
 	return nil
 }
 
+func (c *associationCallContext) loadEntityByPrimaryKey(ctx context.Context, schema *EntitySchema, pkValue any) (reflect.Value, error) {
+	if schema.PrimaryKey == nil {
+		return reflect.Value{}, fmt.Errorf("primary key not defined for %s", schema.TableName)
+	}
+
+	entities, err := c.querySchemaEntities(ctx, sqlc.From(schema.TableName).Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue)).Limit(1), schema)
+	if err != nil {
+		return reflect.Value{}, fmt.Errorf("failed to read entity %s: %w", schema.TableName, err)
+	}
+
+	if len(entities) == 0 {
+		return reflect.Value{}, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)
+	}
+
+	return entities[0], nil
+}
+
 func (c *associationCallContext) loadChildrenByForeignKey(ctx context.Context, schema *EntitySchema, foreignKey string, parentPK any) ([]reflect.Value, error) {
 	qb := sqlc.From(schema.TableName).Where(sqlc.Col(schema.TableName, foreignKey).Eq(parentPK))
 

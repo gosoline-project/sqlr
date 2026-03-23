@@ -26,7 +26,12 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// by default; related many-to-many rows are only updated when explicitly
 	// opted in per path.
 	Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
-	Delete(ttx TTx, id K) error
+	// Delete removes the base entity row and, by default, cascades owned
+	// associations. Optional functions receive a QueryBuilderDelete to restrict
+	// or disable owned-association cleanup for this call. HasOne and HasMany
+	// relations are recursively deleted, while ManyToMany relations only delete
+	// join-table rows.
+	Delete(ttx TTx, id K, opts ...func(qb *QueryBuilderDelete)) error
 	// Close releases resources held by the repository, including prepared statements
 	// when PreparedStatements is enabled. Returns the first error encountered, if any.
 	Close() error
@@ -145,8 +150,21 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 	return updated, nil
 }
 
-func (t *repositoryTx[K, E]) Delete(ttx TTx, id K) error {
-	return t.deleteEntity(ttx, ttx, id)
+func (t *repositoryTx[K, E]) Delete(ttx TTx, id K, opts ...func(qb *QueryBuilderDelete)) error {
+	qb := applyOptions(NewQueryBuilderDelete(), opts)
+
+	policy, err := newDeleteAssociationSyncPolicy(t.schema, qb)
+	if err != nil {
+		return err
+	}
+
+	if policy == nil || !policy.shouldSyncRootAssociations() || !t.hasAssociationsToDelete(policy) {
+		return t.deleteEntity(ttx, ttx, id)
+	}
+
+	associationCtx := newAssociationSyncContext(t.statementCache, ttx, policy, nil, mutationOptions{})
+
+	return t.deleteEntityWithAssociations(ttx, associationCtx, id)
 }
 
 func (t *repositoryTx[K, E]) Close() error {
