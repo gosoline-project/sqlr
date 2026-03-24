@@ -10,7 +10,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gosoline-project/sqlc"
 	"github.com/gosoline-project/sqlr"
-	"github.com/jmoiron/sqlx"
 	"github.com/justtrackio/gosoline/pkg/exec"
 	logMocks "github.com/justtrackio/gosoline/pkg/log/mocks"
 	"github.com/stretchr/testify/require"
@@ -513,8 +512,7 @@ func newTestClient(t *testing.T) (sqlc.Client, sqlmock.Sqlmock) {
 	}
 
 	logger := logMocks.NewLoggerMock(logMocks.WithMockAll)
-	sqlxDB := sqlx.NewDb(sqlDB, "mysql")
-	client := sqlc.NewClientWithInterfaces(logger, sqlxDB, exec.NewDefaultExecutor(), sqlc.DefaultConfig())
+	client := sqlc.NewClientWithDB(logger, sqlc.WrapDB(sqlDB, "sqlmock"), exec.NewDefaultExecutor(), sqlc.DefaultConfig())
 
 	return client, mock
 }
@@ -553,11 +551,13 @@ func forceFirstCachedStmtCloseError(t testing.TB, repo any, closeErr error) {
 	commonValue := unsafeReflectValue(repoValue.FieldByName("repositoryCommon"))
 	statementCacheValue := unsafeReflectValue(commonValue.FieldByName("statementCache"))
 	cacheValue := unsafeReflectValue(statementCacheValue.Elem().FieldByName("cache"))
-	cache := cacheValue.Interface().(map[string]*sqlx.Stmt)
+	cache := cacheValue.Interface().(map[string]*sqlc.Stmt)
 
 	for _, stmt := range cache {
 		stmtValue := reflect.ValueOf(stmt).Elem()
-		sqlStmtValue := stmtValue.FieldByName("Stmt").Elem()
+		preparedStmtValue := unsafeReflectValue(stmtValue.FieldByName("stmt"))
+		adapterValue := reflect.ValueOf(preparedStmtValue.Interface()).Elem()
+		sqlStmtValue := unsafeReflectValue(adapterValue.FieldByName("stmt")).Elem()
 		stickyErrValue := unsafeReflectValue(sqlStmtValue.FieldByName("stickyErr"))
 		stickyErrValue.Set(reflect.ValueOf(closeErr))
 

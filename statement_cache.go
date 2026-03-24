@@ -116,7 +116,7 @@ func (c *statementCache) do(
 	c.Unlock()
 
 	if tx, ok := q.(sqlc.Tx); ok {
-		stmt = tx.SqlTx().StmtxContext(ctx, stmt)
+		stmt = stmt.WithTx(ctx, tx.SQLTx())
 	}
 
 	return doPrepared(stmt, args)
