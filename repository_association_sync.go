@@ -113,7 +113,8 @@ func (c *associationSyncContext) persistEntityGraphNode(ctx context.Context, sch
 }
 
 func (c *associationSyncContext) syncBelongsToAssociations(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, parentPath string) error {
-	for _, rel := range schema.Relationships {
+	for _, name := range schema.ValidRelationNames() {
+		rel := schema.Relationships[name]
 		if rel.Type != BelongsTo {
 			continue
 		}
@@ -162,7 +163,8 @@ func (c *associationSyncContext) syncBelongsToAssociations(ctx context.Context, 
 }
 
 func (c *associationSyncContext) syncForwardAssociations(ctx context.Context, schema *EntitySchema, entityValue reflect.Value, parentPath string) error {
-	for _, rel := range schema.Relationships {
+	for _, name := range schema.ValidRelationNames() {
+		rel := schema.Relationships[name]
 		if err := c.syncForwardAssociation(ctx, schema, entityValue, rel, parentPath); err != nil {
 			return err
 		}

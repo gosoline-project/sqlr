@@ -94,9 +94,10 @@ type Relationship struct {
 	// default during Update. Tagged relation paths are merged with per-call
 	// QueryBuilderUpdate options.
 	SyncUpdate bool
-	// SyncDelete indicates that this relationship was tagged with sync:delete.
-	// The flag is retained in schema metadata, but Delete currently cascades owned
-	// associations by default and does not consult this flag at runtime.
+	// SyncDelete indicates that this relationship should be synchronized by
+	// default during Delete. When at least one relationship on the schema tree is
+	// tagged with sync:delete, Delete limits default cascade cleanup to the tagged
+	// relation paths unless the query builder overrides that behavior.
 	SyncDelete bool
 	// SyncMany2many indicates that this many-to-many relationship should
 	// perform full related-entity synchronization during Update by default when
@@ -198,8 +199,8 @@ func (s *EntitySchema) AutoSyncUpdatePaths() []string {
 }
 
 // AutoSyncDeletePaths returns relation paths that have the "sync:delete" tag
-// option set somewhere in the schema tree. These paths are retained as schema
-// metadata and are not currently consulted by Delete runtime behavior.
+// option set somewhere in the schema tree. These defaults are merged with
+// per-call Delete association options.
 func (s *EntitySchema) AutoSyncDeletePaths() []string {
 	return s.autoSyncDeletes
 }
@@ -904,13 +905,11 @@ func collectTaggedRelationPathsRecursive(
 			relationPath = prefix + "." + rel.Name
 		}
 
-		if !predicate(rel) {
-			continue
-		}
-
-		if _, seen := seenPaths[relationPath]; !seen {
-			*taggedPaths = append(*taggedPaths, relationPath)
-			seenPaths[relationPath] = struct{}{}
+		if predicate(rel) {
+			if _, seen := seenPaths[relationPath]; !seen {
+				*taggedPaths = append(*taggedPaths, relationPath)
+				seenPaths[relationPath] = struct{}{}
+			}
 		}
 
 		if _, seen := visitedTypes[rel.RelatedType]; seen {
@@ -936,7 +935,30 @@ func collectTaggedRelationPathsRecursive(
 }
 
 func parseRelatedSchemaForAssociationDefaults(relatedType reflect.Type) (*EntitySchema, error) {
-	return parseSchemaType(relatedType, autoPreloadSchemaParseOptions())
+	var err error
+
+	if relatedType, err = normalizeSchemaType(relatedType); err != nil {
+		return nil, err
+	}
+
+	typeName := relatedType.Name()
+	schema := &EntitySchema{
+		TableName:     tableNameForType(relatedType),
+		Relationships: make(map[string]*Relationship),
+		entityType:    relatedType,
+	}
+
+	if err = parseFields(relatedType, nil, schema); err != nil {
+		return nil, fmt.Errorf("failed to parse related schema for %s: %w", typeName, err)
+	}
+
+	if err = validateSchemaColumns(schema); err != nil {
+		return nil, fmt.Errorf("failed to validate columns for %s: %w", typeName, err)
+	}
+
+	setPrimaryKeyFromColumns(schema)
+
+	return schema, nil
 }
 
 // isPublicField returns true if the struct field is exported (accessible from

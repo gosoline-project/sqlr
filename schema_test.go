@@ -86,6 +86,25 @@ type schemaSyncDefaultsAuthor struct {
 	Tags  []schemaSyncDefaultsTag  `sqlr:"many2many:author_tags;sync:update;syncMode:many2many"`
 }
 
+type schemaNestedSyncDeleteComment struct {
+	ID     int64  `db:"id" sqlr:"primaryKey"`
+	PostID int64  `db:"post_id"`
+	Body   string `db:"body"`
+}
+
+type schemaNestedSyncDeletePost struct {
+	ID       int64                           `db:"id" sqlr:"primaryKey"`
+	AuthorID int64                           `db:"author_id"`
+	Title    string                          `db:"title"`
+	Comments []schemaNestedSyncDeleteComment `sqlr:"foreignKey:post_id;sync:delete"`
+}
+
+type schemaNestedSyncDeleteAuthor struct {
+	ID    int64                        `db:"id" sqlr:"primaryKey"`
+	Name  string                       `db:"name"`
+	Posts []schemaNestedSyncDeletePost `sqlr:"foreignKey:author_id"`
+}
+
 type schemaInvalidSyncMany2manyRelation struct {
 	ID    int64                 `db:"id" sqlr:"primaryKey"`
 	Name  string                `db:"name"`
@@ -700,6 +719,15 @@ func TestParseSchema_RelationshipSyncOptions(t *testing.T) {
 	assert.Equal(t, []string{"Posts", "Posts.Comments", "Tags"}, schema.AutoSyncUpdatePaths())
 	assert.Equal(t, []string{"Posts", "Posts.Comments"}, schema.AutoSyncDeletePaths())
 	assert.Equal(t, []string{"Tags"}, schema.AutoSyncMany2manyPaths())
+}
+
+// TestParseSchema_NestedSyncDeleteDefaults verifies that nested sync:delete tags
+// are collected even when the parent relation is untagged.
+func TestParseSchema_NestedSyncDeleteDefaults(t *testing.T) {
+	schema, err := ParseSchema[schemaNestedSyncDeleteAuthor]()
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"Posts.Comments"}, schema.AutoSyncDeletePaths())
 }
 
 // TestParseSchema_SyncModeMany2manyOnNonManyToManyRejected verifies that

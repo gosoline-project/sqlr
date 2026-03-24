@@ -68,6 +68,9 @@ func newDeleteAssociationSyncPolicy(schema *EntitySchema, qb *QueryBuilderDelete
 		options = qb.associationOptions
 	}
 
+	defaultSyncPaths := schema.AutoSyncDeletePaths()
+	options.syncPaths = mergeAssociationPaths(defaultSyncPaths, options.syncPaths)
+
 	mode := associationPolicyModeAll
 
 	switch {

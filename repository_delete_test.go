@@ -153,6 +153,38 @@ func (s *RepositoryDeleteTestSuite) TestDelete_SyncAssociation_OnlyDeletesSelect
 	s.Require().NoError(err)
 }
 
+// TestDelete_SyncDeleteTag_OnlyDeletesTaggedRelation verifies that sync:delete
+// tags narrow Delete's default cascade cleanup to tagged branches.
+func (s *RepositoryDeleteTestSuite) TestDelete_SyncDeleteTag_OnlyDeletesTaggedRelation() {
+	repo := mustNewRepo[int64, assocAuthorSyncDeleteDefaults](s.T(), s.client)
+	now := time.Now()
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_author_sync_delete_defaults` WHERE `id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), now, now, int64(1), "Post A"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_posts` WHERE `id` = ?")).
+		WithArgs(int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `assoc_author_sync_delete_defaults` WHERE `id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectCommit()
+
+	err := repo.Delete(context.Background(), 1)
+
+	s.Require().NoError(err)
+}
+
 // TestDelete_OmitAssociation_SkipsOmittedRelation verifies that Delete skips
 // omitted relations while still cascading the remaining owned relations.
 func (s *RepositoryDeleteTestSuite) TestDelete_OmitAssociation_SkipsOmittedRelation() {
@@ -273,6 +305,47 @@ func (s *RepositoryDeleteTestSuite) TestDelete_NestedCascadeByDefault() {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"DELETE FROM `deep_authors` WHERE `id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectCommit()
+
+	err := repo.Delete(context.Background(), 1)
+
+	s.Require().NoError(err)
+}
+
+// TestDelete_NestedSyncDeleteTag_DeletesSelectedBranch verifies that a nested
+// sync:delete tag includes the ancestor branch while skipping unrelated paths.
+func (s *RepositoryDeleteTestSuite) TestDelete_NestedSyncDeleteTag_DeletesSelectedBranch() {
+	repo := mustNewRepo[int64, deepAuthorNestedSyncDeleteDefaults](s.T(), s.client)
+	now := time.Now()
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `deep_author_nested_sync_delete_defaults` WHERE `id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `deep_post_nested_sync_delete_defaults` WHERE `deep_post_nested_sync_delete_defaults`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), now, now, int64(1), "Post"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `deep_comment_nested_sync_delete_defaults` WHERE `deep_comment_nested_sync_delete_defaults`.`post_id` = ?")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}).
+			AddRow(int64(100), now, now, int64(10), "Comment"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `deep_comment_nested_sync_delete_defaults` WHERE `id` = ?")).
+		WithArgs(int64(100)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `deep_post_nested_sync_delete_defaults` WHERE `id` = ?")).
+		WithArgs(int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `deep_author_nested_sync_delete_defaults` WHERE `id` = ?")).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()

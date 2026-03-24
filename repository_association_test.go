@@ -44,6 +44,15 @@ type assocAuthorSyncUpdateDefaults struct {
 
 func (assocAuthorSyncUpdateDefaults) TableName() string { return "assoc_author_sync_update_defaults" }
 
+type assocAuthorSyncDeleteDefaults struct {
+	sqlr.Entity[int64]
+	Name    string       `db:"name"`
+	Posts   []assocPost  `sqlr:"foreignKey:author_id;sync:delete"`
+	Profile assocProfile `sqlr:"foreignKey:author_id"`
+}
+
+func (assocAuthorSyncDeleteDefaults) TableName() string { return "assoc_author_sync_delete_defaults" }
+
 type assocAuthorWithPointerProfile struct {
 	sqlr.Entity[int64]
 	Name    string        `db:"name"`
@@ -152,6 +161,29 @@ type deepPost struct {
 
 // deepComment belongs to deepPost. Table: "deep_comments".
 type deepComment struct {
+	sqlr.Entity[int64]
+	PostID int64  `db:"post_id"`
+	Body   string `db:"body"`
+}
+
+type deepAuthorNestedSyncDeleteDefaults struct {
+	sqlr.Entity[int64]
+	Name  string                            `db:"name"`
+	Posts []deepPostNestedSyncDeleteDefault `sqlr:"foreignKey:author_id"`
+}
+
+func (deepAuthorNestedSyncDeleteDefaults) TableName() string {
+	return "deep_author_nested_sync_delete_defaults"
+}
+
+type deepPostNestedSyncDeleteDefault struct {
+	sqlr.Entity[int64]
+	AuthorID int64                                `db:"author_id"`
+	Title    string                               `db:"title"`
+	Comments []deepCommentNestedSyncDeleteDefault `sqlr:"foreignKey:post_id;sync:delete"`
+}
+
+type deepCommentNestedSyncDeleteDefault struct {
 	sqlr.Entity[int64]
 	PostID int64  `db:"post_id"`
 	Body   string `db:"body"`
