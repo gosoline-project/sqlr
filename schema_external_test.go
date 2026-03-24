@@ -13,12 +13,12 @@ type privateTaggedEmbedded struct {
 
 type privateTaggedFieldEntity struct {
 	ID        int64  `db:"id" sqlr:"primaryKey"`
-	secretKey string `db:"secret_key"`
+	secretKey string `db:"secret_key"` //nolint:unused // accessed via reflection in schema parsing test
 }
 
 type privateSQLRTaggedFieldEntity struct {
 	ID      int64  `db:"id" sqlr:"primaryKey"`
-	ignored string `sqlr:"primaryKey"`
+	ignored string `sqlr:"primaryKey"` //nolint:unused // accessed via reflection in schema parsing test
 }
 
 type privateEmbeddedEntity struct {

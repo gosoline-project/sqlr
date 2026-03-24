@@ -389,15 +389,7 @@ func (c *associationSyncContext) collectDesiredManyToManyTargets(
 		}
 
 		pkField := unwrapEntityValue(elem).FieldByIndex(nestedSchema.PrimaryKey.FieldIndex)
-		if pkField.IsZero() {
-			if _, err := c.syncEntityGraph(ctx, nestedSchema, elem, relationPath); err != nil {
-				return nil, nil, fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
-			}
-		} else if fullEntitySync {
-			if _, err := c.syncEntityGraph(ctx, nestedSchema, elem, relationPath); err != nil {
-				return nil, nil, fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
-			}
-		} else if err := c.ensureEntityExists(ctx, nestedSchema, pkField.Interface()); err != nil {
+		if err := c.syncManyToManyTarget(ctx, nestedSchema, elem, relationPath, fullEntitySync, pkField); err != nil {
 			return nil, nil, fmt.Errorf("failed to synchronize ManyToMany relation %q[%d]: %w", rel.Name, i, err)
 		}
 
@@ -416,4 +408,14 @@ func (c *associationSyncContext) collectDesiredManyToManyTargets(
 	}
 
 	return desiredKeys, desiredPKs, nil
+}
+
+func (c *associationSyncContext) syncManyToManyTarget(ctx context.Context, nestedSchema *EntitySchema, elem reflect.Value, relationPath string, fullEntitySync bool, pkField reflect.Value) error {
+	if pkField.IsZero() || fullEntitySync {
+		_, err := c.syncEntityGraph(ctx, nestedSchema, elem, relationPath)
+
+		return err
+	}
+
+	return c.ensureEntityExists(ctx, nestedSchema, pkField.Interface())
 }

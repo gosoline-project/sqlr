@@ -27,6 +27,13 @@ const (
 	BelongsTo
 )
 
+const (
+	sqlrOptionPrimaryKey     = "primaryKey"
+	sqlrOptionAutoCreateTime = "autoCreateTime"
+	sqlrOptionAutoUpdateTime = "autoUpdateTime"
+	sqlrOptionPreload        = "preload"
+)
+
 // ColumnInfo holds metadata about a single database column mapped to a struct field.
 type ColumnInfo struct {
 	// Name is the database column name (from the db struct tag).
@@ -509,7 +516,7 @@ func validateTagOption(opt string) error {
 		return nil
 	}
 
-	if strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == "preload" {
+	if strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == sqlrOptionPreload {
 		return nil
 	}
 
@@ -540,48 +547,77 @@ func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySc
 		return fmt.Errorf("field %s: %w", field.Name, err)
 	}
 
+	if err := validateSchemaFieldAccessibility(field, tags); err != nil {
+		return err
+	}
+
 	if !isSchemaAccessibleField(field) {
-		if tags.hasDBTag && tags.columnName != "-" {
-			return fmt.Errorf("field %s: unexported fields cannot define db column mappings", field.Name)
-		}
-
-		if len(tags.sqlrOptions) > 0 {
-			return fmt.Errorf("field %s: unexported fields cannot define sqlr metadata", field.Name)
-		}
-
 		return nil
 	}
 
-	hasRelationshipDefinition := isRelationshipField(tags.sqlrOptions)
-	hasRelationshipMetadata := hasRelationshipMetadataOption(tags.sqlrOptions)
-	hasColumnMetadata := hasColumnMetadataOption(tags.sqlrOptions)
+	if err := validateFieldMetadataCompatibility(field, tags.sqlrOptions); err != nil {
+		return err
+	}
 
-	if hasColumnMetadata && hasRelationshipMetadata {
+	handled, err := parseRelationshipMetadataField(field, fieldIndex, schema, tags)
+	if handled || err != nil {
+		return err
+	}
+
+	return parseColumnField(field, fieldIndex, schema, tags)
+}
+
+func validateSchemaFieldAccessibility(field reflect.StructField, tags schemaFieldTags) error {
+	if isSchemaAccessibleField(field) {
+		return nil
+	}
+
+	if tags.hasDBTag && tags.columnName != "-" {
+		return fmt.Errorf("field %s: unexported fields cannot define db column mappings", field.Name)
+	}
+
+	if len(tags.sqlrOptions) > 0 {
+		return fmt.Errorf("field %s: unexported fields cannot define sqlr metadata", field.Name)
+	}
+
+	return nil
+}
+
+func validateFieldMetadataCompatibility(field reflect.StructField, sqlrOptions []string) error {
+	if hasColumnMetadataOption(sqlrOptions) && hasRelationshipMetadataOption(sqlrOptions) {
 		return fmt.Errorf("field %s: sqlr column metadata cannot be combined with relationship metadata", field.Name)
 	}
 
-	if hasRelationshipMetadata {
-		if tags.hasDBTag && tags.columnName != "-" {
-			return fmt.Errorf("field %s: relationship metadata cannot be combined with a db column name", field.Name)
-		}
+	return nil
+}
 
-		autoDetected := !hasRelationshipDefinition
-		if autoDetected && !shouldAutoDetectRelationship(field, schema.entityType) {
-			return fmt.Errorf("field %s: relationship-only sqlr options require an auto-detected relationship or explicit relation metadata", field.Name)
-		}
-
-		rel, err := parseRelationship(field, tags.sqlrOptions, fieldIndex, schema.entityType, autoDetected)
-		if err != nil {
-			return fmt.Errorf("field %s: %w", field.Name, err)
-		}
-
-		schema.Relationships[rel.Name] = rel
-
-		return nil
+func parseRelationshipMetadataField(field reflect.StructField, fieldIndex []int, schema *EntitySchema, tags schemaFieldTags) (bool, error) {
+	if !hasRelationshipMetadataOption(tags.sqlrOptions) {
+		return false, nil
 	}
 
+	if tags.hasDBTag && tags.columnName != "-" {
+		return true, fmt.Errorf("field %s: relationship metadata cannot be combined with a db column name", field.Name)
+	}
+
+	autoDetected := !isRelationshipField(tags.sqlrOptions)
+	if autoDetected && !shouldAutoDetectRelationship(field, schema.entityType) {
+		return true, fmt.Errorf("field %s: relationship-only sqlr options require an auto-detected relationship or explicit relation metadata", field.Name)
+	}
+
+	rel, err := parseRelationship(field, tags.sqlrOptions, fieldIndex, schema.entityType, autoDetected)
+	if err != nil {
+		return true, fmt.Errorf("field %s: %w", field.Name, err)
+	}
+
+	schema.Relationships[rel.Name] = rel
+
+	return true, nil
+}
+
+func parseColumnField(field reflect.StructField, fieldIndex []int, schema *EntitySchema, tags schemaFieldTags) error {
 	if tags.hasDBTag && tags.columnName == "-" {
-		if hasColumnMetadata {
+		if hasColumnMetadataOption(tags.sqlrOptions) {
 			return fmt.Errorf("field %s: db:\"-\" cannot be combined with column metadata", field.Name)
 		}
 
@@ -601,8 +637,7 @@ func parseFieldTag(field reflect.StructField, fieldIndex []int, schema *EntitySc
 		colName = SchemaNameTransformer(field.Name)
 	}
 
-	col := parseColumnInfo(field, colName, fieldIndex, tags.sqlrOptions)
-	schema.Columns = append(schema.Columns, col)
+	schema.Columns = append(schema.Columns, parseColumnInfo(field, colName, fieldIndex, tags.sqlrOptions))
 
 	return nil
 }
@@ -645,11 +680,11 @@ func parseColumnInfo(field reflect.StructField, colName string, fieldIndex []int
 	for _, opt := range options {
 		opt = strings.TrimSpace(opt)
 		switch opt {
-		case "primaryKey":
+		case sqlrOptionPrimaryKey:
 			col.IsPrimaryKey = true
-		case "autoCreateTime":
+		case sqlrOptionAutoCreateTime:
 			col.AutoCreateTime = true
-		case "autoUpdateTime":
+		case sqlrOptionAutoUpdateTime:
 			col.AutoUpdateTime = true
 		}
 	}
@@ -1041,7 +1076,7 @@ func typeHasPrimaryKey(t reflect.Type) bool {
 		}
 
 		for _, opt := range options {
-			if strings.TrimSpace(opt) == "primaryKey" {
+			if strings.TrimSpace(opt) == sqlrOptionPrimaryKey {
 				return true
 			}
 		}
@@ -1057,44 +1092,47 @@ func typeDefinesColumn(t reflect.Type, columnName string) bool {
 	}
 
 	for i := range t.NumField() {
-		field := t.Field(i)
-		fieldType := unwrapSchemaFieldType(field.Type)
-
-		if field.Anonymous && isSchemaAccessibleField(field) && fieldType.Kind() == reflect.Struct && typeDefinesColumn(fieldType, columnName) {
-			return true
-		}
-
-		if !isSchemaAccessibleField(field) {
-			continue
-		}
-
-		dbTag := strings.TrimSpace(field.Tag.Get("db"))
-		sqlrOptions, err := splitTagOptions(field.Tag.Get("sqlr"))
-		if err != nil {
-			continue
-		}
-		if dbTag != "" {
-			if !strings.Contains(dbTag, ",") && dbTag == columnName && !hasRelationshipMetadataOption(sqlrOptions) && dbTag != "-" {
-				return true
-			}
-
-			continue
-		}
-
-		if hasRelationshipMetadataOption(sqlrOptions) {
-			continue
-		}
-
-		if isAutoRelationshipType(field.Type) {
-			continue
-		}
-
-		if SchemaNameTransformer(field.Name) == columnName {
+		if fieldDefinesColumn(t.Field(i), columnName) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func fieldDefinesColumn(field reflect.StructField, columnName string) bool {
+	fieldType := unwrapSchemaFieldType(field.Type)
+	if field.Anonymous && isSchemaAccessibleField(field) && fieldType.Kind() == reflect.Struct && typeDefinesColumn(fieldType, columnName) {
+		return true
+	}
+
+	if !isSchemaAccessibleField(field) {
+		return false
+	}
+
+	return fieldDefinesDirectColumn(field, columnName)
+}
+
+func fieldDefinesDirectColumn(field reflect.StructField, columnName string) bool {
+	dbTag := strings.TrimSpace(field.Tag.Get("db"))
+	sqlrOptions, err := splitTagOptions(field.Tag.Get("sqlr"))
+	if err != nil {
+		return false
+	}
+
+	if hasNamedColumnTag(dbTag, sqlrOptions, columnName) {
+		return true
+	}
+
+	if dbTag != "" || hasRelationshipMetadataOption(sqlrOptions) || isAutoRelationshipType(field.Type) {
+		return false
+	}
+
+	return SchemaNameTransformer(field.Name) == columnName
+}
+
+func hasNamedColumnTag(dbTag string, sqlrOptions []string, columnName string) bool {
+	return dbTag != "" && dbTag != "-" && !strings.Contains(dbTag, ",") && dbTag == columnName && !hasRelationshipMetadataOption(sqlrOptions)
 }
 
 func unwrapSchemaFieldType(t reflect.Type) reflect.Type {
@@ -1156,12 +1194,12 @@ func isRelationshipDefiningOption(opt string) bool {
 }
 
 func isRelationshipMetadataOption(opt string) bool {
-	return isRelationshipDefiningOption(opt) || strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == "preload" || strings.HasPrefix(opt, "sync:") || strings.HasPrefix(opt, "syncMode:")
+	return isRelationshipDefiningOption(opt) || strings.HasPrefix(opt, "parentKey:") || strings.HasPrefix(opt, "relatedKey:") || opt == sqlrOptionPreload || strings.HasPrefix(opt, "sync:") || strings.HasPrefix(opt, "syncMode:")
 }
 
 func isColumnMetadataOption(opt string) bool {
 	switch opt {
-	case "primaryKey", "autoCreateTime", "autoUpdateTime":
+	case sqlrOptionPrimaryKey, sqlrOptionAutoCreateTime, sqlrOptionAutoUpdateTime:
 		return true
 	default:
 		return false
@@ -1318,7 +1356,7 @@ func applyRelationshipOptions(rel *Relationship, options []string) error {
 		case strings.HasPrefix(opt, "belongsTo:"):
 			rel.ForeignKey = strings.TrimPrefix(opt, "belongsTo:")
 			rel.Type = BelongsTo
-		case opt == "preload":
+		case opt == sqlrOptionPreload:
 			rel.Preload = true
 		case strings.HasPrefix(opt, "sync:"):
 			syncCreate, syncUpdate, syncDelete, err := parseSyncOption(opt)

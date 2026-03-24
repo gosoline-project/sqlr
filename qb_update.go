@@ -66,10 +66,6 @@ func (u *QueryBuilderUpdate) shouldSyncAllAssociations() bool {
 	return u != nil && u.syncAllAssociations
 }
 
-func (u *QueryBuilderUpdate) shouldSyncAssociations() bool {
-	return u != nil && (u.syncAllAssociations || len(u.associationOptions.syncPaths) > 0 || len(u.associationOptions.fullSyncMany2manyPaths) > 0)
-}
-
 func (u *QueryBuilderUpdate) mutationOptions() mutationOptions {
 	if u == nil {
 		return mutationOptions{}
