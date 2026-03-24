@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/gosoline-project/sqlc v0.2.0
+	github.com/gosoline-project/sqlc v0.3.0
 	github.com/justtrackio/gosoline v0.57.2
 	github.com/stretchr/testify v1.11.1
 )
@@ -166,7 +166,7 @@ require (
 	github.com/jeremywohl/flatten v0.0.0-20190921043622-d936035e55cf // indirect
 	github.com/jinzhu/inflection v1.0.0
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/jmoiron/sqlx v1.3.4
+	github.com/jmoiron/sqlx v1.3.4 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
