@@ -271,6 +271,10 @@ func omitCreatePosts(qb *sqlr.QueryBuilderCreate) {
 	qb.OmitAssociation("Posts")
 }
 
+func omitCreateAllAssociations(qb *sqlr.QueryBuilderCreate) {
+	qb.OmitAllAssociations()
+}
+
 func disableCreateAutoUpdates(qb *sqlr.QueryBuilderCreate) {
 	qb.DisableAutoUpdates()
 }
@@ -326,6 +330,30 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAssociation_SkipsO
 	s.Require().Len(entity.Posts, 1)
 	s.Equal(int64(0), entity.Posts[0].GetId())
 	s.Equal(int64(0), entity.Posts[0].AuthorID)
+}
+
+// TestCreate_OmitAllAssociations_InsertsRootOnly verifies that Create can skip
+// association persistence entirely for a single call.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAllAssociations_InsertsRootOnly() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Bob").
+		WillReturnResult(sqlmock.NewResult(10, 1))
+
+	entity := assocAuthor{
+		Name:    "Bob",
+		Posts:   []assocPost{{Title: "Skipped"}},
+		Profile: assocProfile{Bio: "Skipped"},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, omitCreateAllAssociations))
+	s.Equal(int64(10), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(0), entity.Posts[0].GetId())
+	s.Equal(int64(0), entity.Posts[0].AuthorID)
+	s.Equal(int64(0), entity.Profile.GetId())
+	s.Equal(int64(0), entity.Profile.AuthorID)
 }
 
 // TestCreate_NilEntity_WithAssociationOptionsReturnsError verifies that Create returns an error for nil entities even when association sync is configured.
@@ -473,6 +501,31 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncAssociation_OnlyCr
 	s.Equal(int64(0), entity.Profile.AuthorID)
 }
 
+// TestCreate_OmitAllAssociations_OverridesSyncAssociation verifies that
+// OmitAllAssociations disables Create association persistence even when
+// SyncAssociation selects a relation explicitly.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAllAssociations_OverridesSyncAssociation() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_authors` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	entity := assocAuthor{
+		Name:    "Alice",
+		Posts:   []assocPost{{Title: "Post A"}},
+		Profile: assocProfile{Bio: "Skipped"},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, syncCreatePosts, omitCreateAllAssociations))
+	s.Equal(int64(1), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(0), entity.Posts[0].GetId())
+	s.Equal(int64(0), entity.Posts[0].AuthorID)
+	s.Equal(int64(0), entity.Profile.GetId())
+	s.Equal(int64(0), entity.Profile.AuthorID)
+}
+
 // TestCreate_SyncCreateTag_OnlyCreatesTaggedRelations verifies that sync:create
 // tags narrow Create's default association synchronization to tagged paths.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncCreateTag_OnlyCreatesTaggedRelations() {
@@ -498,6 +551,30 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_SyncCreateTag_OnlyCrea
 	s.Require().Len(entity.Posts, 1)
 	s.Equal(int64(10), entity.Posts[0].GetId())
 	s.Equal(int64(1), entity.Posts[0].AuthorID)
+	s.Equal(int64(0), entity.Profile.GetId())
+	s.Equal(int64(0), entity.Profile.AuthorID)
+}
+
+// TestCreate_OmitAllAssociations_OverridesSyncCreateDefaults verifies that
+// OmitAllAssociations disables schema-level sync:create defaults for one call.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_OmitAllAssociations_OverridesSyncCreateDefaults() {
+	repo := mustNewRepo[int64, assocAuthorSyncCreateDefaults](s.T(), s.client)
+
+	s.mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `assoc_author_sync_create_defaults` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	entity := assocAuthorSyncCreateDefaults{
+		Name:    "Alice",
+		Posts:   []assocPost{{Title: "Post A"}},
+		Profile: assocProfile{Bio: "Skipped"},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, omitCreateAllAssociations))
+	s.Equal(int64(1), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(0), entity.Posts[0].GetId())
+	s.Equal(int64(0), entity.Posts[0].AuthorID)
 	s.Equal(int64(0), entity.Profile.GetId())
 	s.Equal(int64(0), entity.Profile.AuthorID)
 }

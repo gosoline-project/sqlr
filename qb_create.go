@@ -4,8 +4,9 @@ package sqlr
 // for Repository.Create and RepositoryTx.Create, augmenting or overriding any
 // schema-level relationship sync defaults.
 type QueryBuilderCreate struct {
-	associationOptions associationSyncOptions
-	disableAutoUpdates bool
+	omitAllAssociations bool
+	associationOptions  associationSyncOptions
+	disableAutoUpdates  bool
 }
 
 // NewQueryBuilderCreate creates a new QueryBuilderCreate instance.
@@ -22,6 +23,14 @@ func (c *QueryBuilderCreate) SyncAssociation(paths ...string) *QueryBuilderCreat
 	return c
 }
 
+// OmitAllAssociations disables association persistence during Create so only
+// the root row is inserted.
+func (c *QueryBuilderCreate) OmitAllAssociations() *QueryBuilderCreate {
+	c.omitAllAssociations = true
+
+	return c
+}
+
 // OmitAssociation excludes the provided relation paths from association
 // persistence. Omitting a direct relation such as "Posts" also omits its
 // nested descendants.
@@ -29,6 +38,10 @@ func (c *QueryBuilderCreate) OmitAssociation(paths ...string) *QueryBuilderCreat
 	c.associationOptions.addOmitPaths(paths...)
 
 	return c
+}
+
+func (c *QueryBuilderCreate) shouldOmitAllAssociations() bool {
+	return c != nil && c.omitAllAssociations
 }
 
 // DisableAutoUpdates disables sqlr-managed primary key and timestamp mutations

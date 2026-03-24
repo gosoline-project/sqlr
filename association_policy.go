@@ -30,7 +30,10 @@ func newCreateAssociationSyncPolicy(schema *EntitySchema, qb *QueryBuilderCreate
 
 	defaultSyncPaths := schema.AutoSyncCreatePaths()
 	mode := associationPolicyModeAll
-	if len(defaultSyncPaths) > 0 || len(options.syncPaths) > 0 {
+	switch {
+	case qb != nil && qb.shouldOmitAllAssociations():
+		mode = associationPolicyModeNone
+	case len(defaultSyncPaths) > 0 || len(options.syncPaths) > 0:
 		mode = associationPolicyModeSelected
 	}
 

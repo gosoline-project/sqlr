@@ -27,7 +27,7 @@ var _ Repository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])
 // QueryBuilderSelect (full query capabilities).
 type Repository[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
-	// Optional functions receive a QueryBuilderCreate to restrict or omit
+	// Optional functions receive a QueryBuilderCreate to restrict, omit, or disable
 	// association synchronization for this call, in addition to any schema-level
 	// defaults declared via relationship sqlr tags.
 	Create(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderCreate)) error
