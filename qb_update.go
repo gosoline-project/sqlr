@@ -1,5 +1,7 @@
 package sqlr
 
+import "github.com/gosoline-project/sqlc"
+
 // QueryBuilderUpdate configures optional behavior for Repository.Update and
 // RepositoryTx.Update, augmenting or overriding any schema-level relationship
 // sync defaults.
@@ -7,6 +9,7 @@ type QueryBuilderUpdate struct {
 	syncAllAssociations bool
 	associationOptions  associationSyncOptions
 	disableAutoUpdates  bool
+	preloads            []preloadEntry
 }
 
 // NewQueryBuilderUpdate creates a new QueryBuilderUpdate instance.
@@ -62,8 +65,30 @@ func (u *QueryBuilderUpdate) DisableAutoUpdates() *QueryBuilderUpdate {
 	return u
 }
 
+// Preload requests post-update loading for the named relation. After the update
+// succeeds, sqlr reloads the entity by primary key and hydrates the requested
+// relations using the same preload machinery as Read and Query. Nested paths and
+// optional conditions are supported.
+func (u *QueryBuilderUpdate) Preload(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderUpdate {
+	appendPreload(&u.preloads, relation, conditions)
+
+	return u
+}
+
 func (u *QueryBuilderUpdate) shouldSyncAllAssociations() bool {
 	return u != nil && u.syncAllAssociations
+}
+
+func (u *QueryBuilderUpdate) hasPreloads() bool {
+	return u != nil && len(u.preloads) > 0
+}
+
+func (u *QueryBuilderUpdate) toQueryBuilderRead() *QueryBuilderRead {
+	if u == nil {
+		return NewQueryBuilderRead()
+	}
+
+	return &QueryBuilderRead{preloads: u.preloads}
 }
 
 func (u *QueryBuilderUpdate) mutationOptions() mutationOptions {

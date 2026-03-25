@@ -231,6 +231,42 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 	return entity, nil
 }
 
+func (r *repositoryCommon[K, E]) validateUpdatePreloads(qb *QueryBuilderUpdate) error {
+	if qb == nil || !qb.hasPreloads() {
+		return nil
+	}
+
+	return r.validatePreloadRelations(qb.preloads)
+}
+
+func (r *repositoryCommon[K, E]) shouldReloadUpdatedEntity(qb *QueryBuilderUpdate, policy *associationSyncPolicy) bool {
+	if qb != nil && qb.hasPreloads() {
+		return true
+	}
+
+	return policy != nil && policy.shouldSyncRootAssociations() && len(r.schema.AutoPreloads()) > 0
+}
+
+func (r *repositoryCommon[K, E]) rehydrateUpdatedEntity(q sqlc.Querier, ctx context.Context, entity *E, qb *QueryBuilderUpdate, policy *associationSyncPolicy) (*E, error) {
+	if !r.shouldReloadUpdatedEntity(qb, policy) {
+		return entity, nil
+	}
+
+	qbr := NewQueryBuilderRead()
+	if qb != nil && qb.hasPreloads() {
+		qbr = qb.toQueryBuilderRead()
+	}
+
+	reloaded, err := r.readEntityWithOpts(q, ctx, (*entity).GetId(), qbr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload updated entity: %w", err)
+	}
+
+	*entity = *reloaded
+
+	return entity, nil
+}
+
 // deleteEntity removes the entity with the given id from the database. Returns an
 // error if no entity with that id exists. Association-aware delete flows should
 // use deleteEntityWithAssociations instead.

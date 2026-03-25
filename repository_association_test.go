@@ -59,11 +59,24 @@ type assocAuthorWithPointerProfile struct {
 	Profile *assocProfile `sqlr:"foreignKey:author_id"`
 }
 
+type assocAuthorAutoPreload struct {
+	sqlr.Entity[int64]
+	Name  string                             `db:"name"`
+	Posts []assocPostWithCommentsAutoPreload `sqlr:"foreignKey:author_id;preload"`
+}
+
 // assocPost is a post belonging to an author. Table: "assoc_posts".
 type assocPost struct {
 	sqlr.Entity[int64]
 	AuthorID int64  `db:"author_id"`
 	Title    string `db:"title"`
+}
+
+type assocPostWithCommentsAutoPreload struct {
+	sqlr.Entity[int64]
+	AuthorID int64          `db:"author_id"`
+	Title    string         `db:"title"`
+	Comments []assocComment `sqlr:"foreignKey:post_id;preload"`
 }
 
 // assocProfile is a profile belonging to an author (HasOne). Table: "assoc_profiles".

@@ -60,7 +60,7 @@ func (c *statementCache) Query(ctx context.Context, sqler sqlc.Sqler, q sqlc.Que
 			return rows, nil, err
 		},
 		func(stmt *sqlc.Stmt, args []any) (*sqlc.Rows, sqlc.Result, error) {
-			rows, err := stmt.QueryxContext(ctx, args...)
+			rows, err := stmt.QueryContext(ctx, args...)
 
 			return rows, nil, err
 		},

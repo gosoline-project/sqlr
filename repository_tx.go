@@ -24,7 +24,9 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// this call, in addition to any schema-level defaults declared via
 	// relationship sqlr tags. Many-to-many updates reconcile join-table membership
 	// by default; related many-to-many rows are only updated when explicitly
-	// opted in per path.
+	// opted in per path. When association sync is active and the schema defines
+	// auto-preloads, Update reloads the entity before returning so preload-tagged
+	// relations are hydrated.
 	Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	// Delete removes the base entity row and, by default, cascades owned
 	// associations. Optional functions receive a QueryBuilderDelete to restrict
@@ -120,6 +122,9 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 
 	qb := applyOptions(NewQueryBuilderUpdate(), opts)
 	mutationOptions := qb.mutationOptions()
+	if err := t.validateUpdatePreloads(qb); err != nil {
+		return nil, err
+	}
 
 	policy, err := newUpdateAssociationSyncPolicy(t.schema, qb)
 	if err != nil {
@@ -136,11 +141,25 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 			return nil, err
 		}
 
+		updated, err = t.rehydrateUpdatedEntity(ttx, ttx, updated, qb, policy)
+		if err != nil {
+			journal.restore()
+
+			return nil, err
+		}
+
 		return updated, nil
 	}
 
 	associationCtx := newAssociationSyncContext(t.statementCache, ttx, policy, journal, mutationOptions)
 	updated, err := t.updateEntityWithAssociations(ttx, associationCtx, entity)
+	if err != nil {
+		journal.restore()
+
+		return nil, err
+	}
+
+	updated, err = t.rehydrateUpdatedEntity(ttx, ttx, updated, qb, policy)
 	if err != nil {
 		journal.restore()
 

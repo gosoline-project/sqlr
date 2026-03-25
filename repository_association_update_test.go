@@ -383,6 +383,76 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 	s.Equal(int64(12), result.Posts[1].GetId())
 }
 
+// TestUpdate_AssociationSync_AutoPreloadRehydratesNewAssociations verifies that
+// Update reloads the entity graph when association sync is active and the root
+// schema defines auto-preloads, so newly added associations are returned fully
+// hydrated.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_AssociationSync_AutoPreloadRehydratesNewAssociations() {
+	repo := mustNewRepo[int64, assocAuthorAutoPreload](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+	commentNow := now.Add(-30 * time.Minute)
+
+	s.mock.ExpectBegin()
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}))
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
+		WillReturnResult(sqlmock.NewResult(12, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice Updated"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(12), postNow, postNow, int64(1), "Brand New"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)")).
+		WithArgs(int64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}).
+			AddRow(int64(100), commentNow, commentNow, int64(12), "Hydrated Comment"))
+
+	s.mock.ExpectCommit()
+
+	entity := assocAuthorAutoPreload{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+		Posts: []assocPostWithCommentsAutoPreload{{
+			Title: "Brand New",
+		}},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociations)
+
+	s.Require().NoError(err)
+	s.Require().Same(&entity, result)
+	s.Require().Len(result.Posts, 1)
+	s.Equal(int64(12), result.Posts[0].GetId())
+	s.Equal(int64(1), result.Posts[0].AuthorID)
+	s.Require().Len(result.Posts[0].Comments, 1)
+	s.Equal("Hydrated Comment", result.Posts[0].Comments[0].Body)
+}
+
 // TestUpdate_HasOne_ZeroValueClearsExistingChild verifies that syncing a cleared
 // value-form HasOne relation deletes the existing related row instead of silently
 // leaving it linked.
@@ -1094,6 +1164,72 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_Invali
 	s.Require().Error(err)
 	s.Nil(result)
 	s.ErrorContains(err, "invalid sync association path \"Unknown\"")
+}
+
+// TestUpdate_AssociationSync_ExplicitPreloadTakesPrecedence verifies that when
+// Update requests an explicit preload for a relation that is also auto-preloaded,
+// the explicit preload conditions are used during the post-update reload.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_AssociationSync_ExplicitPreloadTakesPrecedence() {
+	repo := mustNewRepo[int64, assocAuthorAutoPreload](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}))
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
+		WillReturnResult(sqlmock.NewResult(12, 1))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_author_auto_preloads` WHERE `assoc_author_auto_preloads`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice Updated"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?) AND title = ?")).
+		WithArgs(int64(1), "Brand New").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(12), postNow, postNow, int64(1), "Brand New"))
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)")).
+		WithArgs(int64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}))
+
+	s.mock.ExpectCommit()
+
+	entity := assocAuthorAutoPreload{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+		Posts: []assocPostWithCommentsAutoPreload{{
+			Title: "Brand New",
+		}},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociations, func(qb *sqlr.QueryBuilderUpdate) {
+		qb.Preload("Posts", sqlr.Condition("title = ?", "Brand New"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Same(&entity, result)
+	s.Require().Len(result.Posts, 1)
+	s.Equal("Brand New", result.Posts[0].Title)
 }
 
 // TestUpdate_SyncMany2many_InvalidPathReturnsError verifies that Update rejects invalid many2many sync paths.

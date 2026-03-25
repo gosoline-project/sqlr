@@ -331,6 +331,71 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_DisableAutoUpdates_UsesPresetValu
 	s.Equal(updatedAt, result.UpdatedAt)
 }
 
+// TestUpdate_WithExplicitPreload verifies that Update can reload and hydrate
+// caller-requested relations even without association sync.
+func (s *RepositoryUpdateTestSuite) TestUpdate_WithExplicitPreload() {
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	repo := mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
+	entity := testAuthorAutoPreload{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+	}
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(isTimestamp{}, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice Updated"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
+		WithArgs(int64(1), "published").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Published Post", "published"))
+
+	result, err := repo.Update(context.Background(), &entity, func(qb *sqlr.QueryBuilderUpdate) {
+		qb.Preload("Posts", sqlr.Condition("status = ?", "published"))
+	})
+
+	s.Require().NoError(err)
+	s.Require().Same(&entity, result)
+	s.Require().Len(result.Posts, 1)
+	s.Equal("Published Post", result.Posts[0].Title)
+	s.Equal("published", result.Posts[0].Status)
+}
+
+// TestUpdate_WithInvalidPreloadReturnsError verifies that Update rejects invalid
+// post-update preload paths before issuing any SQL.
+func (s *RepositoryUpdateTestSuite) TestUpdate_WithInvalidPreloadReturnsError() {
+	now := time.Now()
+	repo := mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
+	entity := testAuthorAutoPreload{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice Updated",
+	}
+
+	result, err := repo.Update(context.Background(), &entity, func(qb *sqlr.QueryBuilderUpdate) {
+		qb.Preload("Unknown")
+	})
+
+	s.Require().Error(err)
+	s.Nil(result)
+	s.ErrorContains(err, `preload relation "Unknown" not found`)
+}
+
 // ==========================================================================
 // Prepared Statement Tests
 // ==========================================================================
