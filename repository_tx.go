@@ -77,7 +77,7 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 
 	qb := applyOptions(NewQueryBuilderCreate(), opts)
 	mutationOptions := qb.mutationOptions()
-	if err := t.validateCreatePreloads(qb); err != nil {
+	if err := t.validateMutationPreloads(qb); err != nil {
 		return err
 	}
 
@@ -97,7 +97,7 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 			return err
 		}
 
-		err = t.rehydrateCreatedEntity(ttx, ttx, entity, qb, policy, false)
+		err = t.rehydrateMutatedEntity(ttx, ttx, entity, qb, policy, false, "created")
 		if err != nil {
 			journal.restore()
 		}
@@ -108,7 +108,7 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 	associationCtx := newAssociationCreateContext(t.statementCache, ttx, policy, journal, mutationOptions)
 	err = t.createEntityWithAssociations(ttx, associationCtx, entity)
 	if err == nil {
-		err = t.rehydrateCreatedEntity(ttx, ttx, entity, qb, policy, true)
+		err = t.rehydrateMutatedEntity(ttx, ttx, entity, qb, policy, true, "created")
 	}
 	if err != nil {
 		journal.restore()
@@ -136,7 +136,7 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 
 	qb := applyOptions(NewQueryBuilderUpdate(), opts)
 	mutationOptions := qb.mutationOptions()
-	if err := t.validateUpdatePreloads(qb); err != nil {
+	if err := t.validateMutationPreloads(qb); err != nil {
 		return nil, err
 	}
 
@@ -155,7 +155,7 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 			return nil, err
 		}
 
-		updated, err = t.rehydrateUpdatedEntity(ttx, ttx, updated, qb, policy)
+		err = t.rehydrateMutatedEntity(ttx, ttx, updated, qb, policy, false, "updated")
 		if err != nil {
 			journal.restore()
 
@@ -173,7 +173,7 @@ func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBu
 		return nil, err
 	}
 
-	updated, err = t.rehydrateUpdatedEntity(ttx, ttx, updated, qb, policy)
+	err = t.rehydrateMutatedEntity(ttx, ttx, updated, qb, policy, true, "updated")
 	if err != nil {
 		journal.restore()
 

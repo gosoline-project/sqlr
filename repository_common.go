@@ -231,23 +231,20 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 	return entity, nil
 }
 
-func (r *repositoryCommon[K, E]) validateUpdatePreloads(qb *QueryBuilderUpdate) error {
+type mutationPreloadAware interface {
+	hasPreloads() bool
+	toQueryBuilderRead() *QueryBuilderRead
+}
+
+func (r *repositoryCommon[K, E]) validateMutationPreloads(qb mutationPreloadAware) error {
 	if qb == nil || !qb.hasPreloads() {
 		return nil
 	}
 
-	return r.validatePreloadRelations(qb.preloads)
+	return r.validatePreloadRelations(qb.toQueryBuilderRead().preloads)
 }
 
-func (r *repositoryCommon[K, E]) validateCreatePreloads(qb *QueryBuilderCreate) error {
-	if qb == nil || !qb.hasPreloads() {
-		return nil
-	}
-
-	return r.validatePreloadRelations(qb.preloads)
-}
-
-func (r *repositoryCommon[K, E]) shouldReloadCreatedEntity(qb *QueryBuilderCreate, policy *associationSyncPolicy, syncedAssociations bool) bool {
+func (r *repositoryCommon[K, E]) shouldReloadMutatedEntity(qb mutationPreloadAware, policy *associationSyncPolicy, syncedAssociations bool) bool {
 	if qb != nil && qb.hasPreloads() {
 		return true
 	}
@@ -255,8 +252,8 @@ func (r *repositoryCommon[K, E]) shouldReloadCreatedEntity(qb *QueryBuilderCreat
 	return syncedAssociations && policy != nil && policy.shouldSyncRootAssociations() && len(r.schema.AutoPreloads()) > 0
 }
 
-func (r *repositoryCommon[K, E]) rehydrateCreatedEntity(q sqlc.Querier, ctx context.Context, entity *E, qb *QueryBuilderCreate, policy *associationSyncPolicy, syncedAssociations bool) error {
-	if !r.shouldReloadCreatedEntity(qb, policy, syncedAssociations) {
+func (r *repositoryCommon[K, E]) rehydrateMutatedEntity(q sqlc.Querier, ctx context.Context, entity *E, qb mutationPreloadAware, policy *associationSyncPolicy, syncedAssociations bool, action string) error {
+	if !r.shouldReloadMutatedEntity(qb, policy, syncedAssociations) {
 		return nil
 	}
 
@@ -267,40 +264,12 @@ func (r *repositoryCommon[K, E]) rehydrateCreatedEntity(q sqlc.Querier, ctx cont
 
 	reloaded, err := r.readEntityWithOpts(q, ctx, (*entity).GetId(), qbr)
 	if err != nil {
-		return fmt.Errorf("failed to reload created entity: %w", err)
+		return fmt.Errorf("failed to reload %s entity: %w", action, err)
 	}
 
 	*entity = *reloaded
 
 	return nil
-}
-
-func (r *repositoryCommon[K, E]) shouldReloadUpdatedEntity(qb *QueryBuilderUpdate, policy *associationSyncPolicy) bool {
-	if qb != nil && qb.hasPreloads() {
-		return true
-	}
-
-	return policy != nil && policy.shouldSyncRootAssociations() && len(r.schema.AutoPreloads()) > 0
-}
-
-func (r *repositoryCommon[K, E]) rehydrateUpdatedEntity(q sqlc.Querier, ctx context.Context, entity *E, qb *QueryBuilderUpdate, policy *associationSyncPolicy) (*E, error) {
-	if !r.shouldReloadUpdatedEntity(qb, policy) {
-		return entity, nil
-	}
-
-	qbr := NewQueryBuilderRead()
-	if qb != nil && qb.hasPreloads() {
-		qbr = qb.toQueryBuilderRead()
-	}
-
-	reloaded, err := r.readEntityWithOpts(q, ctx, (*entity).GetId(), qbr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reload updated entity: %w", err)
-	}
-
-	*entity = *reloaded
-
-	return entity, nil
 }
 
 // deleteEntity removes the entity with the given id from the database. Returns an

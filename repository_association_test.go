@@ -292,10 +292,6 @@ func disableCreateAutoUpdates(qb *sqlr.QueryBuilderCreate) {
 	qb.DisableAutoUpdates()
 }
 
-func preloadCreatePosts(qb *sqlr.QueryBuilderCreate) {
-	qb.Preload("Posts")
-}
-
 func preloadCreateAuthor(qb *sqlr.QueryBuilderCreate) {
 	qb.Preload("Author")
 }

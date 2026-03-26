@@ -107,7 +107,7 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 
 	qb := applyOptions(NewQueryBuilderCreate(), opts)
 	mutationOptions := qb.mutationOptions()
-	if err := r.validateCreatePreloads(qb); err != nil {
+	if err := r.validateMutationPreloads(qb); err != nil {
 		return err
 	}
 
@@ -127,7 +127,7 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 			return err
 		}
 
-		err = r.rehydrateCreatedEntity(r.client, ctx, entity, qb, policy, false)
+		err = r.rehydrateMutatedEntity(r.client, ctx, entity, qb, policy, false, "created")
 		if err != nil {
 			journal.restore()
 		}
@@ -142,7 +142,7 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 			return err
 		}
 
-		return r.rehydrateCreatedEntity(tx, ctx, entity, qb, policy, true)
+		return r.rehydrateMutatedEntity(tx, ctx, entity, qb, policy, true, "created")
 	})
 	if err != nil {
 		journal.restore()
@@ -170,7 +170,7 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 
 	qb := applyOptions(NewQueryBuilderUpdate(), opts)
 	mutationOptions := qb.mutationOptions()
-	if err := r.validateUpdatePreloads(qb); err != nil {
+	if err := r.validateMutationPreloads(qb); err != nil {
 		return nil, err
 	}
 
@@ -190,7 +190,7 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 			return nil, err
 		}
 
-		updated, err = r.rehydrateUpdatedEntity(r.client, ctx, updated, qb, policy)
+		err = r.rehydrateMutatedEntity(r.client, ctx, updated, qb, policy, false, "updated")
 		if err != nil {
 			journal.restore()
 
@@ -209,7 +209,7 @@ func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(q
 			return err
 		}
 
-		updated, err = r.rehydrateUpdatedEntity(tx, ctx, updated, qb, policy)
+		err = r.rehydrateMutatedEntity(tx, ctx, updated, qb, policy, true, "updated")
 
 		return err
 	})
