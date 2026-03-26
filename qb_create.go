@@ -1,12 +1,16 @@
 package sqlr
 
+import "github.com/gosoline-project/sqlc"
+
 // QueryBuilderCreate configures optional association synchronization behavior
 // for Repository.Create and RepositoryTx.Create, augmenting or overriding any
-// schema-level relationship sync defaults.
+// schema-level relationship sync defaults. It can also request post-create
+// preloading for relations that should be rehydrated after the write succeeds.
 type QueryBuilderCreate struct {
 	omitAllAssociations bool
 	associationOptions  associationSyncOptions
 	disableAutoUpdates  bool
+	preloads            []preloadEntry
 }
 
 // NewQueryBuilderCreate creates a new QueryBuilderCreate instance.
@@ -40,8 +44,30 @@ func (c *QueryBuilderCreate) OmitAssociation(paths ...string) *QueryBuilderCreat
 	return c
 }
 
+// Preload requests post-create loading for the named relation. After the create
+// succeeds, sqlr reloads the entity by primary key and hydrates the requested
+// relations using the same preload machinery as Read and Query. Nested paths and
+// optional conditions are supported.
+func (c *QueryBuilderCreate) Preload(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderCreate {
+	appendPreload(&c.preloads, relation, conditions)
+
+	return c
+}
+
 func (c *QueryBuilderCreate) shouldOmitAllAssociations() bool {
 	return c != nil && c.omitAllAssociations
+}
+
+func (c *QueryBuilderCreate) hasPreloads() bool {
+	return c != nil && len(c.preloads) > 0
+}
+
+func (c *QueryBuilderCreate) toQueryBuilderRead() *QueryBuilderRead {
+	if c == nil {
+		return NewQueryBuilderRead()
+	}
+
+	return &QueryBuilderRead{preloads: c.preloads}
 }
 
 // DisableAutoUpdates disables sqlr-managed primary key and timestamp mutations

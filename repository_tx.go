@@ -11,8 +11,8 @@ var _ RepositoryTx[int64, Entitier[int64]] = (*repositoryTx[int64, Entitier[int6
 type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
 	// Optional functions receive a QueryBuilderCreate to restrict, omit, or disable
-	// association synchronization for this call, in addition to any schema-level
-	// defaults declared via relationship sqlr tags.
+	// association synchronization for this call, request post-create preloads, and
+	// augment any schema-level defaults declared via relationship sqlr tags.
 	Create(ttx TTx, entity *E, opts ...func(qb *QueryBuilderCreate)) error
 	// Read loads one entity by primary key. Optional functions receive a
 	// QueryBuilderRead to configure joins and preloads for eager-loading
@@ -77,6 +77,9 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 
 	qb := applyOptions(NewQueryBuilderCreate(), opts)
 	mutationOptions := qb.mutationOptions()
+	if err := t.validateCreatePreloads(qb); err != nil {
+		return err
+	}
 
 	policy, err := newCreateAssociationSyncPolicy(t.schema, qb)
 	if err != nil {
@@ -84,9 +87,17 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 	}
 
 	journal := newMutationJournal()
+	hasAssociations := t.hasAssociationsToSave(entity, policy)
 
-	if !t.hasAssociationsToSave(entity, policy) {
+	if !hasAssociations {
 		err = t.createEntity(ttx, ttx, entity, journal, mutationOptions)
+		if err != nil {
+			journal.restore()
+
+			return err
+		}
+
+		err = t.rehydrateCreatedEntity(ttx, ttx, entity, qb, policy, false)
 		if err != nil {
 			journal.restore()
 		}
@@ -96,6 +107,9 @@ func (t *repositoryTx[K, E]) Create(ttx TTx, entity *E, opts ...func(qb *QueryBu
 
 	associationCtx := newAssociationCreateContext(t.statementCache, ttx, policy, journal, mutationOptions)
 	err = t.createEntityWithAssociations(ttx, associationCtx, entity)
+	if err == nil {
+		err = t.rehydrateCreatedEntity(ttx, ttx, entity, qb, policy, true)
+	}
 	if err != nil {
 		journal.restore()
 	}

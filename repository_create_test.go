@@ -178,6 +178,55 @@ func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_UsesPresetValu
 	s.Equal(updatedAt, entity.UpdatedAt)
 }
 
+// TestCreate_WithExplicitPreload verifies that Create can reload and hydrate
+// caller-requested relations after inserting the root row.
+func (s *RepositoryCreateTestSuite) TestCreate_WithExplicitPreload() {
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	repo := mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
+	entity := testAuthorAutoPreload{Name: "Alice"}
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
+		WithArgs(int64(1), "published").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Published Post", "published"))
+
+	err := repo.Create(context.Background(), &entity, func(qb *sqlr.QueryBuilderCreate) {
+		qb.Preload("Posts", sqlr.Condition("status = ?", "published"))
+	})
+
+	s.Require().NoError(err)
+	s.Equal(int64(1), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal("Published Post", entity.Posts[0].Title)
+	s.Equal("published", entity.Posts[0].Status)
+}
+
+// TestCreate_WithInvalidPreloadReturnsError verifies that Create rejects invalid
+// post-create preload paths before issuing any SQL.
+func (s *RepositoryCreateTestSuite) TestCreate_WithInvalidPreloadReturnsError() {
+	repo := mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
+	entity := testAuthorAutoPreload{Name: "Alice"}
+
+	err := repo.Create(context.Background(), &entity, func(qb *sqlr.QueryBuilderCreate) {
+		qb.Preload("Unknown")
+	})
+
+	s.Require().Error(err)
+	s.ErrorContains(err, `preload relation "Unknown" not found`)
+}
+
 // TestCreate_DisableAutoUpdates_MissingPrimaryKeyReturnsError verifies that Create returns an error when auto-updates are disabled without a preset primary key.
 func (s *RepositoryCreateTestSuite) TestCreate_DisableAutoUpdates_MissingPrimaryKeyReturnsError() {
 	entity := testUser{Name: "Alice", Email: "alice@test.com"}

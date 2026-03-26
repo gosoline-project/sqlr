@@ -28,8 +28,8 @@ var _ Repository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])
 type Repository[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
 	// Optional functions receive a QueryBuilderCreate to restrict, omit, or disable
-	// association synchronization for this call, in addition to any schema-level
-	// defaults declared via relationship sqlr tags.
+	// association synchronization for this call, request post-create preloads, and
+	// augment any schema-level defaults declared via relationship sqlr tags.
 	Create(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderCreate)) error
 	// Read loads one entity by primary key. Optional functions receive a
 	// QueryBuilderRead to configure joins and preloads for eager-loading
@@ -107,6 +107,9 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 
 	qb := applyOptions(NewQueryBuilderCreate(), opts)
 	mutationOptions := qb.mutationOptions()
+	if err := r.validateCreatePreloads(qb); err != nil {
+		return err
+	}
 
 	policy, err := newCreateAssociationSyncPolicy(r.schema, qb)
 	if err != nil {
@@ -114,9 +117,17 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 	}
 
 	journal := newMutationJournal()
+	hasAssociations := r.hasAssociationsToSave(entity, policy)
 
-	if !r.hasAssociationsToSave(entity, policy) {
+	if !hasAssociations {
 		err = r.createEntity(r.client, ctx, entity, journal, mutationOptions)
+		if err != nil {
+			journal.restore()
+
+			return err
+		}
+
+		err = r.rehydrateCreatedEntity(r.client, ctx, entity, qb, policy, false)
 		if err != nil {
 			journal.restore()
 		}
@@ -127,7 +138,11 @@ func (r *repository[K, E]) Create(ctx context.Context, entity *E, opts ...func(q
 	err = r.client.WithTx(ctx, func(tx sqlc.Tx) error {
 		associationCtx := newAssociationCreateContext(r.statementCache, tx, policy, journal, mutationOptions)
 
-		return r.createEntityWithAssociations(ctx, associationCtx, entity)
+		if err := r.createEntityWithAssociations(ctx, associationCtx, entity); err != nil {
+			return err
+		}
+
+		return r.rehydrateCreatedEntity(tx, ctx, entity, qb, policy, true)
 	})
 	if err != nil {
 		journal.restore()

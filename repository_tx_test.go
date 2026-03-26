@@ -204,6 +204,58 @@ func TestRepositoryTxCreate_DisableAutoUpdates_UsesPresetValues(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestRepositoryTxCreate_WithExplicitPreload verifies that transactional Create
+// honors caller-requested post-create preloads.
+func TestRepositoryTxCreate_WithExplicitPreload(t *testing.T) {
+	client, mock := newTestClient(t)
+	repo := mustNewTxRepo[int64, testAuthorAutoPreload](t, client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice"))
+	mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
+		WithArgs(int64(1), "published").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Published Post", "published"))
+	mock.ExpectCommit()
+
+	entity := testAuthorAutoPreload{Name: "Alice"}
+	err := runWithTx(context.Background(), client, func(ttx sqlr.TTx) error {
+		return repo.Create(ttx, &entity, func(qb *sqlr.QueryBuilderCreate) {
+			qb.Preload("Posts", sqlr.Condition("status = ?", "published"))
+		})
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), entity.GetId())
+	require.Len(t, entity.Posts, 1)
+	require.Equal(t, "Published Post", entity.Posts[0].Title)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestRepositoryTxCreate_WithInvalidPreloadReturnsError verifies that
+// transactional Create rejects invalid preload paths before mutating state.
+func TestRepositoryTxCreate_WithInvalidPreloadReturnsError(t *testing.T) {
+	repo, err := sqlr.NewRepositoryTxWithSettings[int64, testAuthorAutoPreload](nil, sqlr.DefaultSettings())
+	require.NoError(t, err)
+
+	entity := testAuthorAutoPreload{Name: "Alice"}
+	err = repo.Create(sqlr.TTx{}, &entity, func(qb *sqlr.QueryBuilderCreate) {
+		qb.Preload("Unknown")
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, `preload relation "Unknown" not found`)
+}
+
 // TestRepositoryTxUpdate_AssociationSync_AutoPreloadRehydratesNewAssociations verifies that
 // transactional Update reloads auto-preloaded relations after association sync.
 func TestRepositoryTxUpdate_AssociationSync_AutoPreloadRehydratesNewAssociations(t *testing.T) {

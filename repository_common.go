@@ -239,6 +239,42 @@ func (r *repositoryCommon[K, E]) validateUpdatePreloads(qb *QueryBuilderUpdate) 
 	return r.validatePreloadRelations(qb.preloads)
 }
 
+func (r *repositoryCommon[K, E]) validateCreatePreloads(qb *QueryBuilderCreate) error {
+	if qb == nil || !qb.hasPreloads() {
+		return nil
+	}
+
+	return r.validatePreloadRelations(qb.preloads)
+}
+
+func (r *repositoryCommon[K, E]) shouldReloadCreatedEntity(qb *QueryBuilderCreate, policy *associationSyncPolicy, syncedAssociations bool) bool {
+	if qb != nil && qb.hasPreloads() {
+		return true
+	}
+
+	return syncedAssociations && policy != nil && policy.shouldSyncRootAssociations() && len(r.schema.AutoPreloads()) > 0
+}
+
+func (r *repositoryCommon[K, E]) rehydrateCreatedEntity(q sqlc.Querier, ctx context.Context, entity *E, qb *QueryBuilderCreate, policy *associationSyncPolicy, syncedAssociations bool) error {
+	if !r.shouldReloadCreatedEntity(qb, policy, syncedAssociations) {
+		return nil
+	}
+
+	qbr := NewQueryBuilderRead()
+	if qb != nil && qb.hasPreloads() {
+		qbr = qb.toQueryBuilderRead()
+	}
+
+	reloaded, err := r.readEntityWithOpts(q, ctx, (*entity).GetId(), qbr)
+	if err != nil {
+		return fmt.Errorf("failed to reload created entity: %w", err)
+	}
+
+	*entity = *reloaded
+
+	return nil
+}
+
 func (r *repositoryCommon[K, E]) shouldReloadUpdatedEntity(qb *QueryBuilderUpdate, policy *associationSyncPolicy) bool {
 	if qb != nil && qb.hasPreloads() {
 		return true

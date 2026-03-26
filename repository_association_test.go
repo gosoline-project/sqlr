@@ -292,6 +292,18 @@ func disableCreateAutoUpdates(qb *sqlr.QueryBuilderCreate) {
 	qb.DisableAutoUpdates()
 }
 
+func preloadCreatePosts(qb *sqlr.QueryBuilderCreate) {
+	qb.Preload("Posts")
+}
+
+func preloadCreateAuthor(qb *sqlr.QueryBuilderCreate) {
+	qb.Preload("Author")
+}
+
+func preloadCreateTags(qb *sqlr.QueryBuilderCreate) {
+	qb.Preload("Tags")
+}
+
 // --------------------------------------------------------------------------
 // No associations — no transaction overhead
 // --------------------------------------------------------------------------
@@ -484,6 +496,55 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_PersistsExisti
 	s.Equal(int64(99), stored.Posts[0].GetId())
 	s.Equal(int64(1), stored.Posts[0].AuthorID)
 	s.Equal("Existing Post", stored.Posts[0].Title)
+}
+
+// TestCreate_AssociationSync_AutoPreloadRehydratesNewAssociations verifies that
+// Create reloads auto-preloaded relations after association persistence.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_AssociationSync_AutoPreloadRehydratesNewAssociations() {
+	repo := mustNewRepo[int64, assocAuthorAutoPreload](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+	commentNow := now.Add(-30 * time.Minute)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
+		WillReturnResult(sqlmock.NewResult(12, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?")).
+		WithArgs(int64(1), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(1), now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(12), postNow, postNow, int64(1), "Brand New"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)")).
+		WithArgs(int64(12)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}).
+			AddRow(int64(100), commentNow, commentNow, int64(12), "Hydrated Comment"))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthorAutoPreload{
+		Name: "Alice",
+		Posts: []assocPostWithCommentsAutoPreload{{
+			Title: "Brand New",
+		}},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity))
+	s.Equal(int64(1), entity.GetId())
+	s.Require().Len(entity.Posts, 1)
+	s.Equal(int64(12), entity.Posts[0].GetId())
+	s.Require().Len(entity.Posts[0].Comments, 1)
+	s.Equal("Hydrated Comment", entity.Posts[0].Comments[0].Body)
 }
 
 // TestCreate_SyncAssociation_OnlyCreatesSelectedRelation verifies that Create only creates selected relation for explicit association sync.
@@ -827,6 +888,43 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExistingRela
 	s.Equal(int64(7), entity.AuthorID) // FK set from existing author PK
 }
 
+// TestCreate_BelongsTo_ExplicitPreloadRehydratesExistingRelated verifies that
+// Create can hydrate an existing belongs-to relation provided with only a
+// primary key when an explicit preload is requested.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExplicitPreloadRehydratesExistingRelated() {
+	repo := mustNewRepo[int64, assocPostWithAuthor](s.T(), s.client)
+	now := time.Now()
+	authorNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_post_with_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, int64(7), "Frank's post").
+		WillReturnResult(sqlmock.NewResult(40, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_post_with_authors` WHERE `assoc_post_with_authors`.`id` = ? LIMIT ?")).
+		WithArgs(int64(40), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(40), now, now, int64(7), "Frank's post"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` IN (?)")).
+		WithArgs(int64(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(7), authorNow, authorNow, "Frank"))
+	s.mock.ExpectCommit()
+
+	entity := assocPostWithAuthor{
+		Title:  "Frank's post",
+		Author: assocAuthor{Entity: sqlr.Entity[int64]{Id: 7}},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, preloadCreateAuthor))
+	s.Equal(int64(40), entity.GetId())
+	s.Equal(int64(7), entity.AuthorID)
+	s.Equal(int64(7), entity.Author.GetId())
+	s.Equal("Frank", entity.Author.Name)
+}
+
 // TestCreate_DisableAutoUpdates_UsesPresetValuesAcrossGraph verifies that Create uses preset values across graph when auto-updates are disabled.
 func (s *RepositoryAssociationCreateTestSuite) TestCreate_DisableAutoUpdates_UsesPresetValuesAcrossGraph() {
 	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
@@ -1006,6 +1104,57 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_SkipsExisti
 	s.Equal(int64(3), entity.GetId())
 	s.Equal(int64(200), entity.Tags[0].GetId()) // unchanged
 	s.Equal(int64(201), entity.Tags[1].GetId()) // newly generated
+}
+
+// TestCreate_ManyToMany_ExplicitPreloadRehydratesExistingRelated verifies that
+// Create can hydrate existing many-to-many targets provided with primary keys
+// only when an explicit preload is requested.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_ExplicitPreloadRehydratesExistingRelated() {
+	repo := mustNewRepo[int64, assocArticle](s.T(), s.client)
+	now := time.Now()
+	tagNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_articles` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)")).
+		WithArgs(isTimestamp{}, isTimestamp{}, "Existing Tags").
+		WillReturnResult(sqlmock.NewResult(3, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?), (?, ?)")).
+		WithArgs(int64(3), int64(200), int64(3), int64(201)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_articles` WHERE `assoc_articles`.`id` = ? LIMIT ?")).
+		WithArgs(int64(3), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title"}).
+			AddRow(int64(3), now, now, "Existing Tags"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` IN (?)")).
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_id", "assoc_tag_id"}).
+			AddRow(int64(3), int64(200)).
+			AddRow(int64(3), int64(201)))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_tags` WHERE `assoc_tags`.`id` IN (?, ?)")).
+		WithArgs(int64(200), int64(201)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(int64(200), tagNow, tagNow, "existing-tag").
+			AddRow(int64(201), now, now, "new-tag"))
+	s.mock.ExpectCommit()
+
+	entity := assocArticle{
+		Title: "Existing Tags",
+		Tags: []assocTag{
+			{Entity: sqlr.Entity[int64]{Id: 200}},
+			{Entity: sqlr.Entity[int64]{Id: 201}},
+		},
+	}
+
+	s.Require().NoError(repo.Create(context.Background(), &entity, preloadCreateTags))
+	s.Equal(int64(3), entity.GetId())
+	s.Require().Len(entity.Tags, 2)
+	s.Equal("existing-tag", entity.Tags[0].Name)
+	s.Equal("new-tag", entity.Tags[1].Name)
 }
 
 // --------------------------------------------------------------------------
