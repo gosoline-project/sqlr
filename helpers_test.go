@@ -390,6 +390,7 @@ type testPostWithAuthorPointer struct {
 type testAuthorAutoPreload struct {
 	sqlr.Entity[int64]
 	Name     string        `db:"name"`
+	Parent   uint          `db:"-"`
 	Posts    []testPost    `sqlr:"foreignKey:author_id;preload"`
 	Comments []testComment `sqlr:"foreignKey:author_id"`
 }

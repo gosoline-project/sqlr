@@ -185,7 +185,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_WithExplicitPreload() {
 	postNow := now.Add(-time.Hour)
 
 	repo := mustNewRepo[int64, testAuthorAutoPreload](s.T(), s.client)
-	entity := testAuthorAutoPreload{Name: "Alice"}
+	entity := testAuthorAutoPreload{Name: "Alice", Parent: 5}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"INSERT INTO `test_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
@@ -208,6 +208,7 @@ func (s *RepositoryCreateTestSuite) TestCreate_WithExplicitPreload() {
 
 	s.Require().NoError(err)
 	s.Equal(int64(1), entity.GetId())
+	s.Equal(uint(5), entity.Parent)
 	s.Require().Len(entity.Posts, 1)
 	s.Equal("Published Post", entity.Posts[0].Title)
 	s.Equal("published", entity.Posts[0].Status)

@@ -436,9 +436,11 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_AssociationSync_AutoPr
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
-		Name: "Alice Updated",
+		Name:   "Alice Updated",
+		Parent: 8,
 		Posts: []assocPostWithCommentsAutoPreload{{
-			Title: "Brand New",
+			Title:    "Brand New",
+			CacheKey: "brand-new",
 		}},
 	}
 
@@ -446,9 +448,11 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_AssociationSync_AutoPr
 
 	s.Require().NoError(err)
 	s.Require().Same(&entity, result)
+	s.Equal(uint(8), result.Parent)
 	s.Require().Len(result.Posts, 1)
 	s.Equal(int64(12), result.Posts[0].GetId())
 	s.Equal(int64(1), result.Posts[0].AuthorID)
+	s.Equal("brand-new", result.Posts[0].CacheKey)
 	s.Require().Len(result.Posts[0].Comments, 1)
 	s.Equal("Hydrated Comment", result.Posts[0].Comments[0].Body)
 }

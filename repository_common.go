@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/gosoline-project/sqlc"
@@ -257,6 +258,8 @@ func (r *repositoryCommon[K, E]) rehydrateMutatedEntity(q sqlc.Querier, ctx cont
 		return nil
 	}
 
+	currentEntity := unwrapEntityValue(reflect.ValueOf(entity))
+
 	qbr := NewQueryBuilderRead()
 	if qb != nil && qb.hasPreloads() {
 		qbr = qb.toQueryBuilderRead()
@@ -265,6 +268,10 @@ func (r *repositoryCommon[K, E]) rehydrateMutatedEntity(q sqlc.Querier, ctx cont
 	reloaded, err := r.readEntityWithOpts(q, ctx, (*entity).GetId(), qbr)
 	if err != nil {
 		return fmt.Errorf("failed to reload %s entity: %w", action, err)
+	}
+
+	if err = preserveTransientFields(reflect.ValueOf(reloaded), currentEntity, r.schema); err != nil {
+		return fmt.Errorf("failed to preserve transient fields while reloading %s entity: %w", action, err)
 	}
 
 	*entity = *reloaded

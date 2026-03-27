@@ -344,7 +344,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_WithExplicitPreload() {
 			CreatedAt: now,
 			UpdatedAt: now,
 		},
-		Name: "Alice Updated",
+		Name:   "Alice Updated",
+		Parent: 7,
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
@@ -368,6 +369,7 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_WithExplicitPreload() {
 
 	s.Require().NoError(err)
 	s.Require().Same(&entity, result)
+	s.Equal(uint(7), result.Parent)
 	s.Require().Len(result.Posts, 1)
 	s.Equal("Published Post", result.Posts[0].Title)
 	s.Equal("published", result.Posts[0].Status)

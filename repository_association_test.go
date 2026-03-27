@@ -61,8 +61,9 @@ type assocAuthorWithPointerProfile struct {
 
 type assocAuthorAutoPreload struct {
 	sqlr.Entity[int64]
-	Name  string                             `db:"name"`
-	Posts []assocPostWithCommentsAutoPreload `sqlr:"foreignKey:author_id;preload"`
+	Name   string                             `db:"name"`
+	Parent uint                               `db:"-"`
+	Posts  []assocPostWithCommentsAutoPreload `sqlr:"foreignKey:author_id;preload"`
 }
 
 // assocPost is a post belonging to an author. Table: "assoc_posts".
@@ -76,6 +77,7 @@ type assocPostWithCommentsAutoPreload struct {
 	sqlr.Entity[int64]
 	AuthorID int64          `db:"author_id"`
 	Title    string         `db:"title"`
+	CacheKey string         `db:"-"`
 	Comments []assocComment `sqlr:"foreignKey:post_id;preload"`
 }
 
@@ -529,16 +531,20 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_AssociationSync_AutoPr
 	s.mock.ExpectCommit()
 
 	entity := assocAuthorAutoPreload{
-		Name: "Alice",
+		Name:   "Alice",
+		Parent: 5,
 		Posts: []assocPostWithCommentsAutoPreload{{
-			Title: "Brand New",
+			Title:    "Brand New",
+			CacheKey: "brand-new",
 		}},
 	}
 
 	s.Require().NoError(repo.Create(context.Background(), &entity))
 	s.Equal(int64(1), entity.GetId())
+	s.Equal(uint(5), entity.Parent)
 	s.Require().Len(entity.Posts, 1)
 	s.Equal(int64(12), entity.Posts[0].GetId())
+	s.Equal("brand-new", entity.Posts[0].CacheKey)
 	s.Require().Len(entity.Posts[0].Comments, 1)
 	s.Equal("Hydrated Comment", entity.Posts[0].Comments[0].Body)
 }
