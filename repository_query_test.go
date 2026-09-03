@@ -146,7 +146,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_users` WHERE name = ? LIMIT ? OFFSET ?")).
+		"SELECT * FROM `test_users` WHERE name = ? LIMIT ? OFFSET ? FOR UPDATE")).
 		WithArgs("Alice", 10, 5).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 			AddRow(1, now, now, "Alice", "alice@test.com"))
@@ -154,7 +154,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
 	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Alice").
 			Limit(10).
-			Offset(5)
+			Offset(5).
+			ForUpdate()
 	})
 
 	s.Require().NoError(err)
