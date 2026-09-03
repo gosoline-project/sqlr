@@ -115,15 +115,13 @@ func preserveTransientSliceRelationFields(dst reflect.Value, src reflect.Value, 
 			continue
 		}
 
-		if !matchedByKey {
-			match, matchErr := relationEntitiesMatch(dstEntity, srcEntity, schema)
-			if matchErr != nil {
-				return matchErr
-			}
+		match, err := relationEntitiesMatchWhenNeeded(dstEntity, srcEntity, matchedByKey, schema)
+		if err != nil {
+			return err
+		}
 
-			if !match {
-				continue
-			}
+		if !match {
+			continue
 		}
 
 		if err := preserveTransientFields(dstEntity, srcEntity, schema); err != nil {
@@ -132,6 +130,14 @@ func preserveTransientSliceRelationFields(dst reflect.Value, src reflect.Value, 
 	}
 
 	return nil
+}
+
+func relationEntitiesMatchWhenNeeded(dst reflect.Value, src reflect.Value, matchedByKey bool, schema *EntitySchema) (bool, error) {
+	if matchedByKey {
+		return true, nil
+	}
+
+	return relationEntitiesMatch(dst, src, schema)
 }
 
 func indexRelatedEntitiesByKey(slice reflect.Value, schema *EntitySchema) (map[any][]reflect.Value, error) {
