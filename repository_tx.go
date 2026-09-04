@@ -6,7 +6,10 @@ import (
 	"github.com/gosoline-project/sqlc"
 )
 
-var _ RepositoryTx[int64, Entitier[int64]] = (*repositoryTx[int64, Entitier[int64]])(nil)
+var (
+	_ RepositoryTx[int64, Entitier[int64]]         = (*repositoryTx[int64, Entitier[int64]])(nil)
+	_ CountingRepositoryTx[int64, Entitier[int64]] = (*repositoryTx[int64, Entitier[int64]])(nil)
+)
 
 type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
@@ -42,14 +45,14 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 // NewRepositoryTx creates a transactional Repository with default settings.
 // Note: prepared statements require a client, use NewRepositoryTxWithSettings
 // to enable them.
-func NewRepositoryTx[K KeyTypes, E Entitier[K]]() (RepositoryTx[K, E], error) {
+func NewRepositoryTx[K KeyTypes, E Entitier[K]]() (CountingRepositoryTx[K, E], error) {
 	return NewRepositoryTxWithSettings[K, E](nil, DefaultSettings())
 }
 
 // NewRepositoryTxWithSettings creates a transactional Repository with custom
 // settings. The client is used to prepare statements when PreparedStatements
 // is enabled; it must be the same connection that transactions are opened from.
-func NewRepositoryTxWithSettings[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (RepositoryTx[K, E], error) {
+func NewRepositoryTxWithSettings[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (CountingRepositoryTx[K, E], error) {
 	var err error
 	var common repositoryCommon[K, E]
 
@@ -127,6 +130,10 @@ func (t *repositoryTx[K, E]) Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)
 	qb := applyOptions(NewQueryBuilderSelect(), opts)
 
 	return t.queryEntities(ttx, ttx, qb)
+}
+
+func (t *repositoryTx[K, E]) Count(ttx TTx, qb *QueryBuilderSelect) (int, error) {
+	return t.countEntities(ttx, ttx, qb)
 }
 
 func (t *repositoryTx[K, E]) Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error) {
