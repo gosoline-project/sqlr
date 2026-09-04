@@ -11,14 +11,15 @@ import (
 // clauses into a reusable component for building SQL queries.
 // It delegates to the individual Sqler components for each clause type.
 type QueryBuilderSelect struct {
-	joins    []joinEntry
-	preloads []preloadEntry
-	where    *sqlc.SqlerWhere
-	groupBy  *sqlc.SqlerGroupBy
-	having   *sqlc.SqlerHaving
-	orderBy  *sqlc.SqlerOrderBy
-	limit    *int
-	offset   *int
+	joins     []joinEntry
+	preloads  []preloadEntry
+	where     *sqlc.SqlerWhere
+	groupBy   *sqlc.SqlerGroupBy
+	having    *sqlc.SqlerHaving
+	orderBy   *sqlc.SqlerOrderBy
+	limit     *int
+	offset    *int
+	forUpdate bool
 }
 
 // NewQueryBuilderSelect creates a new QueryBuilderSelect instance with all components initialized.
@@ -123,6 +124,14 @@ func (s *QueryBuilderSelect) Offset(offset int) *QueryBuilderSelect {
 	return s
 }
 
+// ForUpdate locks the selected rows until the current transaction ends.
+// Returns the same QueryBuilderSelect instance for method chaining.
+func (s *QueryBuilderSelect) ForUpdate() *QueryBuilderSelect {
+	s.forUpdate = true
+
+	return s
+}
+
 // ToSql builds and returns the complete SQL query string and parameters.
 // It combines all the clauses (WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET)
 // in the correct order according to SQL syntax.
@@ -190,6 +199,10 @@ func (s *QueryBuilderSelect) ToSql() (query string, params []any, err error) {
 		parts = append(parts, fmt.Sprintf("OFFSET %d", *s.offset))
 	}
 
+	if s.forUpdate {
+		parts = append(parts, "FOR UPDATE")
+	}
+
 	return strings.Join(parts, " "), params, nil
 }
 
@@ -243,6 +256,10 @@ func (s *QueryBuilderSelect) applyToSqlcBuilder(qb *sqlc.SelectQueryBuilder) (*s
 	// OFFSET clause
 	if s.offset != nil {
 		qb = qb.Offset(*s.offset)
+	}
+
+	if s.forUpdate {
+		qb = qb.ForUpdate()
 	}
 
 	return qb, nil

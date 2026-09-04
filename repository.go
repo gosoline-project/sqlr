@@ -9,7 +9,10 @@ import (
 	"github.com/justtrackio/gosoline/pkg/log"
 )
 
-var _ Repository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])(nil)
+var (
+	_ Repository[int64, Entitier[int64]]         = (*repository[int64, Entitier[int64]])(nil)
+	_ CountingRepository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])(nil)
+)
 
 // Repository provides CRUD and query operations for an entity type. Create
 // synchronizes populated relationship fields together with the base entity row
@@ -62,13 +65,13 @@ type Repository[K KeyTypes, E Entitier[K]] interface {
 
 // NewRepository creates a non-transactional Repository using a sqlc client
 // resolved from the given gosoline configuration.
-func NewRepository[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Config, logger log.Logger, name string) (Repository[K, E], error) {
+func NewRepository[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Config, logger log.Logger, name string) (CountingRepository[K, E], error) {
 	return NewRepositoryWithSettings[K, E](ctx, config, logger, name, DefaultSettings())
 }
 
 // NewRepositoryWithSettings creates a non-transactional Repository with custom
 // settings using a sqlc client resolved from the given gosoline configuration.
-func NewRepositoryWithSettings[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Config, logger log.Logger, name string, settings Settings) (Repository[K, E], error) {
+func NewRepositoryWithSettings[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Config, logger log.Logger, name string, settings Settings) (CountingRepository[K, E], error) {
 	var err error
 	var client sqlc.Client
 
@@ -81,7 +84,7 @@ func NewRepositoryWithSettings[K KeyTypes, E Entitier[K]](ctx context.Context, c
 
 // NewRepositoryWithInterfaces creates a non-transactional Repository backed by
 // the provided sqlc client.
-func NewRepositoryWithInterfaces[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (Repository[K, E], error) {
+func NewRepositoryWithInterfaces[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (CountingRepository[K, E], error) {
 	var err error
 	var common repositoryCommon[K, E]
 
@@ -161,6 +164,10 @@ func (r *repository[K, E]) Query(ctx context.Context, opts ...func(qb *QueryBuil
 	qb := applyOptions(NewQueryBuilderSelect(), opts)
 
 	return r.queryEntities(r.client, ctx, qb)
+}
+
+func (r *repository[K, E]) Count(ctx context.Context, qb *QueryBuilderSelect) (int, error) {
+	return r.countEntities(r.client, ctx, qb)
 }
 
 func (r *repository[K, E]) Update(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error) {
