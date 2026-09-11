@@ -146,13 +146,35 @@ func (s *RepositoryQueryTestSuite) TestQuery_WithLimitAndOffset() {
 	now := time.Now()
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_users` WHERE name = ? LIMIT ? OFFSET ? FOR UPDATE")).
+		"SELECT * FROM `test_users` WHERE name = ? LIMIT ? OFFSET ?")).
 		WithArgs("Alice", 10, 5).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 			AddRow(1, now, now, "Alice", "alice@test.com"))
 
 	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 		qb.Where("name = ?", "Alice").
+			Limit(10).
+			Offset(5)
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+}
+
+// TestQuery_WithForUpdate verifies that FOR UPDATE is appended as the last
+// clause, after LIMIT and OFFSET.
+func (s *RepositoryQueryTestSuite) TestQuery_WithForUpdate() {
+	now := time.Now()
+
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ? ORDER BY `created_at` DESC LIMIT ? OFFSET ? FOR UPDATE")).
+		WithArgs("Alice", 10, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
+			AddRow(1, now, now, "Alice", "alice@test.com"))
+
+	results, err := s.repo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+		qb.Where("name = ?", "Alice").
+			OrderBy("created_at DESC").
 			Limit(10).
 			Offset(5).
 			ForUpdate()

@@ -124,7 +124,16 @@ func (s *QueryBuilderSelect) Offset(offset int) *QueryBuilderSelect {
 	return s
 }
 
-// ForUpdate locks the selected rows until the current transaction ends.
+// ForUpdate locks the selected rows until the current transaction ends. It must
+// be used inside a transaction; outside one the lock is released immediately.
+//
+// The lock covers every table read by this statement, so joined relations are
+// locked too. Preloaded relations are loaded by separate statements and are not
+// locked. Lock the parent row and treat its preloaded children as unlocked, or
+// add an explicit aggregate lock when child rows must not change concurrently.
+//
+// Count strips FOR UPDATE, because counting must not lock rows.
+//
 // Returns the same QueryBuilderSelect instance for method chaining.
 func (s *QueryBuilderSelect) ForUpdate() *QueryBuilderSelect {
 	s.forUpdate = true

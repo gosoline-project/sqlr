@@ -520,7 +520,7 @@ func newTestClient(t *testing.T) (sqlc.Client, sqlmock.Sqlmock) {
 
 // mustNewRepo creates a repository from an existing client, failing the test on error.
 // This helper reduces boilerplate in test suite SetupTest methods.
-func mustNewRepo[K sqlr.KeyTypes, E sqlr.Entitier[K]](t *testing.T, client sqlc.Client) sqlr.Repository[K, E] {
+func mustNewRepo[K sqlr.KeyTypes, E sqlr.Entitier[K]](t *testing.T, client sqlc.Client) sqlr.CountingRepository[K, E] {
 	t.Helper()
 
 	repo, err := sqlr.NewRepositoryWithInterfaces[K, E](client, sqlr.DefaultSettings())
