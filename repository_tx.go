@@ -6,10 +6,7 @@ import (
 	"github.com/gosoline-project/sqlc"
 )
 
-var (
-	_ RepositoryTx[int64, Entitier[int64]]         = (*repositoryTx[int64, Entitier[int64]])(nil)
-	_ CountingRepositoryTx[int64, Entitier[int64]] = (*repositoryTx[int64, Entitier[int64]])(nil)
-)
+var _ RepositoryTx[int64, Entitier[int64]] = (*repositoryTx[int64, Entitier[int64]])(nil)
 
 type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
@@ -22,6 +19,10 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// related entities. Schema auto-preloads are always applied.
 	Read(ttx TTx, id K, opts ...func(qb *QueryBuilderRead)) (*E, error)
 	Query(ttx TTx, opts ...func(qb *QueryBuilderSelect)) ([]E, error)
+	// Count returns the number of rows selected by the query builder. It preserves
+	// joins, filters, grouping, and HAVING clauses, but ignores ordering,
+	// pagination, and row locking. A nil builder counts all rows.
+	Count(ttx TTx, qb *QueryBuilderSelect) (int, error)
 	// Update updates the base entity row. Optional functions receive a
 	// QueryBuilderUpdate to enable or restrict association synchronization for
 	// this call, in addition to any schema-level defaults declared via
@@ -45,14 +46,14 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 // NewRepositoryTx creates a transactional Repository with default settings.
 // Note: prepared statements require a client, use NewRepositoryTxWithSettings
 // to enable them.
-func NewRepositoryTx[K KeyTypes, E Entitier[K]]() (CountingRepositoryTx[K, E], error) {
+func NewRepositoryTx[K KeyTypes, E Entitier[K]]() (RepositoryTx[K, E], error) {
 	return NewRepositoryTxWithSettings[K, E](nil, DefaultSettings())
 }
 
 // NewRepositoryTxWithSettings creates a transactional Repository with custom
 // settings. The client is used to prepare statements when PreparedStatements
 // is enabled; it must be the same connection that transactions are opened from.
-func NewRepositoryTxWithSettings[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (CountingRepositoryTx[K, E], error) {
+func NewRepositoryTxWithSettings[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (RepositoryTx[K, E], error) {
 	var err error
 	var common repositoryCommon[K, E]
 
