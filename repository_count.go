@@ -7,19 +7,6 @@ import (
 	"github.com/gosoline-project/sqlc"
 )
 
-// CountingRepository extends Repository with an entity count operation.
-type CountingRepository[K KeyTypes, E Entitier[K]] interface {
-	Repository[K, E]
-	Count(ctx context.Context, qb *QueryBuilderSelect) (int, error)
-}
-
-// CountingRepositoryTx extends RepositoryTx with a transaction-aware entity
-// count operation.
-type CountingRepositoryTx[K KeyTypes, E Entitier[K]] interface {
-	RepositoryTx[K, E]
-	Count(ttx TTx, qb *QueryBuilderSelect) (int, error)
-}
-
 type repositoryCountQuery struct {
 	query  string
 	params []any

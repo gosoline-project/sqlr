@@ -19,8 +19,8 @@ type RepositoryCountTestSuite struct {
 	ctx        context.Context
 	client     sqlc.Client
 	mock       sqlmock.Sqlmock
-	repo       sqlr.CountingRepository[int64, testUser]
-	authorRepo sqlr.CountingRepository[int64, testAuthor]
+	repo       sqlr.Repository[int64, testUser]
+	authorRepo sqlr.Repository[int64, testAuthor]
 }
 
 // TestRepositoryCountTestSuite runs the repository count test suite.
