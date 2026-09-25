@@ -22,7 +22,7 @@ import (
 // "Posts" preloads or sibling nested paths like "Posts.Comments" and
 // "Posts.Tags" are collapsed into a tree so each prefix relation is loaded once
 // before its child branches continue.
-func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Context, preloads []preloadEntry, results []E) error {
+func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Context, preloads []preloadEntry, results []E, forUpdate bool) error {
 	normalizedPreloads := normalizePreloads(preloads)
 
 	if len(normalizedPreloads) == 0 {
@@ -34,7 +34,7 @@ func (r *repositoryCommon[K, E]) executePreloads(q sqlc.Querier, ctx context.Con
 		parents = append(parents, reflect.ValueOf(&results[i]).Elem())
 	}
 
-	return r.executePreloadNodes(q, ctx, buildPreloadTree(normalizedPreloads), parents, r.schema, "")
+	return r.executePreloadNodes(q, ctx, buildPreloadTree(normalizedPreloads), parents, r.schema, "", forUpdate)
 }
 
 // normalizePreloads removes exact duplicate relation paths and sorts the result
@@ -150,6 +150,7 @@ func (r *repositoryCommon[K, E]) executePreloadNodes(
 	parents []reflect.Value,
 	parentSchema *EntitySchema,
 	pathPrefix string,
+	forUpdate bool,
 ) error {
 	if len(nodes) == 0 || len(parents) == 0 {
 		return nil
@@ -157,7 +158,7 @@ func (r *repositoryCommon[K, E]) executePreloadNodes(
 
 	if _, ok := q.(sqlc.Tx); ok {
 		for _, node := range nodes {
-			if err := r.executePreloadNode(q, ctx, node, parents, parentSchema, pathPrefix); err != nil {
+			if err := r.executePreloadNode(q, ctx, node, parents, parentSchema, pathPrefix, forUpdate); err != nil {
 				return err
 			}
 		}
@@ -166,14 +167,14 @@ func (r *repositoryCommon[K, E]) executePreloadNodes(
 	}
 
 	if len(nodes) == 1 {
-		return r.executePreloadNode(q, ctx, nodes[0], parents, parentSchema, pathPrefix)
+		return r.executePreloadNode(q, ctx, nodes[0], parents, parentSchema, pathPrefix, forUpdate)
 	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 	for _, node := range nodes {
 		node := node
 		g.Go(func() error {
-			return r.executePreloadNode(q, gCtx, node, parents, parentSchema, pathPrefix)
+			return r.executePreloadNode(q, gCtx, node, parents, parentSchema, pathPrefix, forUpdate)
 		})
 	}
 
@@ -191,6 +192,7 @@ func (r *repositoryCommon[K, E]) executePreloadNode(
 	parents []reflect.Value,
 	parentSchema *EntitySchema,
 	pathPrefix string,
+	forUpdate bool,
 ) error {
 	if node == nil || len(parents) == 0 {
 		return nil
@@ -219,11 +221,11 @@ func (r *repositoryCommon[K, E]) executePreloadNode(
 	}
 
 	if rel.Type == ManyToMany {
-		if err := r.executeM2MPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, node.where); err != nil {
+		if err := r.executeM2MPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, node.where, forUpdate); err != nil {
 			return err
 		}
 	} else {
-		if err := r.executeDirectPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, node.where); err != nil {
+		if err := r.executeDirectPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, node.where, forUpdate); err != nil {
 			return err
 		}
 	}
@@ -234,7 +236,7 @@ func (r *repositoryCommon[K, E]) executePreloadNode(
 
 	nextParents := collectAssignedRelated(parents, rel)
 
-	return r.executePreloadNodes(q, ctx, node.children, nextParents, relSchema, relationPath)
+	return r.executePreloadNodes(q, ctx, node.children, nextParents, relSchema, relationPath, forUpdate)
 }
 
 func collectAssignedRelated(parents []reflect.Value, rel *Relationship) []reflect.Value {
@@ -256,6 +258,7 @@ func (r *repositoryCommon[K, E]) executeDirectPreload(
 	relSchema *EntitySchema,
 	parents []reflect.Value,
 	where []*sqlc.SqlerWhere,
+	forUpdate bool,
 ) error {
 	var err error
 	var qb *sqlc.SelectQueryBuilder
@@ -265,7 +268,7 @@ func (r *repositoryCommon[K, E]) executeDirectPreload(
 	var relatedByFK map[any][]reflect.Value
 
 	if rel.Type == BelongsTo {
-		return r.executeBelongsToPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, where)
+		return r.executeBelongsToPreload(q, ctx, relationPath, rel, parentSchema, relSchema, parents, where, forUpdate)
 	}
 
 	// Collect parent primary key values.
@@ -275,6 +278,10 @@ func (r *repositoryCommon[K, E]) executeDirectPreload(
 	qb = sqlc.From(relSchema.TableName).Where(sqlc.Col(relSchema.TableName, rel.ForeignKey).In(pkValues...))
 	if qb, err = applyPreloadConditions(qb, where); err != nil {
 		return err
+	}
+
+	if forUpdate {
+		qb = qb.ForUpdate()
 	}
 
 	if entities, columns, err = r.queryAndHydratePreload(ctx, qb, relSchema, rel, relationPath, q); err != nil {
@@ -301,6 +308,7 @@ func (r *repositoryCommon[K, E]) executeBelongsToPreload(
 	relSchema *EntitySchema,
 	parents []reflect.Value,
 	where []*sqlc.SqlerWhere,
+	forUpdate bool,
 ) error {
 	var err error
 	var ok bool
@@ -329,6 +337,10 @@ func (r *repositoryCommon[K, E]) executeBelongsToPreload(
 		return err
 	}
 
+	if forUpdate {
+		qb = qb.ForUpdate()
+	}
+
 	if entities, _, err = r.queryAndHydratePreload(ctx, qb, relSchema, rel, relationPath, q); err != nil {
 		return err
 	}
@@ -351,6 +363,7 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 	relSchema *EntitySchema,
 	parents []reflect.Value,
 	where []*sqlc.SqlerWhere,
+	forUpdate bool,
 ) error {
 	var err error
 	var sqler *sqlc.SelectQueryBuilder
@@ -370,6 +383,10 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 	sqler = sqlc.From(rel.JoinTable).
 		Where(sqlc.Col(rel.JoinTable, parentColName).In(pkValues...))
 
+	if forUpdate {
+		sqler = sqler.ForUpdate()
+	}
+
 	if links, relatedIDs, err = r.scanM2MJoinTable(ctx, sqler, parentSchema, relSchema, parentColName, relatedColName, rel, relationPath, q); err != nil {
 		return err
 	}
@@ -382,6 +399,10 @@ func (r *repositoryCommon[K, E]) executeM2MPreload(
 	relQB = sqlc.From(relSchema.TableName).Where(sqlc.Col(relSchema.TableName, relSchema.PrimaryKey.Name).In(relatedIDs...))
 	if relQB, err = applyPreloadConditions(relQB, where); err != nil {
 		return err
+	}
+
+	if forUpdate {
+		relQB = relQB.ForUpdate()
 	}
 
 	if entities, _, err = r.queryAndHydratePreload(ctx, relQB, relSchema, rel, relationPath, q); err != nil {

@@ -152,7 +152,7 @@ func (r *repositoryCommon[K, E]) readEntity(q sqlc.Querier, ctx context.Context,
 	autoPreloads := r.schema.AutoPreloads()
 	if len(autoPreloads) > 0 {
 		results := []E{entity}
-		if err := r.executePreloads(q, ctx, autoPreloads, results); err != nil {
+		if err := r.executePreloads(q, ctx, autoPreloads, results, false); err != nil {
 			return nil, err
 		}
 
@@ -383,7 +383,7 @@ func (r *repositoryCommon[K, E]) querySimple(q sqlc.Querier, ctx context.Context
 
 	// Execute preloads if any.
 	if len(preloads) > 0 && len(results) > 0 {
-		if err := r.executePreloads(q, ctx, preloads, results); err != nil {
+		if err := r.executePreloads(q, ctx, preloads, results, qb.forUpdatePreloads); err != nil {
 			return nil, err
 		}
 	}

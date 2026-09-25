@@ -63,7 +63,7 @@ func (r *repositoryCommon[K, E]) queryWithJoins(q sqlc.Querier, ctx context.Cont
 	}
 
 	if len(preloads) > 0 && len(results) > 0 {
-		if err := r.executePreloads(q, ctx, preloads, results); err != nil {
+		if err := r.executePreloads(q, ctx, preloads, results, qb.forUpdatePreloads); err != nil {
 			return nil, err
 		}
 	}
