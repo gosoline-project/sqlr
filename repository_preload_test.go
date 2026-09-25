@@ -941,36 +941,14 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyAllowed() {
 	})
 }
 
-// TestQuery_ForUpdateWithPreloadsLocksEveryQuery verifies that ForUpdate keeps
-// preloads unlocked while ForUpdateWithPreloads locks direct, nested, belongs-to,
-// and many-to-many preload queries in the same transaction as the root query.
-func (s *RepositoryPreloadTestSuite) TestQuery_ForUpdateWithPreloadsLocksEveryQuery() {
+// TestQuery_ForUpdateLocksEveryPreloadQuery verifies that ForUpdate locks direct,
+// nested, belongs-to, and many-to-many preloads in the root transaction.
+func (s *RepositoryPreloadTestSuite) TestQuery_ForUpdateLocksEveryPreloadQuery() {
 	now := time.Now()
 	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, testAuthor](s.client, sqlr.DefaultSettings())
 	s.Require().NoError(err)
 
-	// ForUpdate locks only the root SELECT; its separate preload remains unlocked.
-	s.mock.ExpectBegin()
-	s.mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `test_authors` FOR UPDATE")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
-			AddRow(1, now, now, "Alice"))
-	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)") + "$").
-		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}))
-	s.mock.ExpectCommit()
-
-	err = s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
-		_, queryErr := txRepo.Query(sqlr.NewTx(tx), func(qb *sqlr.QueryBuilderSelect) {
-			qb.Preload("Posts").ForUpdate()
-		})
-
-		return queryErr
-	})
-	s.Require().NoError(err)
-
-	// The explicit opt-in locks every separate preload SELECT, including each
-	// stage of the nested many-to-many path.
+	// Lock every separate preload SELECT, including both many-to-many queries.
 	s.mock.ExpectBegin()
 	s.mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `test_authors` FOR UPDATE")).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
@@ -1009,7 +987,7 @@ func (s *RepositoryPreloadTestSuite) TestQuery_ForUpdateWithPreloadsLocksEveryQu
 			qb.Preload("Posts.Comments").
 				Preload("Posts.Author").
 				Preload("Posts.Tags").
-				ForUpdateWithPreloads()
+				ForUpdate()
 		})
 
 		return queryErr

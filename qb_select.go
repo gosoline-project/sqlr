@@ -11,16 +11,15 @@ import (
 // clauses into a reusable component for building SQL queries.
 // It delegates to the individual Sqler components for each clause type.
 type QueryBuilderSelect struct {
-	joins             []joinEntry
-	preloads          []preloadEntry
-	where             *sqlc.SqlerWhere
-	groupBy           *sqlc.SqlerGroupBy
-	having            *sqlc.SqlerHaving
-	orderBy           *sqlc.SqlerOrderBy
-	limit             *int
-	offset            *int
-	forUpdate         bool
-	forUpdatePreloads bool
+	joins     []joinEntry
+	preloads  []preloadEntry
+	where     *sqlc.SqlerWhere
+	groupBy   *sqlc.SqlerGroupBy
+	having    *sqlc.SqlerHaving
+	orderBy   *sqlc.SqlerOrderBy
+	limit     *int
+	offset    *int
+	forUpdate bool
 }
 
 // NewQueryBuilderSelect creates a new QueryBuilderSelect instance with all components initialized.
@@ -125,35 +124,16 @@ func (s *QueryBuilderSelect) Offset(offset int) *QueryBuilderSelect {
 	return s
 }
 
-// ForUpdate locks the rows selected by the root statement until the current
-// transaction ends. It must be used inside a transaction; outside one the lock
-// is released immediately.
+// ForUpdate locks rows in the root query and in separate preload queries until
+// the transaction ends. This includes nested preloads and both queries for a
+// many-to-many preload. Joined rows use the root query lock.
 //
-// The lock also covers joined relations read by this statement. Preloaded
-// relations are loaded by separate statements and remain unlocked; use
-// ForUpdateWithPreloads to lock them as well.
-//
-// Count strips FOR UPDATE, because counting must not lock rows.
+// Use ForUpdate inside a transaction. Outside a transaction, locks end after
+// each query. Count strips FOR UPDATE because counting must not lock rows.
 //
 // Returns the same QueryBuilderSelect instance for method chaining.
 func (s *QueryBuilderSelect) ForUpdate() *QueryBuilderSelect {
 	s.forUpdate = true
-
-	return s
-}
-
-// ForUpdateWithPreloads locks the rows selected by the root statement and by
-// every separate preload statement until the current transaction ends. It must
-// be used inside a transaction; outside one the lock is released immediately.
-// This includes nested preloads and both the join-table and related-table
-// statements for many-to-many preloads.
-//
-// Count strips FOR UPDATE, because counting must not lock rows.
-//
-// Returns the same QueryBuilderSelect instance for method chaining.
-func (s *QueryBuilderSelect) ForUpdateWithPreloads() *QueryBuilderSelect {
-	s.forUpdate = true
-	s.forUpdatePreloads = true
 
 	return s
 }

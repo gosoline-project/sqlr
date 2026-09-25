@@ -383,7 +383,7 @@ func (r *repositoryCommon[K, E]) querySimple(q sqlc.Querier, ctx context.Context
 
 	// Execute preloads if any.
 	if len(preloads) > 0 && len(results) > 0 {
-		if err := r.executePreloads(q, ctx, preloads, results, qb.forUpdatePreloads); err != nil {
+		if err := r.executePreloads(q, ctx, preloads, results, qb.forUpdate); err != nil {
 			return nil, err
 		}
 	}
