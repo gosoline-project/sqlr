@@ -941,6 +941,90 @@ func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyAllowed() {
 	})
 }
 
+// TestQuery_ForUpdateWithPreloadsLocksEveryQuery verifies that ForUpdate keeps
+// preloads unlocked while ForUpdateWithPreloads locks direct, nested, belongs-to,
+// and many-to-many preload queries in the same transaction as the root query.
+func (s *RepositoryPreloadTestSuite) TestQuery_ForUpdateWithPreloadsLocksEveryQuery() {
+	now := time.Now()
+	txRepo, err := sqlr.NewRepositoryTxWithSettings[int64, testAuthor](s.client, sqlr.DefaultSettings())
+	s.Require().NoError(err)
+
+	// ForUpdate locks only the root SELECT; its separate preload remains unlocked.
+	s.mock.ExpectBegin()
+	s.mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `test_authors` FOR UPDATE")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)") + "$").
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}))
+	s.mock.ExpectCommit()
+
+	err = s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		_, queryErr := txRepo.Query(sqlr.NewTx(tx), func(qb *sqlr.QueryBuilderSelect) {
+			qb.Preload("Posts").ForUpdate()
+		})
+
+		return queryErr
+	})
+	s.Require().NoError(err)
+
+	// The explicit opt-in locks every separate preload SELECT, including each
+	// stage of the nested many-to-many path.
+	s.mock.ExpectBegin()
+	s.mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `test_authors` FOR UPDATE")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) FOR UPDATE")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
+			AddRow(10, now, now, int64(1), "First Post", "published"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_comments` WHERE `test_comments`.`post_id` IN (?) FOR UPDATE")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "post_id", "body"}).
+			AddRow(20, now, now, int64(1), int64(10), "A comment"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` IN (?) FOR UPDATE")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(1, now, now, "Alice"))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `post_tags` WHERE `post_tags`.`test_post_id` IN (?) FOR UPDATE")).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"test_post_id", "test_tag_id"}).
+			AddRow(10, 100))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_tags` WHERE `test_tags`.`id` IN (?) FOR UPDATE")).
+		WithArgs(int64(100)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
+			AddRow(100, now, now, "Go"))
+	s.mock.ExpectCommit()
+
+	var results []testAuthor
+	err = s.client.WithTx(s.ctx, func(tx sqlc.Tx) error {
+		var queryErr error
+		results, queryErr = txRepo.Query(sqlr.NewTx(tx), func(qb *sqlr.QueryBuilderSelect) {
+			qb.Preload("Posts.Comments").
+				Preload("Posts.Author").
+				Preload("Posts.Tags").
+				ForUpdateWithPreloads()
+		})
+
+		return queryErr
+	})
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Require().Len(results[0].Posts, 1)
+	post := results[0].Posts[0]
+	s.Require().Len(post.Comments, 1)
+	s.Equal("A comment", post.Comments[0].Body)
+	s.Equal("Alice", post.Author.Name)
+	s.Require().Len(post.Tags, 1)
+	s.Equal("Go", post.Tags[0].Name)
+}
+
 // TestQuery_PreloadManyToManyWithUint64Key verifies that ManyToMany preload works
 // correctly when the primary key type is uint64 rather than int64.
 func (s *RepositoryPreloadTestSuite) TestQuery_PreloadManyToManyWithUint64Key() {
