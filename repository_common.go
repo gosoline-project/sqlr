@@ -226,9 +226,7 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 		return nil, fmt.Errorf("failed to update entity: %w", err)
 	}
 
-	if err := errNoRowsAffectedOrCheck(result, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound), func() (bool, error) {
-		return existsByPrimaryKeyForUpdate(ctx, r.statementCache, q, r.schema, pkValue)
-	}); err != nil {
+	if err := checkUpdateResult(ctx, result, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound), r.statementCache, q, r.schema, pkValue); err != nil {
 		return nil, err
 	}
 

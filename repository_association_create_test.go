@@ -75,8 +75,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_NoAssociations_NoTrans
 
 	// Expect a plain INSERT without a surrounding transaction.
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)",
-	)).
+		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Alice", "alice@test.com").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -221,14 +220,12 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasMany_PersistsExisti
 
 	s.mock.ExpectCommit()
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` = ? LIMIT ?",
-	)).
+		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), authorNow, authorNow, "Alice"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` IN (?)")).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(99), postNow, postNow, int64(1), "Existing Post").
@@ -272,30 +269,25 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_AssociationSync_AutoPr
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)",
-	)).
+		"INSERT INTO `assoc_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)",
-	)).
+		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
 		WillReturnResult(sqlmock.NewResult(12, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?",
-	)).
+		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)")).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(12), postNow, postNow, int64(1), "Brand New"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)")).
 		WithArgs(int64(12)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}).
 			AddRow(int64(100), commentNow, commentNow, int64(12), "Hydrated Comment"))
@@ -504,14 +496,12 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_PersistsExistin
 
 	s.mock.ExpectCommit()
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` = ? LIMIT ?",
-	)).
+		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(7), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(7), authorNow, authorNow, "Dave"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` IN (?)")).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
 			AddRow(int64(100), profileNow, profileNow, int64(7), "existing"))
@@ -723,19 +713,16 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_BelongsTo_ExplicitPrel
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_post_with_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)",
-	)).
+		"INSERT INTO `assoc_post_with_authors` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(7), "Frank's post").
 		WillReturnResult(sqlmock.NewResult(40, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_authors` WHERE `assoc_post_with_authors`.`id` = ? LIMIT ?",
-	)).
+		"SELECT * FROM `assoc_post_with_authors` WHERE `assoc_post_with_authors`.`id` = ? LIMIT ?")).
 		WithArgs(int64(40), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(40), now, now, int64(7), "Frank's post"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_authors` WHERE `assoc_authors`.`id` IN (?)")).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(7), authorNow, authorNow, "Frank"))
@@ -873,8 +860,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_InsertsTags
 
 	// Phase 4: insert join table rows for both tags
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?), (?, ?)",
-	)).
+		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?), (?, ?)")).
 		WithArgs(int64(2), int64(100), int64(2), int64(101)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
@@ -914,8 +900,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_SkipsExisti
 
 	// Phase 4: join table rows for both (existing + new)
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?), (?, ?)",
-	)).
+		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?), (?, ?)")).
 		WithArgs(int64(3), int64(200), int64(3), int64(201)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
@@ -946,31 +931,26 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_ExplicitPre
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_articles` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)",
-	)).
+		"INSERT INTO `assoc_articles` (`created_at`, `updated_at`, `title`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Existing Tags").
 		WillReturnResult(sqlmock.NewResult(3, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?), (?, ?)",
-	)).
+		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?), (?, ?)")).
 		WithArgs(int64(3), int64(200), int64(3), int64(201)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_articles` WHERE `assoc_articles`.`id` = ? LIMIT ?",
-	)).
+		"SELECT * FROM `assoc_articles` WHERE `assoc_articles`.`id` = ? LIMIT ?")).
 		WithArgs(int64(3), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "title"}).
 			AddRow(int64(3), now, now, "Existing Tags"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` IN (?)")).
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_id", "assoc_tag_id"}).
 			AddRow(int64(3), int64(200)).
 			AddRow(int64(3), int64(201)))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_tags` WHERE `assoc_tags`.`id` IN (?, ?)",
-	)).
+		"SELECT * FROM `assoc_tags` WHERE `assoc_tags`.`id` IN (?, ?)")).
 		WithArgs(int64(200), int64(201)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(200), tagNow, tagNow, "existing-tag").
@@ -1316,8 +1296,7 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_ManyToMany_Recursive_I
 
 	// Phase 4: join table rows for both tags
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT IGNORE INTO `deep_article_tags` (`deep_article_id`, `deep_tag_id`) VALUES (?, ?), (?, ?)",
-	)).
+		"INSERT IGNORE INTO `deep_article_tags` (`deep_article_id`, `deep_tag_id`) VALUES (?, ?), (?, ?)")).
 		WithArgs(int64(1), int64(10), int64(1), int64(11)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 

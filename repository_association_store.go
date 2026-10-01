@@ -68,9 +68,7 @@ func (c *associationMutationContext) updateStoredEntity(ctx context.Context, sch
 		return fmt.Errorf("failed to update entity %s: %w", schema.TableName, err)
 	}
 
-	if err := errNoRowsAffectedOrCheck(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound), func() (bool, error) {
-		return existsByPrimaryKeyForUpdate(ctx, c.cache, c.q, schema, pkValue)
-	}); err != nil {
+	if err := checkUpdateResult(ctx, result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound), c.cache, c.q, schema, pkValue); err != nil {
 		return err
 	}
 
@@ -113,9 +111,7 @@ func (c *associationMutationContext) updateStoredEntityForeignKey(ctx context.Co
 		return fmt.Errorf("failed to update entity %s foreign key %s: %w", schema.TableName, fkColName, err)
 	}
 
-	if err := errNoRowsAffectedOrCheck(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound), func() (bool, error) {
-		return existsByPrimaryKeyForUpdate(ctx, c.cache, c.q, schema, pkValue)
-	}); err != nil {
+	if err := checkUpdateResult(ctx, result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound), c.cache, c.q, schema, pkValue); err != nil {
 		return err
 	}
 
@@ -123,14 +119,6 @@ func (c *associationMutationContext) updateStoredEntityForeignKey(ctx context.Co
 }
 
 func existsByPrimaryKey(ctx context.Context, cache *statementCache, q sqlc.Querier, schema *EntitySchema, pkValue any) (bool, error) {
-	return queryPrimaryKeyExistence(ctx, cache, q, schema, pkValue, false)
-}
-
-func existsByPrimaryKeyForUpdate(ctx context.Context, cache *statementCache, q sqlc.Querier, schema *EntitySchema, pkValue any) (bool, error) {
-	return queryPrimaryKeyExistence(ctx, cache, q, schema, pkValue, true)
-}
-
-func queryPrimaryKeyExistence(ctx context.Context, cache *statementCache, q sqlc.Querier, schema *EntitySchema, pkValue any, forUpdate bool) (bool, error) {
 	if schema.PrimaryKey == nil {
 		return false, fmt.Errorf("primary key not defined for %s", schema.TableName)
 	}
@@ -139,9 +127,6 @@ func queryPrimaryKeyExistence(ctx context.Context, cache *statementCache, q sqlc
 		Columns(schema.PrimaryKey.Name).
 		Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue)).
 		Limit(1)
-	if forUpdate {
-		sqler = sqler.ForUpdate()
-	}
 
 	var existingPK any
 	if err := cache.Get(ctx, sqler, q, &existingPK); err != nil {

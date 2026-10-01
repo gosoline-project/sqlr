@@ -214,19 +214,16 @@ func TestRepositoryTxCreate_WithExplicitPreload(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `test_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)",
-	)).
+		"INSERT INTO `test_author_auto_preloads` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, "Alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?",
-	)).
+		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice"))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?",
-	)).
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
 		WithArgs(int64(1), "published").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Published Post", "published"))
@@ -270,35 +267,29 @@ func TestRepositoryTxUpdate_AssociationSync_AutoPreloadRehydratesNewAssociations
 
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
-	)).
+		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?",
-	)).
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?")).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}))
 	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)",
-	)).
+		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
 		WillReturnResult(sqlmock.NewResult(12, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?",
-	)).
+		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice Updated"))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)")).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(12), postNow, postNow, int64(1), "Brand New"))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)",
-	)).
+		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)")).
 		WithArgs(int64(12)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}).
 			AddRow(int64(100), commentNow, commentNow, int64(12), "Hydrated Comment"))
@@ -341,19 +332,16 @@ func TestRepositoryTxUpdate_WithExplicitPreload(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
-	)).
+		"UPDATE `test_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(isTimestamp{}, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?",
-	)).
+		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice Updated"))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?",
-	)).
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
 		WithArgs(int64(1), "published").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Published Post", "published"))
@@ -438,10 +426,8 @@ func (s *RepositoryTxCrudTestSuite) TearDownTest() {
 // TestCreate_Success verifies that Create succeeds for the basic case.
 func (s *RepositoryTxCrudTestSuite) TestCreate_Success() {
 	s.mock.ExpectBegin()
-	s.mock.ExpectExec(
-		regexp.QuoteMeta(
-			"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)",
-		),
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `test_users` (`created_at`, `updated_at`, `name`, `email`) VALUES (?, ?, ?, ?)"),
 	).WithArgs(isTimestamp{}, isTimestamp{}, "Alice", "alice@test.com").WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mock.ExpectCommit()
 
@@ -463,10 +449,8 @@ func (s *RepositoryTxCrudTestSuite) TestRead_Success() {
 	now := time.Now()
 
 	s.mock.ExpectBegin()
-	s.mock.ExpectQuery(
-		regexp.QuoteMeta(
-			"SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?",
-		),
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"),
 	).WithArgs(int64(1), 1).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 		AddRow(1, now, now, "Alice", "alice@test.com"))
 	s.mock.ExpectCommit()
@@ -489,10 +473,8 @@ func (s *RepositoryTxCrudTestSuite) TestRead_Success() {
 // TestRead_NotFound verifies that Read returns ErrNotFound for missing rows.
 func (s *RepositoryTxCrudTestSuite) TestRead_NotFound() {
 	s.mock.ExpectBegin()
-	s.mock.ExpectQuery(
-		regexp.QuoteMeta(
-			"SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?",
-		),
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id`, `created_at`, `updated_at`, `name`, `email` FROM `test_users` WHERE `id` = ? LIMIT ?"),
 	).WithArgs(int64(999), 1).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}))
 	s.mock.ExpectRollback()
 
@@ -515,16 +497,12 @@ func (s *RepositoryTxCrudTestSuite) TestRead_WithPreload() {
 	now := time.Now()
 
 	s.mock.ExpectBegin()
-	s.mock.ExpectQuery(
-		regexp.QuoteMeta(
-			"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?",
-		),
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_authors` WHERE `test_authors`.`id` = ? LIMIT ?"),
 	).WithArgs(int64(1), 1).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 		AddRow(1, now, now, "Alice"))
-	s.mock.ExpectQuery(
-		regexp.QuoteMeta(
-			"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)",
-		),
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?)"),
 	).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 		AddRow(10, now, now, 1, "First Post", "published").
 		AddRow(11, now, now, 1, "Second Post", "draft"))
@@ -556,10 +534,8 @@ func (s *RepositoryTxCrudTestSuite) TestQuery_Success() {
 	now := time.Now()
 
 	s.mock.ExpectBegin()
-	s.mock.ExpectQuery(
-		regexp.QuoteMeta(
-			"SELECT * FROM `test_users` WHERE name = ?",
-		),
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `test_users` WHERE name = ?"),
 	).WithArgs("Alice").WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "email"}).
 		AddRow(1, now, now, "Alice", "alice@test.com").
 		AddRow(2, now, now, "Alice", "alice2@test.com"))
@@ -597,10 +573,8 @@ func (s *RepositoryTxCrudTestSuite) TestUpdate_Success() {
 	}
 
 	s.mock.ExpectBegin()
-	s.mock.ExpectExec(
-		regexp.QuoteMeta(
-			"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
-		),
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"),
 	).WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
 
@@ -672,10 +646,8 @@ func (s *RepositoryTxCrudTestSuite) TestUpdate_NotFound() {
 	}
 
 	s.mock.ExpectBegin()
-	s.mock.ExpectExec(
-		regexp.QuoteMeta(
-			"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
-		),
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"),
 	).WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).WillReturnResult(sqlmock.NewResult(0, 0))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
 		"SELECT `id` FROM `test_users` WHERE `id` = ? LIMIT ? FOR UPDATE",
@@ -701,10 +673,8 @@ func (s *RepositoryTxCrudTestSuite) TestUpdate_NotFound() {
 // TestDelete_Success verifies that Delete succeeds for the basic case.
 func (s *RepositoryTxCrudTestSuite) TestDelete_Success() {
 	s.mock.ExpectBegin()
-	s.mock.ExpectExec(
-		regexp.QuoteMeta(
-			"DELETE FROM `test_users` WHERE `id` = ?",
-		),
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `test_users` WHERE `id` = ?"),
 	).WithArgs(int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
 
@@ -718,10 +688,8 @@ func (s *RepositoryTxCrudTestSuite) TestDelete_Success() {
 // TestDelete_NotFound verifies that Delete returns ErrNotFound for missing rows.
 func (s *RepositoryTxCrudTestSuite) TestDelete_NotFound() {
 	s.mock.ExpectBegin()
-	s.mock.ExpectExec(
-		regexp.QuoteMeta(
-			"DELETE FROM `test_users` WHERE `id` = ?",
-		),
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"DELETE FROM `test_users` WHERE `id` = ?"),
 	).WithArgs(int64(999)).WillReturnResult(sqlmock.NewResult(0, 0))
 	s.mock.ExpectRollback()
 
@@ -742,36 +710,30 @@ func (s *RepositoryTxCrudTestSuite) TestDelete_CascadesOwnedRelationsByDefault()
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_authors` WHERE `id` = ? LIMIT ?",
-	)).
+		"SELECT * FROM `assoc_authors` WHERE `id` = ? LIMIT ?")).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?",
-	)).
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(10), now, now, int64(1), "Post A"))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_posts` WHERE `id` = ?",
-	)).
+		"DELETE FROM `assoc_posts` WHERE `id` = ?")).
 		WithArgs(int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
-	)).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
 			AddRow(int64(20), now, now, int64(1), "bio"))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_profiles` WHERE `id` = ?",
-	)).
+		"DELETE FROM `assoc_profiles` WHERE `id` = ?")).
 		WithArgs(int64(20)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_authors` WHERE `id` = ?",
-	)).
+		"DELETE FROM `assoc_authors` WHERE `id` = ?")).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
