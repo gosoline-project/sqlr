@@ -53,8 +53,9 @@ func (s *RepositoryUpdateTestSuite) TearDownTest() {
 // Success Cases
 // ==========================================================================
 
-// TestUpdate_Success verifies that Update succeeds for the basic case.
-func (s *RepositoryUpdateTestSuite) TestUpdate_Success() {
+// TestUpdate_ChangedRowsAffectedSkipsExistenceCheck verifies that a changed row
+// succeeds without a follow-up existence query.
+func (s *RepositoryUpdateTestSuite) TestUpdate_ChangedRowsAffectedSkipsExistenceCheck() {
 	now := time.Now()
 
 	entity := testUser{
@@ -69,7 +70,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_Success() {
 
 	// SetMap sorts columns alphabetically: created_at, email, name, updated_at
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -96,7 +98,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_Error() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnError(fmt.Errorf("deadlock"))
 
@@ -132,15 +135,85 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_NotFound() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `test_users` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(entity.Id, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	result, err := s.repo.Update(context.Background(), &entity)
 
 	s.Require().Error(err)
 	s.Nil(result)
 	s.True(errors.Is(err, sqlr.ErrNotFound))
+}
+
+// TestUpdate_UnchangedExistingRowSucceeds verifies that a zero-row UPDATE succeeds
+// when the target row still exists.
+func (s *RepositoryUpdateTestSuite) TestUpdate_UnchangedExistingRowSucceeds() {
+	now := time.Now()
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Alice",
+		Email: "alice@test.com",
+	}
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
+		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `test_users` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(entity.Id, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(entity.Id))
+
+	result, err := s.repo.Update(context.Background(), &entity)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Equal(entity.Id, result.GetId())
+}
+
+// TestUpdate_ExistenceQueryErrorPropagates verifies that a failed existence check
+// remains visible when a zero-row UPDATE may have targeted an existing entity.
+func (s *RepositoryUpdateTestSuite) TestUpdate_ExistenceQueryErrorPropagates() {
+	now := time.Now()
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Alice",
+		Email: "alice@test.com",
+	}
+	lookupErr := errors.New("existence lookup failed")
+
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
+		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `test_users` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(entity.Id, 1).
+		WillReturnError(lookupErr)
+
+	result, err := s.repo.Update(context.Background(), &entity)
+
+	s.Require().ErrorIs(err, lookupErr)
+	s.Nil(result)
 }
 
 // TestUpdate_RowsAffectedError verifies that Update surfaces rows-affected errors.
@@ -158,7 +231,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_RowsAffectedError() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewErrorResult(fmt.Errorf("rows affected unavailable")))
 
@@ -185,7 +259,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_CustomPrimaryKey() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_custom_pk_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `user_id` = ?")).
+		"UPDATE `test_custom_pk_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `user_id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -211,7 +286,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_StringPrimaryKey() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_string_key_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_string_key_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -236,7 +312,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_BoolPrimaryKey() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_bool_key_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_bool_key_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -261,7 +338,8 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_FloatPrimaryKey() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_float_key_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_float_key_users` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -349,16 +427,19 @@ func (s *RepositoryUpdateTestSuite) TestUpdate_WithExplicitPreload() {
 	}
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(isTimestamp{}, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?")).
+		"SELECT * FROM `test_author_auto_preloads` WHERE `test_author_auto_preloads`.`id` = ? LIMIT ?",
+	)).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice Updated"))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?")).
+		"SELECT * FROM `test_posts` WHERE `test_posts`.`author_id` IN (?) AND status = ?",
+	)).
 		WithArgs(int64(1), "published").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title", "status"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Published Post", "published"))
@@ -524,6 +605,11 @@ func (s *RepositoryUpdatePreparedTestSuite) TestUpdate_PreparedStatement_NotFoun
 	s.mock.ExpectExec(regexp.QuoteMeta(updateSQL)).
 		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	existenceSQL := "SELECT `id` FROM `test_users` WHERE `id` = ? LIMIT ? FOR UPDATE"
+	s.mock.ExpectPrepare(regexp.QuoteMeta(existenceSQL))
+	s.mock.ExpectQuery(regexp.QuoteMeta(existenceSQL)).
+		WithArgs(entity.Id, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	result, err := s.repo.Update(context.Background(), &entity)
 

@@ -49,7 +49,9 @@ type Repository[K KeyTypes, E Entitier[K]] interface {
 	// this call, in addition to any schema-level defaults declared via
 	// relationship sqlr tags. Many-to-many updates reconcile join-table membership
 	// by default; related many-to-many rows are only updated when explicitly
-	// opted in per path. When association sync is active and the schema defines
+	// opted in per path. When an UPDATE reports no changed rows, sqlr checks the
+	// root primary key. An existing row succeeds, while a missing row returns
+	// ErrNotFound. When association sync is active and the schema defines
 	// auto-preloads, Update reloads the entity before returning so preload-tagged
 	// relations are hydrated.
 	Update(ctx context.Context, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
@@ -72,6 +74,10 @@ func NewRepository[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Co
 
 // NewRepositoryWithSettings creates a non-transactional Repository with custom
 // settings using a sqlc client resolved from the given gosoline configuration.
+// Settings.TableName overrides only the root entity table. Related entity tables
+// keep their schema-derived names. For example:
+//
+//	NewRepositoryWithSettings[int64, User](ctx, config, logger, "db", Settings{TableName: "tenant_users"})
 func NewRepositoryWithSettings[K KeyTypes, E Entitier[K]](ctx context.Context, config cfg.Config, logger log.Logger, name string, settings Settings) (Repository[K, E], error) {
 	var err error
 	var client sqlc.Client
@@ -84,7 +90,8 @@ func NewRepositoryWithSettings[K KeyTypes, E Entitier[K]](ctx context.Context, c
 }
 
 // NewRepositoryWithInterfaces creates a non-transactional Repository backed by
-// the provided sqlc client.
+// the provided sqlc client. Settings.TableName overrides only the root entity
+// table. Related entity tables keep their schema-derived names.
 func NewRepositoryWithInterfaces[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (Repository[K, E], error) {
 	var err error
 	var common repositoryCommon[K, E]

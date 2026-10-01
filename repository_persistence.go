@@ -84,3 +84,25 @@ func errNoRowsAffected(result sqlc.Result, notFoundErr error) error {
 
 	return nil
 }
+
+func errNoRowsAffectedOrCheck(result sqlc.Result, notFoundErr error, checkExists func() (bool, error)) error {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected != 0 {
+		return nil
+	}
+
+	exists, err := checkExists()
+	if err != nil {
+		return fmt.Errorf("failed to check entity existence: %w", err)
+	}
+
+	if !exists {
+		return notFoundErr
+	}
+
+	return nil
+}

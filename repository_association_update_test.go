@@ -60,7 +60,8 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_Default_DoesNotSynchro
 	now := time.Now()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -102,7 +103,8 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_NilSlice_Untou
 	now := time.Now()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -131,17 +133,20 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsTo_UpdatesRelat
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(authorNow, "Alice Updated", isTimestamp{}, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_post_with_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_post_with_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(int64(7), now, "Updated Post", isTimestamp{}, int64(5)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -180,15 +185,18 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_BelongsToPointer_Updat
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(authorNow, "Alice Updated", isTimestamp{}, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_post_with_pointer_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_post_with_pointer_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(int64(7), now, "Updated Post", isTimestamp{}, int64(5)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
@@ -229,15 +237,18 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_Use
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(authorCreatedAt, "Alice Updated", authorUpdatedAt, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_post_with_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_post_with_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(int64(7), postCreatedAt, "Updated Post", postUpdatedAt, int64(5)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
@@ -276,11 +287,13 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_DisableAutoUpdates_FKM
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(authorCreatedAt, "Alice Updated", authorUpdatedAt, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectRollback()
@@ -319,34 +332,40 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Old Post").
 			AddRow(int64(11), postNow, postNow, int64(1), "Delete Me"))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(int64(1), postNow, "Updated Post", isTimestamp{}, int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		"INSERT INTO `assoc_posts` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)",
+	)).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
 		WillReturnResult(sqlmock.NewResult(12, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_posts` WHERE `id` = ?")).
+		"DELETE FROM `assoc_posts` WHERE `id` = ?",
+	)).
 		WithArgs(int64(11)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 
@@ -383,6 +402,69 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 	s.Equal(int64(12), result.Posts[1].GetId())
 }
 
+// TestUpdate_HasMany_UnchangedExistingChildSucceeds verifies that a zero-row child
+// UPDATE succeeds after the transaction confirms the child's primary key.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_UnchangedExistingChildSucceeds() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
+		WithArgs(now, "Alice", now, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?",
+	)).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Same Post"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
+		WithArgs(int64(1), postNow, "Same Post", postNow, int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `assoc_posts` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(int64(10), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(10)))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice",
+		Posts: []assocPost{{
+			Entity: sqlr.Entity[int64]{
+				Id:        10,
+				CreatedAt: postNow,
+				UpdatedAt: postNow,
+			},
+			AuthorID: 1,
+			Title:    "Same Post",
+		}},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociationsDisableAutoUpdates)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Len(result.Posts, 1)
+	s.Equal(int64(1), result.Posts[0].AuthorID)
+	s.Equal("Same Post", result.Posts[0].Title)
+}
+
 // TestUpdate_AssociationSync_AutoPreloadRehydratesNewAssociations verifies that
 // Update reloads the entity graph when association sync is active and the root
 // schema defines auto-preloads, so newly added associations are returned fully
@@ -396,34 +478,40 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_AssociationSync_AutoPr
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?")).
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)",
+	)).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
 		WillReturnResult(sqlmock.NewResult(12, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?")).
+		"SELECT `id`, `created_at`, `updated_at`, `name` FROM `assoc_author_auto_preloads` WHERE `id` = ? LIMIT ?",
+	)).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice Updated"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)")).
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?)",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(12), postNow, postNow, int64(1), "Brand New"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)")).
+		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)",
+	)).
 		WithArgs(int64(12)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}).
 			AddRow(int64(100), commentNow, commentNow, int64(12), "Hydrated Comment"))
@@ -468,18 +556,21 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasOne_ZeroValueClears
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
 			AddRow(int64(10), profileNow, profileNow, int64(1), "Old Profile"))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_profiles` WHERE `id` = ?")).
+		"DELETE FROM `assoc_profiles` WHERE `id` = ?",
+	)).
 		WithArgs(int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -515,18 +606,21 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasOne_NilPointerClear
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_author_with_pointer_profiles` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_author_with_pointer_profiles` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}).
 			AddRow(int64(10), profileNow, profileNow, int64(1), "Old Profile"))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_profiles` WHERE `id` = ?")).
+		"DELETE FROM `assoc_profiles` WHERE `id` = ?",
+	)).
 		WithArgs(int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -558,35 +652,41 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id` FROM `assoc_tags` WHERE `id` = ? LIMIT ?")).
+		"SELECT `id` FROM `assoc_tags` WHERE `id` = ? LIMIT ?",
+	)).
 		WithArgs(int64(100), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).
 			AddRow(int64(100)))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)",
+	)).
 		WithArgs(isTimestamp{}, isTimestamp{}, "new-tag").
 		WillReturnResult(sqlmock.NewResult(102, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` = ?")).
+		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` = ?",
+	)).
 		WithArgs(int64(2)).
 		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_id", "assoc_tag_id"}).
 			AddRow(int64(2), int64(100)).
 			AddRow(int64(2), int64(101)))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?")).
+		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?",
+	)).
 		WithArgs(int64(2), int64(101)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?)")).
+		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?)",
+	)).
 		WithArgs(int64(2), int64(102)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -631,34 +731,40 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_FullEntityS
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_tags` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_tags` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(tagNow, "golang-updated", isTimestamp{}, int64(100)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)",
+	)).
 		WithArgs(isTimestamp{}, isTimestamp{}, "new-tag").
 		WillReturnResult(sqlmock.NewResult(102, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` = ?")).
+		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` = ?",
+	)).
 		WithArgs(int64(2)).
 		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_id", "assoc_tag_id"}).
 			AddRow(int64(2), int64(100)).
 			AddRow(int64(2), int64(101)))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?")).
+		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?",
+	)).
 		WithArgs(int64(2), int64(101)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?)")).
+		"INSERT IGNORE INTO `assoc_article_tags` (`assoc_article_id`, `assoc_tag_id`) VALUES (?, ?)",
+	)).
 		WithArgs(int64(2), int64(102)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -702,12 +808,14 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_DefaultSync
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id` FROM `assoc_tags` WHERE `id` = ? LIMIT ?")).
+		"SELECT `id` FROM `assoc_tags` WHERE `id` = ? LIMIT ?",
+	)).
 		WithArgs(int64(100), 1).
 		WillReturnError(sql.ErrNoRows)
 
@@ -745,24 +853,28 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToMany_EmptySlice_
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_articles` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Clear Tags", isTimestamp{}, int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` = ?")).
+		"SELECT * FROM `assoc_article_tags` WHERE `assoc_article_tags`.`assoc_article_id` = ?",
+	)).
 		WithArgs(int64(2)).
 		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_id", "assoc_tag_id"}).
 			AddRow(int64(2), int64(100)).
 			AddRow(int64(2), int64(101)))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?")).
+		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?",
+	)).
 		WithArgs(int64(2), int64(100)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?")).
+		"DELETE FROM `assoc_article_tags` WHERE `assoc_article_id` = ? AND `assoc_tag_id` = ?",
+	)).
 		WithArgs(int64(2), int64(101)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -793,11 +905,13 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasManyPointerElements
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_author_with_pointer_posts` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_author_with_pointer_posts` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Old Post"))
@@ -826,7 +940,8 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_ManyToManyPointerEleme
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_article_with_pointer_tags` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_article_with_pointer_tags` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectRollback()
@@ -856,16 +971,19 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_RollbackRestor
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Old Post"))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(int64(1), postNow, "Updated Post", isTimestamp{}, int64(10)).
 		WillReturnError(errors.New("child update failed"))
 	s.mock.ExpectRollback()
@@ -907,12 +1025,14 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_Be
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(authorNow, "Alice Updated", isTimestamp{}, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `test_post_with_nullable_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `test_post_with_nullable_authors` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(sqlmock.AnyArg(), now, "Updated Post", isTimestamp{}, int64(5)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -952,16 +1072,19 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAssociation_OnlySy
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Old Post"))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(int64(1), postNow, "Updated Post", isTimestamp{}, int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
@@ -1004,16 +1127,19 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncUpdateTag_OnlySync
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_author_sync_update_defaults` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_author_sync_update_defaults` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(10), postNow, postNow, int64(1), "Old Post"))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(int64(1), postNow, "Updated Post", isTimestamp{}, int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
@@ -1057,29 +1183,35 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncUpdateTag_ManyToMa
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_article_sync_update_defaults` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_article_sync_update_defaults` SET `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Go Tips Updated", isTimestamp{}, int64(2)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_tags` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_tags` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(tagNow, "golang-updated", isTimestamp{}, int64(100)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)")).
+		"INSERT INTO `assoc_tags` (`created_at`, `updated_at`, `name`) VALUES (?, ?, ?)",
+	)).
 		WithArgs(isTimestamp{}, isTimestamp{}, "new-tag").
 		WillReturnResult(sqlmock.NewResult(102, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_article_sync_update_default_tags` WHERE `assoc_article_sync_update_default_tags`.`assoc_article_sync_update_defaults_id` = ?")).
+		"SELECT * FROM `assoc_article_sync_update_default_tags` WHERE `assoc_article_sync_update_default_tags`.`assoc_article_sync_update_defaults_id` = ?",
+	)).
 		WithArgs(int64(2)).
 		WillReturnRows(sqlmock.NewRows([]string{"assoc_article_sync_update_defaults_id", "assoc_tag_id"}).
 			AddRow(int64(2), int64(100)).
 			AddRow(int64(2), int64(101)))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"DELETE FROM `assoc_article_sync_update_default_tags` WHERE `assoc_article_sync_update_defaults_id` = ? AND `assoc_tag_id` = ?")).
+		"DELETE FROM `assoc_article_sync_update_default_tags` WHERE `assoc_article_sync_update_defaults_id` = ? AND `assoc_tag_id` = ?",
+	)).
 		WithArgs(int64(2), int64(101)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT IGNORE INTO `assoc_article_sync_update_default_tags` (`assoc_article_sync_update_defaults_id`, `assoc_tag_id`) VALUES (?, ?)")).
+		"INSERT IGNORE INTO `assoc_article_sync_update_default_tags` (`assoc_article_sync_update_defaults_id`, `assoc_tag_id`) VALUES (?, ?)",
+	)).
 		WithArgs(int64(2), int64(102)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectCommit()
@@ -1120,11 +1252,13 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_Om
 
 	s.mock.ExpectBegin()
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
 	s.mock.ExpectCommit()
@@ -1181,34 +1315,40 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_AssociationSync_Explic
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_author_auto_preloads` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Alice Updated", isTimestamp{}, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?")).
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` = ?",
+	)).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}))
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)")).
+		"INSERT INTO `assoc_post_with_comments_auto_preloads` (`created_at`, `updated_at`, `author_id`, `title`) VALUES (?, ?, ?, ?)",
+	)).
 		WithArgs(isTimestamp{}, isTimestamp{}, int64(1), "Brand New").
 		WillReturnResult(sqlmock.NewResult(12, 1))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_author_auto_preloads` WHERE `assoc_author_auto_preloads`.`id` = ? LIMIT ?")).
+		"SELECT * FROM `assoc_author_auto_preloads` WHERE `assoc_author_auto_preloads`.`id` = ? LIMIT ?",
+	)).
 		WithArgs(int64(1), 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name"}).
 			AddRow(int64(1), now, now, "Alice Updated"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?) AND title = ?")).
+		"SELECT * FROM `assoc_post_with_comments_auto_preloads` WHERE `assoc_post_with_comments_auto_preloads`.`author_id` IN (?) AND title = ?",
+	)).
 		WithArgs(int64(1), "Brand New").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
 			AddRow(int64(12), postNow, postNow, int64(1), "Brand New"))
 
 	s.mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)")).
+		"SELECT * FROM `assoc_comments` WHERE `assoc_comments`.`post_id` IN (?)",
+	)).
 		WithArgs(int64(12)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "post_id", "body"}))
 
@@ -1288,9 +1428,15 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_Mi
 	s.mock.ExpectBegin()
 
 	s.mock.ExpectExec(regexp.QuoteMeta(
-		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
 		WithArgs(now, "Missing", isTimestamp{}, int64(99)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `assoc_authors` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(int64(99), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	s.mock.ExpectRollback()
 

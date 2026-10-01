@@ -68,7 +68,9 @@ func (c *associationMutationContext) updateStoredEntity(ctx context.Context, sch
 		return fmt.Errorf("failed to update entity %s: %w", schema.TableName, err)
 	}
 
-	if err := errNoRowsAffected(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)); err != nil {
+	if err := errNoRowsAffectedOrCheck(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound), func() (bool, error) {
+		return existsByPrimaryKeyForUpdate(ctx, c.cache, c.q, schema, pkValue)
+	}); err != nil {
 		return err
 	}
 
@@ -111,30 +113,55 @@ func (c *associationMutationContext) updateStoredEntityForeignKey(ctx context.Co
 		return fmt.Errorf("failed to update entity %s foreign key %s: %w", schema.TableName, fkColName, err)
 	}
 
-	if err := errNoRowsAffected(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)); err != nil {
+	if err := errNoRowsAffectedOrCheck(result, fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound), func() (bool, error) {
+		return existsByPrimaryKeyForUpdate(ctx, c.cache, c.q, schema, pkValue)
+	}); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (c *associationCallContext) ensureEntityExists(ctx context.Context, schema *EntitySchema, pkValue any) error {
+func existsByPrimaryKey(ctx context.Context, cache *statementCache, q sqlc.Querier, schema *EntitySchema, pkValue any) (bool, error) {
+	return queryPrimaryKeyExistence(ctx, cache, q, schema, pkValue, false)
+}
+
+func existsByPrimaryKeyForUpdate(ctx context.Context, cache *statementCache, q sqlc.Querier, schema *EntitySchema, pkValue any) (bool, error) {
+	return queryPrimaryKeyExistence(ctx, cache, q, schema, pkValue, true)
+}
+
+func queryPrimaryKeyExistence(ctx context.Context, cache *statementCache, q sqlc.Querier, schema *EntitySchema, pkValue any, forUpdate bool) (bool, error) {
 	if schema.PrimaryKey == nil {
-		return fmt.Errorf("primary key not defined for %s", schema.TableName)
+		return false, fmt.Errorf("primary key not defined for %s", schema.TableName)
 	}
 
 	sqler := sqlc.From(schema.TableName).
 		Columns(schema.PrimaryKey.Name).
 		Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue)).
 		Limit(1)
+	if forUpdate {
+		sqler = sqler.ForUpdate()
+	}
 
 	var existingPK any
-	if err := c.cache.Get(ctx, sqler, c.q, &existingPK); err != nil {
+	if err := cache.Get(ctx, sqler, q, &existingPK); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)
+			return false, nil
 		}
 
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (c *associationCallContext) ensureEntityExists(ctx context.Context, schema *EntitySchema, pkValue any) error {
+	exists, err := existsByPrimaryKey(ctx, c.cache, c.q, schema, pkValue)
+	if err != nil {
 		return fmt.Errorf("failed to read entity %s: %w", schema.TableName, err)
+	}
+	if !exists {
+		return fmt.Errorf("entity %s id=%v: %w", schema.TableName, pkValue, ErrNotFound)
 	}
 
 	return nil
