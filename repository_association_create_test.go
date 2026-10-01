@@ -529,6 +529,56 @@ func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_PersistsExistin
 	s.Equal("existing", stored.Profile.Bio)
 }
 
+// TestCreate_HasOne_UnchangedForeignKeySucceeds verifies that a zero-row
+// foreign-key UPDATE succeeds when the existing related row remains present.
+func (s *RepositoryAssociationCreateTestSuite) TestCreate_HasOne_UnchangedForeignKeySucceeds() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	authorNow := time.Now()
+	profileNow := authorNow.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO `assoc_authors` (`id`, `created_at`, `updated_at`, `name`) VALUES (?, ?, ?, ?)",
+	)).
+		WithArgs(int64(7), authorNow, authorNow, "Dave").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_profiles` SET `author_id` = ? WHERE `id` = ?",
+	)).
+		WithArgs(int64(7), int64(100)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `assoc_profiles` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(int64(100), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(100)))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        7,
+			CreatedAt: authorNow,
+			UpdatedAt: authorNow,
+		},
+		Name: "Dave",
+		Profile: assocProfile{
+			Entity: sqlr.Entity[int64]{
+				Id:        100,
+				CreatedAt: profileNow,
+				UpdatedAt: profileNow,
+			},
+			AuthorID: 7,
+			Bio:      "existing",
+		},
+	}
+
+	err := repo.Create(context.Background(), &entity, disableCreateAutoUpdates)
+
+	s.Require().NoError(err)
+	s.Equal(int64(7), entity.GetId())
+	s.Equal(int64(7), entity.Profile.AuthorID)
+}
+
 // --------------------------------------------------------------------------
 // BelongsTo: post with author
 // --------------------------------------------------------------------------

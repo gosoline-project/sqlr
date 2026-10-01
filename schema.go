@@ -145,6 +145,7 @@ type schemaParseOptions struct {
 	parseFieldsErrorFormat       string
 	cacheDerivedValues           bool
 	missingPrimaryKeyErrorFormat string
+	tableName                    string
 }
 
 // InsertColumns returns the column names for INSERT statements, excluding the
@@ -222,6 +223,8 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 // ParseSchema parses the entity type E using reflection to build an EntitySchema.
 // It reads the `db` tag for an optional column name override and the `sqlr` tag
 // for field behaviour metadata. The db tag accepts only a column name or "-".
+// Use ParseSchemaWithSettings to override the root table without changing
+// related tables.
 // The sqlr tag accepts semicolon-separated options including primaryKey,
 // autoCreateTime, autoUpdateTime, foreignKey:<column>, belongsTo:<column>,
 // many2many:<table>, preload, sync:create, sync:update, sync:delete, and
@@ -283,6 +286,13 @@ func (s *EntitySchema) AutoSyncMany2manyPaths() []string {
 //     pointer scalars, zero struct for value scalars, and empty or nil slices
 //     for collection relations when no related rows are assigned.
 func ParseSchema[E any]() (*EntitySchema, error) {
+	return ParseSchemaWithSettings[E](DefaultSettings())
+}
+
+// ParseSchemaWithSettings parses the entity type E using reflection to build an
+// EntitySchema. Settings.TableName overrides only the root entity table. Related
+// entity tables keep their schema-derived names.
+func ParseSchemaWithSettings[E any](settings Settings) (*EntitySchema, error) {
 	var t reflect.Type
 	var zero E
 
@@ -295,7 +305,10 @@ func ParseSchema[E any]() (*EntitySchema, error) {
 		t = t.Elem()
 	}
 
-	return ParseSchemaType(t)
+	options := defaultSchemaParseOptions()
+	options.tableName = settings.TableName
+
+	return parseSchemaType(t, options)
 }
 
 // ParseSchemaType parses the provided entity type using reflection to build an
@@ -338,8 +351,13 @@ func parseSchemaType(t reflect.Type, options schemaParseOptions) (*EntitySchema,
 	}
 
 	typeName := t.Name()
+	tableName := options.tableName
+	if tableName == "" {
+		tableName = tableNameForType(t)
+	}
+
 	schema := &EntitySchema{
-		TableName:     tableNameForType(t),
+		TableName:     tableName,
 		Relationships: make(map[string]*Relationship),
 		entityType:    t,
 	}
@@ -605,7 +623,7 @@ func parseRelationshipMetadataField(field reflect.StructField, fieldIndex []int,
 		return true, fmt.Errorf("field %s: relationship-only sqlr options require an auto-detected relationship or explicit relation metadata", field.Name)
 	}
 
-	rel, err := parseRelationship(field, tags.sqlrOptions, fieldIndex, schema.entityType, autoDetected)
+	rel, err := parseRelationship(field, tags.sqlrOptions, fieldIndex, schema.entityType, schema.TableName, autoDetected)
 	if err != nil {
 		return true, fmt.Errorf("field %s: %w", field.Name, err)
 	}
@@ -653,7 +671,7 @@ func parseUntaggedField(field reflect.StructField, fieldIndex []int, schema *Ent
 	}
 
 	if shouldAutoDetectRelationship(field, schema.entityType) {
-		rel, err := parseRelationship(field, nil, fieldIndex, schema.entityType, true)
+		rel, err := parseRelationship(field, nil, fieldIndex, schema.entityType, schema.TableName, true)
 		if err != nil {
 			return fmt.Errorf("field %s: %w", field.Name, err)
 		}
@@ -1222,10 +1240,10 @@ func hasExplicitFKOption(options []string) bool {
 }
 
 // parseRelationship parses a struct field's sqlr tag options to create a Relationship.
-// parentEntityType is the reflect.Type of the entity being parsed; its Name() is used
-// to derive a default foreign key for HasOne/HasMany relationships, and its derived
-// table name is used when auto-detecting the ManyToMany join table name.
-func parseRelationship(field reflect.StructField, options []string, fieldIndex []int, parentEntityType reflect.Type, autoDetected bool) (*Relationship, error) {
+// parentEntityType is the reflect.Type of the entity being parsed. Its name derives
+// default foreign keys. parentTableName is resolved before relationship metadata and
+// default many-to-many join table names are derived.
+func parseRelationship(field reflect.StructField, options []string, fieldIndex []int, parentEntityType reflect.Type, parentTableName string, autoDetected bool) (*Relationship, error) {
 	var ft reflect.Type
 	var isSlice bool
 
@@ -1253,7 +1271,7 @@ func parseRelationship(field reflect.StructField, options []string, fieldIndex [
 	// Auto-detect the join table name when the relationship is ManyToMany but no
 	// explicit table name was provided via many2many:<table>.
 	if rel.Type == ManyToMany && rel.JoinTable == "" {
-		applyDefaultJoinTable(rel, parentEntityType, ft)
+		applyDefaultJoinTable(rel, parentTableName, ft)
 	}
 
 	return rel, validateRelationshipType(rel, isSlice)
@@ -1298,20 +1316,10 @@ func applyDefaultForeignKey(rel *Relationship, fieldName, parentEntityTypeName s
 }
 
 // applyDefaultJoinTable derives a join table name for a ManyToMany relationship
-// when none was supplied via the many2many: sqlr tag option. The convention is:
-//
-//  1. Derive the table name for each side using tableNameForType (which honours
-//     the TableNamer interface and applies inflection.Plural).
-//  2. Sort the two names alphabetically.
-//  3. Join them with an underscore.
-//
-// Example: Article + Tag → "articles" and "tags" → sorted: ["articles", "tags"]
-// → join table: "articles_tags".
-//
-// This mirrors the Rails/GORM auto-join-table convention and produces a
-// deterministic, symmetric name regardless of which side the field is declared on.
-func applyDefaultJoinTable(rel *Relationship, parentType, relatedType reflect.Type) {
-	parentTable := tableNameForType(parentType)
+// when none was supplied via the many2many: sqlr tag option. It sorts the resolved
+// root table name and the related type's derived table name alphabetically, then
+// joins them with an underscore.
+func applyDefaultJoinTable(rel *Relationship, parentTable string, relatedType reflect.Type) {
 	relatedTable := tableNameForType(relatedType)
 
 	names := []string{parentTable, relatedTable}

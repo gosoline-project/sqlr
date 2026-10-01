@@ -24,7 +24,7 @@ var ErrNilEntity = errors.New("entity must not be nil")
 // type E using reflection. The schema is used at query time to generate SQL and
 // validate join/preload relations. Returns an error if the entity's schema cannot be parsed.
 func newRepositoryCommon[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (repositoryCommon[K, E], error) {
-	schema, err := ParseSchema[E]()
+	schema, err := ParseSchemaWithSettings[E](settings)
 	if err != nil {
 		return repositoryCommon[K, E]{}, fmt.Errorf("can not parse model schema of %T: %w", *new(E), err)
 	}
@@ -196,6 +196,7 @@ func (r *repositoryCommon[K, E]) readEntityWithOpts(q sqlc.Querier, ctx context.
 // updateEntity saves all fields of the given entity back to the database. It builds
 // a column-value map from the entity using reflection and executes an UPDATE via sqlc.
 // Relationship fields are not synchronized; Update is intentionally not cascade-aware.
+// An unchanged row still succeeds when its primary key exists.
 func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Context, entity *E, journal *mutationJournal, options mutationOptions) (*E, error) {
 	rv, err := requireEntityValue(entity)
 	if err != nil {
@@ -225,7 +226,7 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 		return nil, fmt.Errorf("failed to update entity: %w", err)
 	}
 
-	if err := errNoRowsAffected(result, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound)); err != nil {
+	if err := checkUpdateResult(ctx, result, fmt.Errorf("entity id=%v: %w", (*entity).GetId(), ErrNotFound), r.statementCache, q, r.schema, pkValue); err != nil {
 		return nil, err
 	}
 

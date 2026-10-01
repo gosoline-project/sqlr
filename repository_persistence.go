@@ -1,6 +1,9 @@
 package sqlr
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -80,6 +83,39 @@ func errNoRowsAffected(result sqlc.Result, notFoundErr error) error {
 
 	if rowsAffected == 0 {
 		return notFoundErr
+	}
+
+	return nil
+}
+
+func checkUpdateResult(ctx context.Context, result sqlc.Result, notFoundErr error, cache *statementCache, q sqlc.Querier, schema *EntitySchema, pkValue any) error {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected != 0 {
+		return nil
+	}
+
+	if schema.PrimaryKey == nil {
+		return fmt.Errorf("failed to check entity existence: primary key not defined for %s", schema.TableName)
+	}
+
+	// Use a current read so REPEATABLE READ does not hide a concurrent insert or retain a deleted row in its snapshot.
+	sqler := sqlc.From(schema.TableName).
+		Columns(schema.PrimaryKey.Name).
+		Where(sqlc.Col(schema.PrimaryKey.Name).Eq(pkValue)).
+		Limit(1).
+		ForUpdate()
+
+	var existingPK any
+	if err := cache.Get(ctx, sqler, q, &existingPK); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return notFoundErr
+		}
+
+		return fmt.Errorf("failed to check entity existence: %w", err)
 	}
 
 	return nil

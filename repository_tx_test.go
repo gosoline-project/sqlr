@@ -592,6 +592,46 @@ func (s *RepositoryTxCrudTestSuite) TestUpdate_Success() {
 	s.Equal("alice-updated@test.com", result.Email)
 }
 
+// TestUpdate_UnchangedExistingRowSucceeds verifies that RepositoryTx accepts an
+// unchanged row after it confirms the row exists in the transaction.
+func (s *RepositoryTxCrudTestSuite) TestUpdate_UnchangedExistingRowSucceeds() {
+	now := time.Now()
+	entity := testUser{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name:  "Alice",
+		Email: "alice@test.com",
+	}
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?",
+	)).
+		WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `test_users` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(entity.Id, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(entity.Id))
+	s.mock.ExpectCommit()
+
+	var result *testUser
+	err := runWithTx(context.Background(), s.client, func(ttx sqlr.TTx) error {
+		var err error
+		result, err = s.userRepo.Update(ttx, &entity)
+
+		return err
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Equal(entity.Id, result.GetId())
+}
+
 // TestUpdate_NotFound verifies that Update returns ErrNotFound for missing rows.
 func (s *RepositoryTxCrudTestSuite) TestUpdate_NotFound() {
 	now := time.Now()
@@ -609,6 +649,11 @@ func (s *RepositoryTxCrudTestSuite) TestUpdate_NotFound() {
 	s.mock.ExpectExec(regexp.QuoteMeta(
 		"UPDATE `test_users` SET `created_at` = ?, `email` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?"),
 	).WithArgs(isTimestamp{}, entity.Email, entity.Name, isTimestamp{}, entity.Id).WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `test_users` WHERE `id` = ? LIMIT ? FOR UPDATE",
+	)).
+		WithArgs(entity.Id, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	s.mock.ExpectRollback()
 
 	var result *testUser

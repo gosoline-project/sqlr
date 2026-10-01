@@ -383,6 +383,64 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_SynchronizesAn
 	s.Equal(int64(12), result.Posts[1].GetId())
 }
 
+// TestUpdate_HasMany_UnchangedExistingChildSucceeds verifies that a zero-row child
+// UPDATE succeeds after the transaction confirms the child's primary key.
+func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_HasMany_UnchangedExistingChildSucceeds() {
+	repo := mustNewRepo[int64, assocAuthor](s.T(), s.client)
+	now := time.Now()
+	postNow := now.Add(-time.Hour)
+
+	s.mock.ExpectBegin()
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(now, "Alice", now, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_posts` WHERE `assoc_posts`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "title"}).
+			AddRow(int64(10), postNow, postNow, int64(1), "Same Post"))
+	s.mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE `assoc_posts` SET `author_id` = ?, `created_at` = ?, `title` = ?, `updated_at` = ? WHERE `id` = ?")).
+		WithArgs(int64(1), postNow, "Same Post", postNow, int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `assoc_posts` WHERE `id` = ? LIMIT ? FOR UPDATE")).
+		WithArgs(int64(10), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(10)))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT * FROM `assoc_profiles` WHERE `assoc_profiles`.`author_id` = ?")).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "author_id", "bio"}))
+	s.mock.ExpectCommit()
+
+	entity := assocAuthor{
+		Entity: sqlr.Entity[int64]{
+			Id:        1,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		Name: "Alice",
+		Posts: []assocPost{{
+			Entity: sqlr.Entity[int64]{
+				Id:        10,
+				CreatedAt: postNow,
+				UpdatedAt: postNow,
+			},
+			AuthorID: 1,
+			Title:    "Same Post",
+		}},
+	}
+
+	result, err := repo.Update(context.Background(), &entity, syncAllAssociationsDisableAutoUpdates)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Len(result.Posts, 1)
+	s.Equal(int64(1), result.Posts[0].AuthorID)
+	s.Equal("Same Post", result.Posts[0].Title)
+}
+
 // TestUpdate_AssociationSync_AutoPreloadRehydratesNewAssociations verifies that
 // Update reloads the entity graph when association sync is active and the root
 // schema defines auto-preloads, so newly added associations are returned fully
@@ -1291,6 +1349,10 @@ func (s *RepositoryAssociationUpdateTestSuite) TestUpdate_SyncAllAssociations_Mi
 		"UPDATE `assoc_authors` SET `created_at` = ?, `name` = ?, `updated_at` = ? WHERE `id` = ?")).
 		WithArgs(now, "Missing", isTimestamp{}, int64(99)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	s.mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT `id` FROM `assoc_authors` WHERE `id` = ? LIMIT ? FOR UPDATE")).
+		WithArgs(int64(99), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	s.mock.ExpectRollback()
 
