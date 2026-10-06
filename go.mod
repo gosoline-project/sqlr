@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/gosoline-project/sqlc v0.4.1-0.20261006060425-0464d693b951
+	github.com/gosoline-project/sqlc v0.4.1-0.20261006061447-28784fc09493
 	github.com/justtrackio/gosoline v0.66.2-0.20261005101741-c0a846fd1d7c
 	github.com/stretchr/testify v1.11.1
 )
@@ -47,6 +47,7 @@ require (
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
+	github.com/evanphx/json-patch v0.5.2 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/gin-contrib/cors v1.6.0 // indirect
 	github.com/gin-contrib/gzip v0.0.5 // indirect
@@ -127,6 +128,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0 // indirect
+	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/log v0.20.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.44.0 // indirect
