@@ -10,11 +10,20 @@ func appendPreload(preloads *[]preloadEntry, relation string, conditions []*sqlc
 }
 
 func appendJoin(joins *[]joinEntry, joinType sqlc.JoinType, relation string, conditions []*sqlc.SqlerWhere) {
-	*joins = append(*joins, joinEntry{
+	entry := joinEntry{
 		joinType: joinType,
 		relation: relation,
 		where:    filterNilWhereConditions(conditions),
-	})
+	}
+	for i, join := range *joins {
+		if join.relation == relation && join.isDefault {
+			(*joins)[i] = entry
+
+			return
+		}
+	}
+
+	*joins = append(*joins, entry)
 }
 
 func filterNilWhereConditions(conditions []*sqlc.SqlerWhere) []*sqlc.SqlerWhere {

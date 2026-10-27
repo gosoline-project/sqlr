@@ -477,6 +477,152 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_DuplicateRelationReturnsEr
 	s.Contains(err.Error(), `join relation "Posts" specified multiple times`)
 }
 
+// TestQuery_DefaultLeftJoinRepeated verifies that fallback joins are idempotent
+// in row queries and distinct-parent counts, without changing relation hydration.
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinRepeated() {
+	now := time.Now()
+	joinSQL := " FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"
+	selectSQL := "SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+		"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+		"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"
+	s.mock.ExpectQuery("^" + regexp.QuoteMeta(selectSQL+joinSQL) + "$").
+		WithoutArgs().
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
+			AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
+			AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Second Post", "draft").
+			AddRow(2, now, now, "Bob", nil, nil, nil, nil, nil, nil))
+	s.mock.ExpectQuery("^" + regexp.QuoteMeta(
+		"SELECT COUNT(*) FROM (SELECT DISTINCT `test_authors`.`id`"+joinSQL+") AS `sqlr_count`") + "$").
+		WithoutArgs().
+		WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(2))
+
+	configure := func(qb *sqlr.QueryBuilderSelect) {
+		qb.DefaultLeftJoin("Posts").DefaultLeftJoin("Posts").DefaultLeftJoin("Posts")
+	}
+	qb := sqlr.NewQueryBuilderSelect()
+	configure(qb)
+	results, err := s.authorRepo.Query(s.ctx, configure)
+	s.Require().NoError(err)
+	s.Require().Len(results, 2)
+	assertAuthor(&s.Suite, results[0], expectedAuthor{
+		Name: ptr("Alice"),
+		Posts: []expectedPost{
+			{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+			{Id: ptr(int64(11)), Title: ptr("Second Post"), Status: ptr("draft")},
+		},
+	})
+	s.Equal("Bob", results[1].Name)
+	s.Empty(results[1].Posts)
+
+	total, err := s.authorRepo.Count(s.ctx, qb)
+	s.Require().NoError(err)
+	s.Equal(2, total)
+}
+
+// TestQuery_DefaultLeftJoinExplicitPrecedence verifies both insertion orders
+// preserve the explicit join type and every ON argument in row and count SQL.
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinExplicitPrecedence() {
+	for _, joinType := range []string{"LEFT JOIN", "JOIN"} {
+		for _, defaultFirst := range []bool{true, false} {
+			s.Run(fmt.Sprintf("%s/defaultFirst=%t", joinType, defaultFirst), func() {
+				now := time.Now()
+				joinSQL := " FROM `test_authors` " + joinType +
+					" `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+					" AND `Posts`.`status` = ? AND `Posts`.`title` <> ?"
+				whereSQL := " WHERE `test_authors`.`name` = ?"
+				selectSQL := "SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+					"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+					"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"
+				s.mock.ExpectQuery("^"+regexp.QuoteMeta(selectSQL+joinSQL+whereSQL+" ORDER BY `Posts`.`title` LIMIT ?")+"$").
+					WithArgs("published", "Hidden", "Alice", 5).
+					WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
+						AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
+						AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
+						AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Second Post", "published"))
+				s.mock.ExpectQuery("^"+regexp.QuoteMeta(
+					"SELECT COUNT(*) FROM (SELECT DISTINCT `test_authors`.`id`"+joinSQL+whereSQL+") AS `sqlr_count`")+"$").
+					WithArgs("published", "Hidden", "Alice").
+					WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(1))
+
+				configure := func(qb *sqlr.QueryBuilderSelect) {
+					if defaultFirst {
+						qb.DefaultLeftJoin("Posts").DefaultLeftJoin("Posts")
+					}
+					conditions := []*sqlc.SqlerWhere{
+						sqlr.Condition("Posts.status = ?", "published"),
+						sqlr.Condition("Posts.title <> ?", "Hidden"),
+					}
+					if joinType == "LEFT JOIN" {
+						qb.LeftJoin("Posts", conditions...)
+					} else {
+						qb.InnerJoin("Posts", conditions...)
+					}
+					qb.DefaultLeftJoin("Posts").DefaultLeftJoin("Posts").
+						Where(sqlc.Col("test_authors", "name").Eq("Alice")).
+						OrderBy("Posts.title").
+						Limit(5)
+				}
+				qb := sqlr.NewQueryBuilderSelect()
+				configure(qb)
+
+				results, err := s.authorRepo.Query(s.ctx, configure)
+				s.Require().NoError(err)
+				s.Require().Len(results, 1)
+				assertAuthor(&s.Suite, results[0], expectedAuthor{
+					Name: ptr("Alice"),
+					Posts: []expectedPost{
+						{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+						{Id: ptr(int64(11)), Title: ptr("Second Post"), Status: ptr("published")},
+					},
+				})
+
+				total, err := s.authorRepo.Count(s.ctx, qb)
+				s.Require().NoError(err)
+				s.Equal(1, total)
+			})
+		}
+	}
+}
+
+// TestQuery_DefaultLeftJoinDoesNotMaskExplicitDuplicates verifies that adding a
+// default before, between, or after conflicting explicit joins cannot hide them.
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinDoesNotMaskExplicitDuplicates() {
+	for _, tc := range []struct {
+		defaultPosition string
+		innerJoin       bool
+	}{
+		{defaultPosition: "before", innerJoin: false},
+		{defaultPosition: "before", innerJoin: true},
+		{defaultPosition: "between", innerJoin: false},
+		{defaultPosition: "between", innerJoin: true},
+		{defaultPosition: "after", innerJoin: false},
+		{defaultPosition: "after", innerJoin: true},
+	} {
+		s.Run(fmt.Sprintf("%s/innerJoin=%t", tc.defaultPosition, tc.innerJoin), func() {
+			results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
+				if tc.defaultPosition == "before" {
+					qb.DefaultLeftJoin("Posts")
+				}
+				qb.LeftJoin("Posts", sqlr.Condition("Posts.status = ?", "published"))
+				if tc.defaultPosition == "between" {
+					qb.DefaultLeftJoin("Posts")
+				}
+				if tc.innerJoin {
+					qb.InnerJoin("Posts", sqlr.Condition("Posts.status = ?", "draft"))
+				} else {
+					qb.LeftJoin("Posts", sqlr.Condition("Posts.status = ?", "draft"))
+				}
+				if tc.defaultPosition == "after" {
+					qb.DefaultLeftJoin("Posts")
+				}
+			})
+			s.Require().Error(err)
+			s.Nil(results)
+			s.Contains(err.Error(), `join relation "Posts" specified multiple times`)
+		})
+	}
+}
+
 // TestQuery_LeftJoin_PointerPrimaryKeyDeduplicatesRows verifies that Query deduplicates joined rows for entities with pointer primary keys.
 func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_PointerPrimaryKeyDeduplicatesRows() {
 	pointerRepo := mustNewRepo[*int64, testAuthorWithPointerKeyProfile](s.T(), s.client)

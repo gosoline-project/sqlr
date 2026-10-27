@@ -15,12 +15,13 @@ func Condition(condition any, params ...any) *sqlc.SqlerWhere {
 // join type, the target relation name, and any additional WHERE conditions to
 // apply within the join.
 type joinEntry struct {
-	joinType sqlc.JoinType
-	relation string
-	where    []*sqlc.SqlerWhere
+	joinType  sqlc.JoinType
+	relation  string
+	where     []*sqlc.SqlerWhere
+	isDefault bool
 }
 
-// addJoin appends a join entry to the query builder and returns it for chaining.
+// addJoin adds an explicit join, replacing any default for the same relation.
 func (s *QueryBuilderSelect) addJoin(joinType sqlc.JoinType, relation string, conditions []*sqlc.SqlerWhere) *QueryBuilderSelect {
 	appendJoin(&s.joins, joinType, relation, conditions)
 
@@ -40,6 +41,27 @@ func (s *QueryBuilderSelect) addJoin(joinType sqlc.JoinType, relation string, co
 // Optional conditions are appended to the JOIN ON clause.
 func (s *QueryBuilderSelect) LeftJoin(relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
 	return s.addJoin(sqlc.JoinLeft, relation, conditions)
+}
+
+// DefaultLeftJoin adds a LEFT JOIN only if the relation has not already been
+// joined. Repeated default joins are ignored. An explicit [QueryBuilderSelect.LeftJoin]
+// or [QueryBuilderSelect.InnerJoin], added before or after the default, takes
+// precedence with its join type and ON conditions unchanged. Duplicate explicit
+// joins remain invalid. See [QueryBuilderSelect.LeftJoin] for supported relations.
+func (s *QueryBuilderSelect) DefaultLeftJoin(relation string) *QueryBuilderSelect {
+	for _, join := range s.joins {
+		if join.relation == relation {
+			return s
+		}
+	}
+
+	s.joins = append(s.joins, joinEntry{
+		joinType:  sqlc.JoinLeft,
+		relation:  relation,
+		isDefault: true,
+	})
+
+	return s
 }
 
 // InnerJoin adds an INNER JOIN on the named relation to the query. Only rows with
