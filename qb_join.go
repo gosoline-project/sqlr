@@ -43,12 +43,16 @@ func (s *QueryBuilderSelect) LeftJoin(relation string, conditions ...*sqlc.Sqler
 	return s.addJoin(sqlc.JoinLeft, relation, conditions)
 }
 
-// DefaultLeftJoin adds a LEFT JOIN only if the relation has not already been
-// joined. Repeated default joins are ignored. An explicit [QueryBuilderSelect.LeftJoin]
-// or [QueryBuilderSelect.InnerJoin], added before or after the default, takes
-// precedence with its join type and ON conditions unchanged. Duplicate explicit
+// DefaultJoin adds a LEFT or INNER JOIN only if the relation has not already been
+// joined. Supported join types are [sqlc.JoinLeft] and [sqlc.JoinInner]. Optional
+// non-nil, non-empty conditions are appended to the JOIN ON clause.
+//
+// The first default for a relation wins, including its join type and conditions;
+// later defaults are ignored. An explicit [QueryBuilderSelect.LeftJoin] or
+// [QueryBuilderSelect.InnerJoin], added before or after the default, takes
+// precedence and discards the default's type and ON conditions. Duplicate explicit
 // joins remain invalid. See [QueryBuilderSelect.LeftJoin] for supported relations.
-func (s *QueryBuilderSelect) DefaultLeftJoin(relation string) *QueryBuilderSelect {
+func (s *QueryBuilderSelect) DefaultJoin(joinType sqlc.JoinType, relation string, conditions ...*sqlc.SqlerWhere) *QueryBuilderSelect {
 	for _, join := range s.joins {
 		if join.relation == relation {
 			return s
@@ -56,8 +60,9 @@ func (s *QueryBuilderSelect) DefaultLeftJoin(relation string) *QueryBuilderSelec
 	}
 
 	s.joins = append(s.joins, joinEntry{
-		joinType:  sqlc.JoinLeft,
+		joinType:  joinType,
 		relation:  relation,
+		where:     filterNilWhereConditions(conditions),
 		isDefault: true,
 	})
 

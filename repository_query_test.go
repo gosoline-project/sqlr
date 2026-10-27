@@ -477,9 +477,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_LeftJoin_DuplicateRelationReturnsEr
 	s.Contains(err.Error(), `join relation "Posts" specified multiple times`)
 }
 
-// TestQuery_DefaultLeftJoinRepeated verifies that fallback joins are idempotent
+// TestQuery_DefaultJoinRepeated verifies that fallback joins are idempotent
 // in row queries and distinct-parent counts, without changing relation hydration.
-func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinRepeated() {
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultJoinRepeated() {
 	now := time.Now()
 	joinSQL := " FROM `test_authors` LEFT JOIN `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`"
 	selectSQL := "SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
@@ -497,7 +497,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinRepeated() {
 		WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(2))
 
 	configure := func(qb *sqlr.QueryBuilderSelect) {
-		qb.DefaultLeftJoin("Posts").DefaultLeftJoin("Posts").DefaultLeftJoin("Posts")
+		qb.DefaultJoin(sqlc.JoinLeft, "Posts", nil, sqlc.NewSqlerWhere()).
+			DefaultJoin(sqlc.JoinInner, "Posts", sqlr.Condition("Posts.status = ?", "ignored")).
+			DefaultJoin(sqlc.JoinLeft, "Posts")
 	}
 	qb := sqlr.NewQueryBuilderSelect()
 	configure(qb)
@@ -519,9 +521,91 @@ func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinRepeated() {
 	s.Equal(2, total)
 }
 
-// TestQuery_DefaultLeftJoinExplicitPrecedence verifies both insertion orders
-// preserve the explicit join type and every ON argument in row and count SQL.
-func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinExplicitPrecedence() {
+// TestQuery_DefaultJoinWithConditions verifies LEFT and INNER defaults retain
+// their parameterized ON clauses and ignore later defaults of a different type.
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultJoinWithConditions() {
+	for _, tc := range []struct {
+		joinType      sqlc.JoinType
+		laterJoinType sqlc.JoinType
+		joinSQL       string
+	}{
+		{joinType: sqlc.JoinLeft, laterJoinType: sqlc.JoinInner, joinSQL: "LEFT JOIN"},
+		{joinType: sqlc.JoinInner, laterJoinType: sqlc.JoinLeft, joinSQL: "JOIN"},
+	} {
+		s.Run(tc.joinSQL, func() {
+			now := time.Now()
+			joinSQL := " FROM `test_authors` " + tc.joinSQL +
+				" `test_posts` AS Posts ON `test_authors`.`id` = `Posts`.`author_id`" +
+				" AND `Posts`.`status` = ? AND `Posts`.`title` <> ?"
+			whereSQL := " WHERE `test_authors`.`name` = ?"
+			selectSQL := "SELECT `test_authors`.`id`, `test_authors`.`created_at`, `test_authors`.`updated_at`, `test_authors`.`name`, " +
+				"`Posts`.`id` AS `Posts__id`, `Posts`.`created_at` AS `Posts__created_at`, `Posts`.`updated_at` AS `Posts__updated_at`, " +
+				"`Posts`.`author_id` AS `Posts__author_id`, `Posts`.`title` AS `Posts__title`, `Posts`.`status` AS `Posts__status`"
+			s.mock.ExpectQuery("^"+regexp.QuoteMeta(selectSQL+joinSQL+whereSQL+" ORDER BY `Posts`.`title` LIMIT ?")+"$").
+				WithArgs("published", "Hidden", "Alice", 5).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "name", "Posts__id", "Posts__created_at", "Posts__updated_at", "Posts__author_id", "Posts__title", "Posts__status"}).
+					AddRow(1, now, now, "Alice", 10, now, now, int64(1), "First Post", "published").
+					AddRow(1, now, now, "Alice", 11, now, now, int64(1), "Second Post", "published"))
+			s.mock.ExpectQuery("^"+regexp.QuoteMeta(
+				"SELECT COUNT(*) FROM (SELECT DISTINCT `test_authors`.`id`"+joinSQL+whereSQL+") AS `sqlr_count`")+"$").
+				WithArgs("published", "Hidden", "Alice").
+				WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(1))
+
+			configure := func(qb *sqlr.QueryBuilderSelect) {
+				qb.DefaultJoin(tc.joinType, "Posts",
+					nil,
+					sqlr.Condition("Posts.status = ?", "published"),
+					sqlc.NewSqlerWhere(),
+					sqlr.Condition("Posts.title <> ?", "Hidden"),
+				).
+					DefaultJoin(tc.laterJoinType, "Posts", sqlr.Condition("Posts.title = ?", "ignored")).
+					DefaultJoin(tc.joinType, "Posts", sqlr.Condition("Posts.status = ?", "also ignored")).
+					Where(sqlc.Col("test_authors", "name").Eq("Alice")).
+					OrderBy("Posts.title").
+					Limit(5)
+			}
+			qb := sqlr.NewQueryBuilderSelect()
+			configure(qb)
+
+			results, err := s.authorRepo.Query(s.ctx, configure)
+			s.Require().NoError(err)
+			s.Require().Len(results, 1)
+			assertAuthor(&s.Suite, results[0], expectedAuthor{
+				Name: ptr("Alice"),
+				Posts: []expectedPost{
+					{Id: ptr(int64(10)), Title: ptr("First Post"), Status: ptr("published")},
+					{Id: ptr(int64(11)), Title: ptr("Second Post"), Status: ptr("published")},
+				},
+			})
+
+			total, err := s.authorRepo.Count(s.ctx, qb)
+			s.Require().NoError(err)
+			s.Equal(1, total)
+		})
+	}
+}
+
+// TestQuery_DefaultJoinUnsupportedType verifies unsupported SQLC join types
+// retain the existing error behavior in row and count queries.
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultJoinUnsupportedType() {
+	configure := func(qb *sqlr.QueryBuilderSelect) {
+		qb.DefaultJoin(sqlc.JoinRight, "Posts")
+	}
+	results, err := s.authorRepo.Query(s.ctx, configure)
+	s.Require().Error(err)
+	s.Nil(results)
+	s.Contains(err.Error(), `unsupported join type: RIGHT JOIN`)
+
+	qb := sqlr.NewQueryBuilderSelect()
+	configure(qb)
+	_, err = s.authorRepo.Count(s.ctx, qb)
+	s.Require().Error(err)
+	s.Contains(err.Error(), `unsupported join type: RIGHT JOIN`)
+}
+
+// TestQuery_DefaultJoinExplicitPrecedence verifies both insertion orders
+// preserve only the explicit join type and ON arguments in row and count SQL.
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultJoinExplicitPrecedence() {
 	for _, joinType := range []string{"LEFT JOIN", "JOIN"} {
 		for _, defaultFirst := range []bool{true, false} {
 			s.Run(fmt.Sprintf("%s/defaultFirst=%t", joinType, defaultFirst), func() {
@@ -545,8 +629,13 @@ func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinExplicitPrecedence()
 					WillReturnRows(sqlmock.NewRows([]string{"COUNT(*)"}).AddRow(1))
 
 				configure := func(qb *sqlr.QueryBuilderSelect) {
+					defaultType := sqlc.JoinInner
+					if joinType == "JOIN" {
+						defaultType = sqlc.JoinLeft
+					}
 					if defaultFirst {
-						qb.DefaultLeftJoin("Posts").DefaultLeftJoin("Posts")
+						qb.DefaultJoin(defaultType, "Posts", sqlr.Condition("Posts.title = ?", "discarded")).
+							DefaultJoin(defaultType, "Posts", sqlr.Condition("Posts.status = ?", "also discarded"))
 					}
 					conditions := []*sqlc.SqlerWhere{
 						sqlr.Condition("Posts.status = ?", "published"),
@@ -557,7 +646,8 @@ func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinExplicitPrecedence()
 					} else {
 						qb.InnerJoin("Posts", conditions...)
 					}
-					qb.DefaultLeftJoin("Posts").DefaultLeftJoin("Posts").
+					qb.DefaultJoin(defaultType, "Posts", sqlr.Condition("Posts.title = ?", "ignored")).
+						DefaultJoin(defaultType, "Posts", sqlr.Condition("Posts.status = ?", "also ignored")).
 						Where(sqlc.Col("test_authors", "name").Eq("Alice")).
 						OrderBy("Posts.title").
 						Limit(5)
@@ -584,9 +674,9 @@ func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinExplicitPrecedence()
 	}
 }
 
-// TestQuery_DefaultLeftJoinDoesNotMaskExplicitDuplicates verifies that adding a
+// TestQuery_DefaultJoinDoesNotMaskExplicitDuplicates verifies that adding a
 // default before, between, or after conflicting explicit joins cannot hide them.
-func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinDoesNotMaskExplicitDuplicates() {
+func (s *RepositoryQueryTestSuite) TestQuery_DefaultJoinDoesNotMaskExplicitDuplicates() {
 	for _, tc := range []struct {
 		defaultPosition string
 		innerJoin       bool
@@ -601,11 +691,11 @@ func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinDoesNotMaskExplicitD
 		s.Run(fmt.Sprintf("%s/innerJoin=%t", tc.defaultPosition, tc.innerJoin), func() {
 			results, err := s.authorRepo.Query(s.ctx, func(qb *sqlr.QueryBuilderSelect) {
 				if tc.defaultPosition == "before" {
-					qb.DefaultLeftJoin("Posts")
+					qb.DefaultJoin(sqlc.JoinInner, "Posts", sqlr.Condition("Posts.status = ?", "ignored"))
 				}
 				qb.LeftJoin("Posts", sqlr.Condition("Posts.status = ?", "published"))
 				if tc.defaultPosition == "between" {
-					qb.DefaultLeftJoin("Posts")
+					qb.DefaultJoin(sqlc.JoinInner, "Posts", sqlr.Condition("Posts.status = ?", "ignored"))
 				}
 				if tc.innerJoin {
 					qb.InnerJoin("Posts", sqlr.Condition("Posts.status = ?", "draft"))
@@ -613,7 +703,7 @@ func (s *RepositoryQueryTestSuite) TestQuery_DefaultLeftJoinDoesNotMaskExplicitD
 					qb.LeftJoin("Posts", sqlr.Condition("Posts.status = ?", "draft"))
 				}
 				if tc.defaultPosition == "after" {
-					qb.DefaultLeftJoin("Posts")
+					qb.DefaultJoin(sqlc.JoinInner, "Posts", sqlr.Condition("Posts.status = ?", "ignored"))
 				}
 			})
 			s.Require().Error(err)
