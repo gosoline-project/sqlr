@@ -5,9 +5,19 @@
 This is `sqlr`, a Go library providing a generic, type-safe SQL repository layer built on top of `github.com/gosoline-project/sqlc`. It provides CRUD operations, query building with joins/preloads, and transaction support using Go generics for type safety.
 
 - **Module**: `github.com/gosoline-project/sqlr`
-- **Go Version**: 1.25.0+
+- **Go Version**: 1.26.10+
 - **Structure**: Single-package library (no subdirectories, all files in root)
 - **Key Dependencies**: `gosoline-project/sqlc`, `justtrackio/gosoline`, `jmoiron/sqlx`, `stretchr/testify`
+
+## Dependency Security Baseline
+
+- Go 1.26.10 is the minimum supported toolchain. The CI jobs use `go-version-file: go.mod`, and `mise.toml` pins the same version. Downstream projects still using Go 1.25 must upgrade their toolchain before adopting this dependency update.
+- Keep the released `sqlc` v0.4.0 and Gosoline v0.57.2 APIs; security fixes are selected through released transitive module versions, not local replacements or unreleased library changes.
+- Security floors include Edwards25519 v1.1.1, Compress v1.18.7, Mapstructure v2.4.0, AWS Config v1.29.0 / EventStream v1.7.8 / Kinesis v1.43.5 / S3 v1.97.3, Docker CLI v29.2.0, Runc v1.3.6, Moby user v0.4.1, FastHTTP v1.70.0, OpenTelemetry SDK/OTLP v1.45.0, gRPC v1.83.2, and x/net v0.60.0. Let minimum-version selection retain their required transitive versions.
+- AWS Config v1.29.0 enables the updated S3 SDK's default request checksums and response validation through `LoadDefaultConfig`; do not add a compatibility override that weakens these defaults. Custom S3-compatible endpoints must support CRC32 checksums, and consumers must handle checksum errors while reading response bodies.
+- Run `govulncheck ./...` and `govulncheck -test -tags=integration,fixtures ./...`. The remaining GO-2026-5932 report is module-only for the unmaintained x/crypto OpenPGP packages, which are not imported by SQLR's scanned paths.
+- A full `go list -m all` graph audit is broader than these scans: upstream Avro, pgx/v4/pgproto3/v2, legacy Docker dependencies, and unused transitive modules can still carry advisories. A passing source scan must not be described as a clean entire dependency graph.
+- The security update was exercised with `go test -race -tags=integration,fixtures -count=1 -timeout=10m ./...`, including the unchanged MySQL fixture suite against a dedicated Docker-managed database. Additional disposable runtime probes covered malformed UTF-8 normalization, short-buffer Nickname transformations, overflowing S2 dictionaries, Edwards25519 receiver initialization, real SSH password authentication with source-address allow/deny rules, and an owned LocalStack S3 upload/download with default CRC32 checksums and rejection of a corrupted response checksum. This does not prove every optional Gosoline integration, remote S3-compatible implementation, or Windows-only Docker behavior.
 
 ## Build, Test & Lint Commands
 
@@ -45,10 +55,10 @@ mockery                                          # Generate mocks (config in .mo
 ```
 
 ### Tool Versions
-Tool versions are managed via `.tool-versions` (asdf):
+Tool versions are managed via `mise.toml`:
 - `gofumpt 0.9.2`
-- `golang 1.25.4`
-- `golangci-lint 2.6.2`
+- `go 1.26.10`
+- `golangci-lint 2.10.1`
 - `mockery 3.6.1`
 
 ## Code Style Guidelines
