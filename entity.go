@@ -8,11 +8,14 @@ type KeyTypes interface {
 		*bool | *string | *int | *int64 | *uint | *uint64 | *float32 | *float64
 }
 
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Entitier${DOLLAR} mockery --config .mockery-select.yml
 type Entitier[K KeyTypes] interface {
 	GetId() K
 	GetUpdatedAt() time.Time
 	GetCreatedAt() time.Time
 }
+
+//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^setIdAware${DOLLAR} mockery --config .mockery-select.yml
 
 // setIdAware is an internal interface for entities that can have their ID set.
 // This is satisfied by *Entity[K] and any types embedding Entity[K].
