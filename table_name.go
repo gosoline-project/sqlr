@@ -20,8 +20,6 @@ import (
 //	sqlr.SchemaNameTransformer = strings.ToLower
 var SchemaNameTransformer func(string) string = toSnakeCase //nolint:gochecknoglobals // intentional package-level default, replaceable at startup
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^TableNamer${DOLLAR} mockery --config .mockery-select.yml
-
 // TableNamer is an optional interface that entities can implement to override
 // the default table name derivation. If an entity implements this interface,
 // its TableName() method is called instead of deriving the name from the type.
