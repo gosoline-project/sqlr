@@ -8,7 +8,6 @@ import (
 
 var _ RepositoryTx[int64, Entitier[int64]] = (*repositoryTx[int64, Entitier[int64]])(nil)
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^RepositoryTx${DOLLAR} mockery --config .mockery-select.yml
 type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// Create inserts the entity row and synchronizes populated associations.
 	// Optional functions receive a QueryBuilderCreate to restrict, omit, or disable

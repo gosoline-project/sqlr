@@ -11,8 +11,6 @@ import (
 
 var _ Repository[int64, Entitier[int64]] = (*repository[int64, Entitier[int64]])(nil)
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^Repository${DOLLAR} mockery --config .mockery-select.yml
-
 // Repository provides CRUD and query operations for an entity type. Create
 // synchronizes populated relationship fields together with the base entity row
 // and can limit or omit association paths via QueryBuilderCreate. Relationship

@@ -232,7 +232,6 @@ func (r *repositoryCommon[K, E]) updateEntity(q sqlc.Querier, ctx context.Contex
 	return entity, nil
 }
 
-//go:generate env MOCKERY_INCLUDE_INTERFACE_REGEX=^mutationPreloadAware${DOLLAR} mockery --config .mockery-select.yml
 type mutationPreloadAware interface {
 	hasPreloads() bool
 	toQueryBuilderRead() *QueryBuilderRead
