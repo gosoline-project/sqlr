@@ -5,15 +5,15 @@
 This is `sqlr`, a Go library providing a generic, type-safe SQL repository layer built on top of `github.com/gosoline-project/sqlc`. It provides CRUD operations, query building with joins/preloads, and transaction support using Go generics for type safety.
 
 - **Module**: `github.com/gosoline-project/sqlr`
-- **Go Version**: 1.26.10+
+- **Go Version**: 1.26.11+
 - **Structure**: Single-package library (no subdirectories, all files in root)
 - **Key Dependencies**: `gosoline-project/sqlc`, `justtrackio/gosoline`, `jmoiron/sqlx`, `stretchr/testify`
 
 ## Dependency Security Baseline
 
-- Go 1.26.10 is the minimum supported toolchain. The CI jobs use `go-version-file: go.mod`, and `mise.toml` pins the same version. Downstream projects still using Go 1.25 must upgrade their toolchain before adopting this dependency update.
-- The selected released dependencies are `sqlc` v0.5.0 and Gosoline v0.69.0; security fixes use released transitive module versions, not local replacements or unreleased library changes.
-- Security floors include Edwards25519 v1.1.1, Compress v1.18.7, Mapstructure v2.4.0, AWS Config v1.29.0 / EventStream v1.7.8 / Kinesis v1.43.5 / S3 v1.97.3, Docker CLI v29.2.0, Runc v1.3.6, Moby user v0.4.1, FastHTTP v1.70.0, OpenTelemetry SDK/OTLP v1.45.0, gRPC v1.83.2, and x/net v0.60.0. Let minimum-version selection retain their required transitive versions.
+- Go 1.26.11 is the minimum supported toolchain. Use at least Go 1.27.4 on the Go 1.27 release line; the module directive does not enforce patched versions on newer release lines. The CI jobs use `go-version-file: go.mod`, and `mise.toml` pins the minimum. Downstream projects still using Go 1.25 must upgrade their toolchain before adopting this dependency update.
+- The selected dependencies are released `sqlc` v0.5.0 and Gosoline v0.69.3-0.20261116142819-dd575e2276c4, needed for the OpenTelemetry log v0.21.0 API. The Gosoline revision changes its guard interface, removes CrateDB support, changes Avro codec and S3 checksum behavior, and updates telemetry and compression. Its default Avro codec still has no map-allocation limit. See [Gosoline's compatibility notes](https://github.com/justtrackio/gosoline/blob/dd575e2276c4a048ad9fe1a68857d0c0da899b09/README.md#requirements-and-upgrade-compatibility) before upgrading downstream integrations.
+- Security floors include Edwards25519 v1.1.1, Compress v1.20.2, Brotli v1.2.7, Mapstructure v2.4.0, AWS Config v1.29.0 / EventStream v1.7.8 / Kinesis v1.43.5 / S3 v1.97.3, Docker CLI v29.2.0, Runc v1.3.6, Moby user v0.4.1, FastHTTP v1.70.0, OpenTelemetry SDK/OTLP v1.45.0 and log SDK/exporter v0.21.0, gRPC v1.83.2, and x/net v0.62.0. Let minimum-version selection retain their required transitive versions. Compression and telemetry updates may change malformed-input handling and exporter behavior.
 - AWS Config v1.29.0 enables the updated S3 SDK's default request checksums and response validation through `LoadDefaultConfig`; do not add a compatibility override that weakens these defaults. Custom S3-compatible endpoints must support CRC32 checksums, and consumers must handle checksum errors while reading response bodies.
 - Run `govulncheck ./...` and `govulncheck -test -tags=integration,fixtures ./...`. The October 2026 scan of the earlier dependency graph reported GO-2026-5932 only at module level for the unmaintained x/crypto OpenPGP packages, which were not imported by the scanned paths; rescan the current graph rather than assuming the same result.
 - A full `go list -m all` graph audit is broader than these scans: upstream Avro, pgx/v4/pgproto3/v2, legacy Docker dependencies, and unused transitive modules can still carry advisories. A passing source scan must not be described as a clean entire dependency graph.
@@ -57,7 +57,7 @@ mockery                                          # Generate mocks (config in .mo
 ### Tool Versions
 Tool versions are managed via `mise.toml`:
 - `gofumpt 0.9.2`
-- `go 1.26.10`
+- `go 1.26.11`
 - `golangci-lint 2.10.1`
 - `mockery 3.6.1`
 
