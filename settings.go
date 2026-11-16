@@ -9,6 +9,12 @@ type Settings struct {
 	// RepositoryTx, the cached statement is rebound into each transaction
 	// via sqlx.Tx.StmtxContext. Default: false.
 	PreparedStatements bool
+
+	// TableName overrides the table name for the repository's root entity.
+	// Related entity tables keep their schema-derived names. An empty value
+	// keeps the existing table-name derivation. A default many-to-many join
+	// table uses this root table name.
+	TableName string
 }
 
 // DefaultSettings returns Settings with all options at their zero/default values.

@@ -28,9 +28,12 @@ type RepositoryTx[K KeyTypes, E Entitier[K]] interface {
 	// this call, in addition to any schema-level defaults declared via
 	// relationship sqlr tags. Many-to-many updates reconcile join-table membership
 	// by default; related many-to-many rows are only updated when explicitly
-	// opted in per path. When association sync is active and the schema defines
-	// auto-preloads, Update reloads the entity before returning so preload-tagged
-	// relations are hydrated.
+	// opted in per path. Update supports changed-row and matched-row reporting.
+	// After a zero affected-row result, sqlr checks the root primary key with a
+	// current read. An existing row succeeds, while a missing row returns
+	// ErrNotFound. No driver setting is required. When association sync is active
+	// and the schema defines auto-preloads, Update reloads the entity before
+	// returning so preload-tagged relations are hydrated.
 	Update(ttx TTx, entity *E, opts ...func(qb *QueryBuilderUpdate)) (*E, error)
 	// Delete removes the base entity row and, by default, cascades owned
 	// associations. Optional functions receive a QueryBuilderDelete to restrict
@@ -53,6 +56,10 @@ func NewRepositoryTx[K KeyTypes, E Entitier[K]]() (RepositoryTx[K, E], error) {
 // NewRepositoryTxWithSettings creates a transactional Repository with custom
 // settings. The client is used to prepare statements when PreparedStatements
 // is enabled; it must be the same connection that transactions are opened from.
+// Settings.TableName overrides only the root entity table. Related entity tables
+// keep their schema-derived names. For example:
+//
+//	NewRepositoryTxWithSettings[int64, User](client, Settings{TableName: "tenant_users"})
 func NewRepositoryTxWithSettings[K KeyTypes, E Entitier[K]](client sqlc.Client, settings Settings) (RepositoryTx[K, E], error) {
 	var err error
 	var common repositoryCommon[K, E]

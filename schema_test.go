@@ -151,6 +151,12 @@ type schemaM2MColOverrideArticle struct {
 	Tags []schemaM2MColOverrideTag `sqlr:"many2many:override_table;parentKey:art_id;relatedKey:tag_id"`
 }
 
+type schemaEmptyTableNamer struct {
+	ID int64 `db:"id" sqlr:"primaryKey"`
+}
+
+func (schemaEmptyTableNamer) TableName() string { return "" }
+
 // ============================================================
 // Primary key parsing
 // ============================================================
@@ -1731,4 +1737,37 @@ func TestResolveM2MColumnNames_PartialOverride_OnlyParentKey(t *testing.T) {
 	parent, related := resolveM2MColumnNames(rel, parentSchema, relSchema)
 	assert.Equal(t, "custom_parent_id", parent)
 	assert.Equal(t, SchemaNameTransformer("schemaM2MAutoTag")+"_id", related)
+}
+
+// TestParseSchemaWithSettings_RootTableAndDerivedMetadata verifies that the
+// public resolver applies the override before qualified columns and join tables
+// are derived, without changing the related entity table.
+func TestParseSchemaWithSettings_RootTableAndDerivedMetadata(t *testing.T) {
+	schema, err := ParseSchemaWithSettings[schemaM2MAutoArticle](Settings{TableName: "tenant_articles"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "tenant_articles", schema.TableName)
+	assert.Equal(t, []string{"`tenant_articles`.`id`", "`tenant_articles`.`name`"}, schema.QualifiedColumns())
+
+	rel := schema.Relationships["Tags"]
+	require.NotNil(t, rel)
+	relatedSchema, err := rel.ResolveRelatedSchema()
+	require.NoError(t, err)
+
+	relatedTable := tableNameForType(reflect.TypeOf(schemaM2MAutoTag{}))
+	assert.Equal(t, relatedTable, relatedSchema.TableName)
+
+	tables := []string{"tenant_articles", relatedTable}
+	sort.Strings(tables)
+	assert.Equal(t, tables[0]+"_"+tables[1], rel.JoinTable)
+}
+
+// TestParseSchemaWithSettings_OverridesEmptyTableNamer verifies that an explicit
+// root table name replaces an empty TableNamer result.
+func TestParseSchemaWithSettings_OverridesEmptyTableNamer(t *testing.T) {
+	schema, err := ParseSchemaWithSettings[schemaEmptyTableNamer](Settings{TableName: "explicit_table"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "explicit_table", schema.TableName)
+	assert.Equal(t, []string{"`explicit_table`.`id`"}, schema.QualifiedColumns())
 }
