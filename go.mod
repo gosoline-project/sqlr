@@ -5,7 +5,7 @@ go 1.26.11
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/gosoline-project/sqlc v0.5.0
-	github.com/justtrackio/gosoline v0.69.4-0.20261119150327-6e9683b70da1
+	github.com/justtrackio/gosoline v0.69.4-0.20261119192118-ea1ab1cd583b
 	github.com/stretchr/testify v1.12.1
 )
 
